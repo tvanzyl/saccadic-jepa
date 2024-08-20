@@ -1,0 +1,16 @@
+name: saccadic-jepa
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - ca-certificates
+  - openssl
+  - lightning
+  - certifi
+  - tensorboard
+  - scikit-learn
+prefix: /home/tvanzyl/miniforge3/envs/saccadic-jepa
