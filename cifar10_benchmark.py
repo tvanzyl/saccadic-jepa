@@ -43,7 +43,7 @@ from lightly.data.collate import IJEPAMaskCollator
 from lightly.models.modules.ijepa import IJEPABackbone, IJEPAPredictor
 from lightly.transforms.ijepa_transform import IJEPATransform
 
-from action_transform import ActionTransform
+from action_transform import ActionTransform, SimSimPTransform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
@@ -70,7 +70,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-batch_size = 513
+batch_size = 512
 lr_factor = batch_size / 128  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -132,7 +132,7 @@ simsiam_transform = SimSiamTransform(
 )
 
 # Use SimSiam augmentations
-simsimp_transform = ActionTransform( 
+simsimp_transform = SimSimPTransform( 
     input_size=32,
     gaussian_blur=0.0,
 )
@@ -423,85 +423,177 @@ class SimCLRModel(BenchmarkModule):
         return [optim], [scheduler]
 
 class Twins(nn.Module):
-    def __init__(self, module0, module1):
+    def __init__(self, module0, module1, module2, module3):
         super().__init__()
         self.module0 = module0
         self.module1 = module1
+        self.module2 = module2
+        self.module3 = module3
 
     def forward(self, x):
         out0 = self.module0(x)
         out1 = self.module1(x)
-        out = torch.concat([out0,out1], dim=1)
+        out2 = self.module2(x)
+        out3 = self.module3(x)
+        # out = torch.concat([out0,out1,out2,out3], dim=1)
+        out = 1/4 * (out0 + out1 + out2 + out3)
         return out
 
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
-        # create a ResNet backbone and remove the classification head        
-        resnet0 = ResNetGenerator("resnet-18", width=1.0)
-        resnet1 = ResNetGenerator("resnet-18", width=1.0)
+        # create a ResNet backbone and remove the classification head
+        resnet0 = ResNetGenerator("resnet-18", width=0.5)
+        resnet1 = ResNetGenerator("resnet-18", width=0.5)
+        resnet2 = ResNetGenerator("resnet-18", width=0.5)
+        resnet3 = ResNetGenerator("resnet-18", width=0.5)
         self.headbone0 = nn.Sequential(
-            *list(resnet0.children())[:-1], 
-            nn.AdaptiveAvgPool2d(1), 
-            nn.Flatten(1),            
+            *list(resnet0.children())[:-1],
+            nn.AdaptiveAvgPool2d(1),
         )
         self.headbone1 = nn.Sequential(
-            *list(resnet1.children())[:-1], 
-            nn.AdaptiveAvgPool2d(1), 
-            nn.Flatten(1),             
+            *list(resnet1.children())[:-1],
+            nn.AdaptiveAvgPool2d(1),
         )
-        self.backbone = Twins(self.headbone0, self.headbone1)
+        self.headbone2 = nn.Sequential(
+            *list(resnet2.children())[:-1],
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.headbone3 = nn.Sequential(
+            *list(resnet3.children())[:-1],
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.backbone = Twins(self.headbone0, self.headbone1, self.headbone2, self.headbone3)
         self.prediction_head0 = heads.ProjectionHead(
             [
-                (512,512, None, nn.ReLU(inplace=True)),
-                (512,512, None, None),
+                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, None, None),
             ]
         )
         self.prediction_head1 = heads.ProjectionHead(
             [
-                (512,512, None, nn.ReLU(inplace=True)),
-                (512,512, None, None),
+                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, None, None),
+            ]
+        )
+        self.prediction_head2 = heads.ProjectionHead(
+            [
+                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, None, None),
+            ]
+        )
+        self.prediction_head3 = heads.ProjectionHead(
+            [
+                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
+                (4096,4096, None, None),
             ]
         )
         self.projection_head0 = heads.ProjectionHead(
             [
-                (512,512, None, nn.ReLU(inplace=True)),
-                (512,512, None, nn.ReLU(inplace=True)),
+                (256 ,4096, None, nn.ReLU(inplace=True)),
+                # (4096,4096, None, None),
             ]
         )
         self.projection_head1 = heads.ProjectionHead(
             [
-                (512,512, None, nn.ReLU(inplace=True)),
-                (512,512, None, nn.ReLU(inplace=True)),                
+                (256 ,4096, None, nn.ReLU(inplace=True)),
+                # (4096,4096, None, None),
+            ]
+        )
+        self.projection_head2 = heads.ProjectionHead(
+            [
+                (256 ,4096, None, nn.ReLU(inplace=True)),
+                # (4096,4096, None, None),
+            ]
+        )
+        self.projection_head3 = heads.ProjectionHead(
+            [
+                (256 ,4096, None, nn.ReLU(inplace=True)),
+                # (4096,4096, None, None),
+            ]
+        )
+        self.merge_head0 = heads.ProjectionHead(
+            [                
+                (256*3,4096*3, None, nn.ReLU(inplace=True)),
+                (4096*3,4096, None, None),
+            ]
+        )
+        self.merge_head1 = heads.ProjectionHead(
+            [                
+                (256*3,4096*3, None, nn.ReLU(inplace=True)),
+                (4096*3,4096, None, None),
+            ]
+        )
+        self.merge_head2 = heads.ProjectionHead(
+            [                
+                (256*3,4096*3, None, nn.ReLU(inplace=True)),
+                (4096*3,4096, None, None),
+            ]
+        )
+        self.merge_head3 = heads.ProjectionHead(
+            [                
+                (256*3,4096*3, None, nn.ReLU(inplace=True)),
+                (4096*3,4096, None, None),
             ]
         )
         self.criterion = NegativeCosineSimilarity()
-        self.critr_act = NegativeCosineSimilarity()
 
-    def forward(self, x0, x1):
-         #removed relu, changed to SGD, 2048 
-        f0 = self.headbone0(x0)
-        f1 = self.headbone1(x1)
+    def forward(self, x0, x1, x2, x3):
+         #removed relu, changed to SGD, 4096 
+        f0 = self.headbone0(x0).flatten(start_dim=1)
+        f1 = self.headbone1(x1).flatten(start_dim=1)
+        f2 = self.headbone2(x2).flatten(start_dim=1)
+        f3 = self.headbone3(x3).flatten(start_dim=1)
 
-        z0 = self.projection_head0(f0)
-        z1 = self.projection_head1(f1)
+        z0_ = self.projection_head0(f0)
+        z1_ = self.projection_head1(f1)
+        z2_ = self.projection_head2(f2)
+        z3_ = self.projection_head3(f3)
 
-        p0 = self.prediction_head0(z0)
-        p1 = self.prediction_head1(z1)
-                
+        p0 = self.prediction_head0(z0_)
+        p1 = self.prediction_head1(z1_)
+        p2 = self.prediction_head2(z2_)
+        p3 = self.prediction_head3(z3_)
+        
+        # z0 = 1/3*(z1_+z2_+z3_)
+        # z1 = 1/3*(z0_+z2_+z3_)
+        # z2 = 1/3*(z0_+z1_+z3_)
+        # z3 = 1/3*(z0_+z1_+z2_)
+        
+        z0 = self.merge_head0(torch.concat([f1,f2,f3], dim=1))
+        z1 = self.merge_head1(torch.concat([f0,f2,f3], dim=1))
+        z2 = self.merge_head2(torch.concat([f0,f1,f3], dim=1))
+        z3 = self.merge_head3(torch.concat([f0,f1,f2], dim=1))
+
+        # z0 = self.merge_head0(torch.concat([z1_,z2_,z3_], dim=1))
+        # z1 = self.merge_head1(torch.concat([z0_,z2_,z3_], dim=1))
+        # z2 = self.merge_head2(torch.concat([z0_,z1_,z3_], dim=1))
+        # z3 = self.merge_head3(torch.concat([z0_,z1_,z2_], dim=1))
+        
         z0 = z0.detach()
         z1 = z1.detach()
+        z2 = z2.detach()
+        z3 = z3.detach()
 
-        return z0, z1, p0, p1
-
+        return p0, z0, p1, z1, p2, z2, p3, z3
+    
     def training_step(self, batch, batch_idx):                
-        ((x), (x0,at0), (x1,at1)), _, _ = batch
+        (x, x0, x1, x2, x3), _, _ = batch
+        # ((x), (x0,at0), (x1,at1)), _, _ = batch
         with torch.no_grad():
-            f = self.backbone(x)
+            f = self.backbone(x).flatten(start_dim=1)
                 
-        z0, z1, p0, p1  = self.forward(x0, x1)
+        p0, z0, p1, z1, p2, z2, p3, z3 = self.forward(x0, x1, x2, x3)
         
-        loss1 =  0.5 * (self.criterion(p0, z1) + self.criterion(p1, z0))
+        loss1 =  1/4 * (self.criterion(p0, z0) +
+                        self.criterion(p1, z1) +
+                        self.criterion(p2, z2) +
+                        self.criterion(p3, z3) )
+        
         self.log("pred_l", loss1,  prog_bar=True)
 
         # loss2 = self.critr_act(z, a)
@@ -516,17 +608,11 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim1 = torch.optim.SGD(
             self.parameters(),
-            lr=6e-2 * lr_factor,
+            lr=6e-2, # * lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
         scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optim1, max_epochs)
-        optim2 = torch.optim.Adam(
-            self.parameters(),
-            # lr=1e-3 * lr_factor,
-            # weight_decay=1e-6,
-        )
-        scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optim2, max_epochs)
         return [optim1], [scheduler1]
 
 class SimSiamModel(BenchmarkModule):
@@ -542,7 +628,7 @@ class SimSiamModel(BenchmarkModule):
         self.projection_head = heads.ProjectionHead(
             [
                 (512, 2048, nn.BatchNorm1d(2048), nn.ReLU(inplace=True)),
-                (2048, 2048, nn.BatchNorm1d(2048), None),
+                (2048,2048, nn.BatchNorm1d(2048), None),
             ]
         )
         self.criterion = NegativeCosineSimilarity()
