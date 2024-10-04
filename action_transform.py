@@ -5,6 +5,7 @@ import torchvision.transforms.functional as TF
 from PIL.Image import Image
 from torch import Tensor, rand, sigmoid
 
+from lightly.transforms.simsiam_transform import SimSiamViewTransform
 from lightly.transforms.gaussian_blur import GaussianBlur
 from lightly.transforms.multi_view_transform import MultiViewTransform
 from lightly.transforms.rotation import random_rotation_transform
@@ -120,7 +121,7 @@ class ActionTransform(MultiViewTransform):
                                         T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
                                                     std=IMAGENET_NORMALIZE["std"])])
 
-        super().__init__(transforms=[identity_transform, view_transform, view_transform])
+        super().__init__(transforms=[identity_transform, view_transform, view_transform, view_transform, view_transform])
 
 
 
@@ -170,7 +171,7 @@ class ActionViewTransform:
             hue=cj_strength * cj_hue,
         )
 
-        self.randomized_crop = T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0))
+        self.randomized_crop = T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0))        
         
         # transform = [
         #     T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0)),
@@ -201,22 +202,23 @@ class ActionViewTransform:
         top, left, height, width = T.RandomResizedCrop.get_params(image,
                                                                   self.randomized_crop.scale,
                                                                   self.randomized_crop.ratio)
-        rr = rand(1) < self.rr_prob
+        rands = rand(7)
+        rr = rands[0] < self.rr_prob
         if self.rr_degrees is None:
             degrees = 90.0
         else:
-             degrees = T.RandomRotation.get_params(self.rr_degrees)
-        hf = rand(1) < self.hf_prob
-        vf = rand(1) < self.vf_prob
-        cj = rand(1) < self.cj_prob
+            degrees = T.RandomRotation.get_params(self.rr_degrees)
+        hf = rands[1] < self.hf_prob
+        vf = rands[2] < self.vf_prob
+        cj = rands[3] < self.cj_prob
         fn_idx, brighten, contrast, saturate, hue = T.ColorJitter.get_params(self.color_jitter.brightness,
                                                                              self.color_jitter.contrast,
                                                                              self.color_jitter.saturation,
                                                                              self.color_jitter.hue)
-        gs = rand(1) < self.random_gray_scale
-        gb = rand(1) < self.gaussian_blur
-        sigma = np.random.uniform(self.sigmas[0], self.sigmas[1])
-
+        gs = rands[4] < self.random_gray_scale
+        gb = rands[5] < self.gaussian_blur
+        sigma = self.sigmas[0] + rands[6]*(self.sigmas[1]-self.sigmas[0])
+                                      
         image = TF.resized_crop(image, top, left, height, width,
                                 self.randomized_crop.size, 
                                 self.randomized_crop.interpolation,
@@ -250,9 +252,9 @@ class ActionViewTransform:
                                     left/self.input_size, 
                                     height/self.input_size, 
                                     width/self.input_size,
-                                    rr*degrees/90.0,
+                                    rr*degrees/360.0,
                                     hf*1.0, vf*1.0,
-                                    fn_idx[0]/4.0, fn_idx[1]/4.0, fn_idx[2]/4.0, fn_idx[3]/4.0, 
+                                    fn_idx[0]/4.0, fn_idx[1]/4.0, fn_idx[2]/4.0, fn_idx[3]/4.0,
                                     cj*brighten/self.cj_bright, 
                                     cj*contrast/self.cj_contrast, 
                                     cj*saturate/self.cj_sat, 
@@ -261,16 +263,6 @@ class ActionViewTransform:
                                     (gb*sigma-self.sigmas[0])/self.sigmas[1]])
 
 
-from typing import Dict, List, Optional, Tuple, Union
-
-import torchvision.transforms as T
-from PIL.Image import Image
-from torch import Tensor
-
-from lightly.transforms.gaussian_blur import GaussianBlur
-from lightly.transforms.multi_view_transform import MultiViewTransform
-from lightly.transforms.rotation import random_rotation_transform
-from lightly.transforms.utils import IMAGENET_NORMALIZE
 
 
 class SimSimPTransform(MultiViewTransform):
@@ -356,7 +348,7 @@ class SimSimPTransform(MultiViewTransform):
         rr_degrees: Optional[Union[float, Tuple[float, float]]] = None,
         normalize: Union[None, Dict[str, List[float]]] = IMAGENET_NORMALIZE,
     ):
-        view_transform = SimSimPViewTransform(
+        view_transform = SimSiamViewTransform(
             input_size=input_size,
             cj_prob=cj_prob,
             cj_strength=cj_strength,
@@ -380,61 +372,3 @@ class SimSimPTransform(MultiViewTransform):
                                                     std=IMAGENET_NORMALIZE["std"])])
 
         super().__init__(transforms=[identity_transform, view_transform, view_transform, view_transform, view_transform])
-
-
-class SimSimPViewTransform:
-    def __init__(
-        self,
-        input_size: int = 224,
-        cj_prob: float = 0.8,
-        cj_strength: float = 1.0,
-        cj_bright: float = 0.4,
-        cj_contrast: float = 0.4,
-        cj_sat: float = 0.4,
-        cj_hue: float = 0.1,
-        min_scale: float = 0.2,
-        random_gray_scale: float = 0.2,
-        gaussian_blur: float = 0.5,
-        kernel_size: Optional[float] = None,
-        sigmas: Tuple[float, float] = (0.1, 2),
-        vf_prob: float = 0.0,
-        hf_prob: float = 0.5,
-        rr_prob: float = 0.0,
-        rr_degrees: Optional[Union[float, Tuple[float, float]]] = None,
-        normalize: Union[None, Dict[str, List[float]]] = IMAGENET_NORMALIZE,
-    ):
-        color_jitter = T.ColorJitter(
-            brightness=cj_strength * cj_bright,
-            contrast=cj_strength * cj_contrast,
-            saturation=cj_strength * cj_sat,
-            hue=cj_strength * cj_hue,
-        )
-
-        transform = [
-            T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0)),
-            random_rotation_transform(rr_prob=rr_prob, rr_degrees=rr_degrees),
-            T.RandomHorizontalFlip(p=hf_prob),
-            T.RandomVerticalFlip(p=vf_prob),
-            T.RandomApply([color_jitter], p=cj_prob),
-            T.RandomGrayscale(p=random_gray_scale),
-            GaussianBlur(kernel_size=kernel_size, sigmas=sigmas, prob=gaussian_blur),
-            T.ToTensor(),
-        ]
-        if normalize:
-            transform += [T.Normalize(mean=normalize["mean"], std=normalize["std"])]
-        self.transform = T.Compose(transform)
-
-    def __call__(self, image: Union[Tensor, Image]) -> Tensor:
-        """
-        Applies the transforms to the input image.
-
-        Args:
-            image:
-                The input image to apply the transforms to.
-
-        Returns:
-            The transformed image.
-
-        """
-        transformed: Tensor = self.transform(image)
-        return transformed

@@ -47,6 +47,9 @@ from action_transform import ActionTransform, SimSimPTransform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
+# Trade-off precision for performance.
+# torch.set_float32_matmul_precision('medium')
+
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
 max_epochs = 200
 num_workers = 8
@@ -70,7 +73,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-batch_size = 512
+batch_size = 511
 lr_factor = batch_size / 128  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -422,198 +425,216 @@ class SimCLRModel(BenchmarkModule):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim], [scheduler]
 
-class Twins(nn.Module):
-    def __init__(self, module0, module1, module2, module3):
-        super().__init__()
-        self.module0 = module0
-        self.module1 = module1
-        self.module2 = module2
-        self.module3 = module3
+
+class L2NormalizationLayer(nn.Module):
+    def __init__(self, dim=1, eps=1e-12):
+        super(L2NormalizationLayer, self).__init__()
+        self.dim = dim
+        self.eps = eps
 
     def forward(self, x):
-        out0 = self.module0(x)
-        out1 = self.module1(x)
-        out2 = self.module2(x)
-        out3 = self.module3(x)
-        # out = torch.concat([out0,out1,out2,out3], dim=1)
-        out = 1/4 * (out0 + out1 + out2 + out3)
+        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
+
+
+class Twins(nn.Module):
+    def __init__(self, emb_width, twintype, module):        
+        super().__init__()        
+        self.twintype = twintype        
+        self.module = module
+        self.ens_size = len(self.module)
+        self.merge = heads.ProjectionHead(
+                        [                
+                            (emb_width*self.ens_size, emb_width, None, None),                            
+                        ])
+
+    def forward(self, x):
+        embeddings = [m(x).flatten(start_dim=1) for m in self.module]
+        if self.twintype == 'cat':
+            out = torch.concat(embeddings, dim=1)
+        elif self.twintype == 'rand':
+            out = self.merge(torch.concat(embeddings, dim=1))
+        elif self.twintype == 'first':
+            out = embeddings[0]
+        elif self.twintype == 'avg':
+            out = embeddings[0] / self.ens_size
+            for i in range(1, self.ens_size):
+                out += embeddings[i] / self.ens_size
+        else:
+            raise Exception("Twin Type Not Supported")
         return out
 
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
-        # create a ResNet backbone and remove the classification head
-        resnet0 = ResNetGenerator("resnet-18", width=0.5)
-        resnet1 = ResNetGenerator("resnet-18", width=0.5)
-        resnet2 = ResNetGenerator("resnet-18", width=0.5)
-        resnet3 = ResNetGenerator("resnet-18", width=0.5)
-        self.headbone0 = nn.Sequential(
-            *list(resnet0.children())[:-1],
-            nn.AdaptiveAvgPool2d(1),
-        )
-        self.headbone1 = nn.Sequential(
-            *list(resnet1.children())[:-1],
-            nn.AdaptiveAvgPool2d(1),
-        )
-        self.headbone2 = nn.Sequential(
-            *list(resnet2.children())[:-1],
-            nn.AdaptiveAvgPool2d(1),
-        )
-        self.headbone3 = nn.Sequential(
-            *list(resnet3.children())[:-1],
-            nn.AdaptiveAvgPool2d(1),
-        )
-        self.backbone = Twins(self.headbone0, self.headbone1, self.headbone2, self.headbone3)
-        self.prediction_head0 = heads.ProjectionHead(
-            [
-                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, None, None),
-            ]
-        )
-        self.prediction_head1 = heads.ProjectionHead(
-            [
-                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, None, None),
-            ]
-        )
-        self.prediction_head2 = heads.ProjectionHead(
-            [
-                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, None, None),
-            ]
-        )
-        self.prediction_head3 = heads.ProjectionHead(
-            [
-                # (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, nn.BatchNorm1d(4096), nn.ReLU(inplace=True)),
-                (4096,4096, None, None),
-            ]
-        )
-        self.projection_head0 = heads.ProjectionHead(
-            [
-                (256 ,4096, None, nn.ReLU(inplace=True)),
-                # (4096,4096, None, None),
-            ]
-        )
-        self.projection_head1 = heads.ProjectionHead(
-            [
-                (256 ,4096, None, nn.ReLU(inplace=True)),
-                # (4096,4096, None, None),
-            ]
-        )
-        self.projection_head2 = heads.ProjectionHead(
-            [
-                (256 ,4096, None, nn.ReLU(inplace=True)),
-                # (4096,4096, None, None),
-            ]
-        )
-        self.projection_head3 = heads.ProjectionHead(
-            [
-                (256 ,4096, None, nn.ReLU(inplace=True)),
-                # (4096,4096, None, None),
-            ]
-        )
-        self.merge_head0 = heads.ProjectionHead(
-            [                
-                (256*3,4096*3, None, nn.ReLU(inplace=True)),
-                (4096*3,4096, None, None),
-            ]
-        )
-        self.merge_head1 = heads.ProjectionHead(
-            [                
-                (256*3,4096*3, None, nn.ReLU(inplace=True)),
-                (4096*3,4096, None, None),
-            ]
-        )
-        self.merge_head2 = heads.ProjectionHead(
-            [                
-                (256*3,4096*3, None, nn.ReLU(inplace=True)),
-                (4096*3,4096, None, None),
-            ]
-        )
-        self.merge_head3 = heads.ProjectionHead(
-            [                
-                (256*3,4096*3, None, nn.ReLU(inplace=True)),
-                (4096*3,4096, None, None),
-            ]
-        )
+        self.automatic_optimization = False
+        # create a ResNet backbone and remove the classification head        
+        emb_width = 256
+        self.ens_size = 3
+        self.samebone = False
+        self.sameproj = False
+        self.all_vs_all = False
+        self.mergetype = 'cat'
+        self.bootstrap = False
+        self.one_vs_rand = False
+
+        headbone = []
+        for i in range(1 if self.samebone else self.ens_size):
+            resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
+            headbone.append(
+                nn.Sequential(
+                    *list(resnet.children())[:-1],
+                    nn.AdaptiveAvgPool2d(1),
+                )
+            )
+        if len(headbone) < self.ens_size:
+            headbone = headbone*self.ens_size
+        self.headbone = nn.ModuleList(headbone)
+        self.backbone = Twins(emb_width, self.mergetype, self.headbone)
+        
+        projection_head = []
+        for i in range(1 if self.sameproj else self.ens_size):
+            projection_head.append(
+                # nn.Identity()
+                heads.ProjectionHead(
+                    [
+                        (emb_width, 4096, None, nn.ReLU(inplace=True), True),
+                        # (4096,      4096, None, nn.ReLU(inplace=True), True),
+                        (4096, emb_width, None, None, True),
+                    ])
+            )        
+        if len(projection_head) < self.ens_size:
+            projection_head = projection_head*self.ens_size
+        self.projection_head = nn.ModuleList(projection_head)
+
+        prediction_head = []
+        for i in range(self.ens_size):
+            prediction_head.append(
+                heads.ProjectionHead(
+                    [                        
+                        (emb_width, 4096, None, nn.ReLU(inplace=True), False),
+                        (4096,      2048, None, None, False),
+                    ])
+            )
+        self.prediction_head = nn.ModuleList(prediction_head)
+                
+        merge_head = []
+        for i in range(self.ens_size):
+            merge_head.append(
+                heads.ProjectionHead(
+                    [                        
+                        (emb_width*(self.ens_size-1), 4096, None, nn.ReLU(inplace=True)),                  
+                        (4096,                        2048, None, None),
+                    ])
+            )
+        self.merge_head = nn.ModuleList(merge_head)
+
+        # kpca_head = []
+        # for i in range(self.ens_size):
+        #     kpca_head.append(
+        #         heads.ProjectionHead([
+        #                 (4096,                        emb_width, None, None),
+        #                 (emb_width, emb_width*(self.ens_size-1), None, None),
+        #             ])
+        #     )
+        # self.kpca_head = nn.ModuleList(kpca_head)
+        
         self.criterion = NegativeCosineSimilarity()
 
-    def forward(self, x0, x1, x2, x3):
-         #removed relu, changed to SGD, 4096 
-        f0 = self.headbone0(x0).flatten(start_dim=1)
-        f1 = self.headbone1(x1).flatten(start_dim=1)
-        f2 = self.headbone2(x2).flatten(start_dim=1)
-        f3 = self.headbone3(x3).flatten(start_dim=1)
+    def forward(self, x):
+        #removed relu, changed to SGD, 4096
+        p, z, e, k = [], [], [], []
+        ks = self.ens_size if self.all_vs_all else 1
 
-        z0_ = self.projection_head0(f0)
-        z1_ = self.projection_head1(f1)
-        z2_ = self.projection_head2(f2)
-        z3_ = self.projection_head3(f3)
+        for _ in range(ks):
+            g  = []
 
-        p0 = self.prediction_head0(z0_)
-        p1 = self.prediction_head1(z1_)
-        p2 = self.prediction_head2(z2_)
-        p3 = self.prediction_head3(z3_)
+            for i in range(self.ens_size):
+                f_ = self.headbone[i]( x[i] ).flatten(start_dim=1)
+                g_ = self.projection_head[i]( f_ )
+                p_ = self.prediction_head[i]( g_ )
+                if self.one_vs_rand and i != 0:
+                    p_ = p_.detach()
+                p.append( p_ )
+                g.append( g_ )
+            
+            for i in range(self.ens_size):             
+                e_ = torch.concat([g[j].detach() for j in range(self.ens_size) if j != i], dim=1)
+                z_ = self.merge_head[i]( e_ )
+                # k_ = self.kpca_head[i]( z_ )
+                z.append( z_.detach() )
+                # e.append( e_ )
+                # k.append( k_ )
+
+            if self.all_vs_all:
+                x.insert(0, x.pop())
         
-        # z0 = 1/3*(z1_+z2_+z3_)
-        # z1 = 1/3*(z0_+z2_+z3_)
-        # z2 = 1/3*(z0_+z1_+z3_)
-        # z3 = 1/3*(z0_+z1_+z2_)
-        
-        z0 = self.merge_head0(torch.concat([f1,f2,f3], dim=1))
-        z1 = self.merge_head1(torch.concat([f0,f2,f3], dim=1))
-        z2 = self.merge_head2(torch.concat([f0,f1,f3], dim=1))
-        z3 = self.merge_head3(torch.concat([f0,f1,f2], dim=1))
-
-        # z0 = self.merge_head0(torch.concat([z1_,z2_,z3_], dim=1))
-        # z1 = self.merge_head1(torch.concat([z0_,z2_,z3_], dim=1))
-        # z2 = self.merge_head2(torch.concat([z0_,z1_,z3_], dim=1))
-        # z3 = self.merge_head3(torch.concat([z0_,z1_,z2_], dim=1))
-        
-        z0 = z0.detach()
-        z1 = z1.detach()
-        z2 = z2.detach()
-        z3 = z3.detach()
-
-        return p0, z0, p1, z1, p2, z2, p3, z3
-    
-    def training_step(self, batch, batch_idx):                
+        return p, z, e, k
+    def training_step(self, batch, batch_idx):
         (x, x0, x1, x2, x3), _, _ = batch
-        # ((x), (x0,at0), (x1,at1)), _, _ = batch
+        # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
+        opt = self.optimizers()
+        sch = self.lr_schedulers()
+
         with torch.no_grad():
             f = self.backbone(x).flatten(start_dim=1)
-                
-        p0, z0, p1, z1, p2, z2, p3, z3 = self.forward(x0, x1, x2, x3)
         
-        loss1 =  1/4 * (self.criterion(p0, z0) +
-                        self.criterion(p1, z1) +
-                        self.criterion(p2, z2) +
-                        self.criterion(p3, z3) )
+        p, z, e, k = self.forward( [x0, x1, x2, x3][:self.ens_size] )
         
-        self.log("pred_l", loss1,  prog_bar=True)
+        loss_tot_l = 0
+        # loss_tot_r = 0
+        scale = 0
 
-        # loss2 = self.critr_act(z, a)
-        # self.log("dist_l", loss2,  prog_bar=True)
+        for i in range(0, len(p)):
+            opt[i].zero_grad()
 
-        self.log("emb_mu",  f.std(dim=(0)).mean(), prog_bar=True)
-        self.log("emb_std", f.std(dim=(0)).std(),  prog_bar=True)
-        self.log("emb_min", f.std(dim=(0)).min(),  prog_bar=True)
-        self.log("emb_max", f.std(dim=(0)).max(),  prog_bar=True)
-        return loss1 #+ loss2
+            if self.bootstrap and self.current_epoch%self.ens_size != i:
+                continue
+            elif self.one_vs_rand and i != 0:
+                continue
+            
+            loss_l = self.criterion( p[i], z[i] )            
+            # loss_r = self.criterion( e[i], k[i] )
+            loss = loss_l #+ loss_r
+            self.manual_backward(loss, retain_graph=True)
+            loss_tot_l += loss_l.detach()
+            # loss_tot_r += loss_r.detach()
+            scale += 1
+        
+            opt[i].step()
+            sch[i].step()            
+
+        loss_tot_l /= scale
+        # loss_tot_r /= scale
+
+        self.log("pred_l",  loss_tot_l,   prog_bar=True)
+        # self.log("pred_r",  loss_tot_r,   prog_bar=True)
+        self.log("emb_med", f.median(), prog_bar=True)
+        self.log("emb_mu",  f.mean(),   prog_bar=True)
+        self.log("emb_std", f.std(),    prog_bar=True)
+        self.log("emb_min", f.min(),    prog_bar=True)
+        self.log("emb_max", f.max(),    prog_bar=True)
+        # return loss
 
     def configure_optimizers(self):
-        optim1 = torch.optim.SGD(
-            self.parameters(),
-            lr=6e-2, # * lr_factor,
-            momentum=0.9,
-            weight_decay=5e-4,
-        )
-        scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optim1, max_epochs)
-        return [optim1], [scheduler1]
+        optim = []
+        scheduler = []
+        for i in range(self.ens_size):
+            optim.append( torch.optim.SGD(
+                [
+                {'params': self.headbone[i].parameters()},
+                {'params': self.projection_head[i].parameters(), 'weight_decay':5e-4},
+                {'params': self.prediction_head[i].parameters(), 'weight_decay':5e-4},
+                {'params': self.merge_head[i].parameters(), 'weight_decay':5e-4},
+                # {'params': self.kpca_head[i].parameters()},
+                ],                
+                lr=6e-2*lr_factor,
+                momentum=0.9,
+                # weight_decay=5e-4,
+            ) )
+            scheduler.append(torch.optim.lr_scheduler.CosineAnnealingLR(optim[i], max_epochs))
+            # scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, 6e-2*lr_factor, total_steps=19399)
+        
+        return optim, scheduler
 
 class SimSiamModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
