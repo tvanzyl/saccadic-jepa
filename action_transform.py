@@ -329,6 +329,7 @@ class SimSimPTransform(MultiViewTransform):
 
     def __init__(
         self,
+        ens_size:int = 2,
         input_size: int = 224,
         cj_prob: float = 0.8,
         cj_strength: float = 1.0,
@@ -370,7 +371,7 @@ class SimSimPTransform(MultiViewTransform):
                                         T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
                                                     std=IMAGENET_NORMALIZE["std"])])
 
-        super().__init__(transforms=[identity_transform, view_transform, view_transform, view_transform, view_transform])
+        super().__init__(transforms=[identity_transform,]+[view_transform,]*ens_size)
 
 class RankingTransform(MultiViewTransform):
     """Implements the transformations for SimSiam.
