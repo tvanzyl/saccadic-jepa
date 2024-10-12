@@ -367,7 +367,8 @@ class SimSimPTransform(MultiViewTransform):
             rr_degrees=rr_degrees,
             normalize=normalize,
         )
-        identity_transform = T.Compose([T.ToTensor(),
+        identity_transform = T.Compose([T.Resize((input_size,input_size)),
+                                        T.ToTensor(),
                                         T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
                                                     std=IMAGENET_NORMALIZE["std"])])
 
