@@ -472,7 +472,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048
         self.ens_size = 5
-        self.scale_up = 5
+        self.scale_up = 4
         self.samebone = True
         self.mergetype = 'first'
 
