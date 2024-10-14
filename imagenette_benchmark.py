@@ -187,7 +187,8 @@ simmim_transform = SimCLRTransform(input_size=224)
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
 simsimp_transform = SimSimPTransform(
-    ens_size=2, 
+    ens_size=3, 
+    inc_idnt=False,
     input_size=input_size)
 
 # Multi crop augmentation for FastSiam
@@ -431,8 +432,8 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 2
-        self.scale_up = 2
+        self.ens_size = 3
+        self.scale_up = 3
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -444,15 +445,12 @@ class SimSimPModel(BenchmarkModule):
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
-                # nn.Identity()
                 heads.ProjectionHead(
                     [
                         (emb_width, deb_width*self.scale_up, nn.BatchNorm1d(deb_width*self.scale_up), nn.ReLU(inplace=True)),
                         (deb_width*self.scale_up, emb_width, None, None),
                     ])
             )
-        if len(projection_head) < self.ens_size:
-            projection_head = projection_head*self.ens_size
         self.projection_head = nn.ModuleList(projection_head)
 
         prediction_head = []
@@ -468,86 +466,68 @@ class SimSimPModel(BenchmarkModule):
         merge_head = []
         merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(deb_width*self.scale_up)
-            # bn2 = nn.BatchNorm1d(2048)
+            bn1 = nn.BatchNorm1d(deb_width*self.scale_up)            
             merge_head.append(
                 nn.Sequential(
                     nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_up), bn1, nn.ReLU(inplace=True),
                     nn.Linear(deb_width*self.scale_up,                   deb_width), 
                 )
             )
-            merge_head_train.append(nn.ModuleList([bn1]))
+            merge_head_train.append(bn1)
         self.merge_head = nn.ModuleList(merge_head)
         self.merge_head_train = nn.ModuleList(merge_head_train)
 
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
-        g = self.forwarg_( x )
-        p = self.forwarp_( g )
-        z = self.forwarz_( g )
-        return p, z, g
-    
-    def forwarg_(self, x):
         g = []
+        p = []
         for i in range(self.ens_size):
             f_ = self.headbone( x[i] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
-            g.append( g_ )
-        return g
-
-    def forwarz_(self, g):
-        z = []        
+            g.append( g_.detach() )
+            p_ = self.prediction_head[i]( g_ )
+            p.append( p_ )        
+        z = []
         for i in range(self.ens_size):
-            e_ = torch.concat([g[j].detach() for j in range(self.ens_size) if j != i], dim=1)
+            e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
             z_ = self.merge_head[i]( e_ )
             z.append( z_ )
-        return z
-
-    def forwarp_(self, g):
-        p = []        
-        for i in range(self.ens_size):
-            p_ = self.prediction_head[i]( g[i] )
-            p.append( p_ )        
-        return p
+        return p, z
 
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
-
-        with torch.no_grad():
-            f = self.backbone(x[0]).flatten(start_dim=1)
         
-        p, z, g = self.forward( x[1:self.ens_size+1] )
+        p, z = self.forward( x )
 
         loss_tot_l = 0
         scale = 0
         
         for i in range(0, len(p)):
-            loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
-            loss_tot_l += loss_l
+            loss_tot_l += self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
             scale += 1
 
         loss_tot_l /= scale
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
         
-        self.log("f_nm", f.norm(dim=1).mean())
-        self.log("f_n", f.norm(dim=1).median())
-        self.log("g_nm", g[0].norm(dim=1).mean())
-        self.log("g_n", g[0].norm(dim=1).median())
-        self.log("p_nm", p[0].norm(dim=1).mean())
-        self.log("p_n", p[0].norm(dim=1).median())
-        self.log("z_nm", z[0].norm(dim=1).median())
-        self.log("z_n", z[0].norm(dim=1).median())
+        # self.log("f_nm", f.norm(dim=1).mean())
+        # self.log("f_n", f.norm(dim=1).median())
+        # self.log("g_nm", g[0].norm(dim=1).mean())
+        # self.log("g_n", g[0].norm(dim=1).median())
+        # self.log("p_nm", p[0].norm(dim=1).mean())
+        # self.log("p_n", p[0].norm(dim=1).median())
+        # self.log("z_nm", z[0].norm(dim=1).median())
+        # self.log("z_n", z[0].norm(dim=1).median())
         
-        self.log("f_s", f.std(dim=0).median())
-        self.log("g_s", g[0].std(dim=0).median())
+        # self.log("f_s", f.std(dim=0).median())
+        # self.log("g_s", g[0].std(dim=0).median())
         self.log("p_s", p[0].std(dim=0).median())
         self.log("z_s", z[0].std(dim=0).median())
         
-        self.log("g_d", self.criterion(g[0], g[1]))
-        self.log("p_d", self.criterion(p[0], p[1]))
-        self.log("z_d", self.criterion(z[0], z[1]))
+        # self.log("g_d", self.criterion(g[0], g[1]))
+        # self.log("p_d", self.criterion(p[0], p[1]))
+        # self.log("z_d", self.criterion(z[0], z[1]))
 
         return loss_tot_l
 
