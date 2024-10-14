@@ -88,7 +88,7 @@ from lightly.loss import (
     VICRegLLoss,
     VICRegLoss,
 )
-from lightly.models import modules, utils
+from lightly.models import ResNetGenerator, modules, utils
 from lightly.models.modules import (
     MAEDecoderTIMM,
     MaskedVisionTransformerTIMM,
@@ -115,6 +115,8 @@ from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils import scheduler
 from lightly.utils.benchmarking import BenchmarkModule
 from lightly.utils.lars import LARS
+
+from action_transform import ActionTransform, SimSimPTransform, RankingTransform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
@@ -144,7 +146,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-batch_size = 128
+batch_size = 32
 lr_factor = batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -156,14 +158,14 @@ if distributed:
     # reduce batch size for distributed training
     batch_size = batch_size // devices
 else:
-    strategy = None  # Set to "auto" if using PyTorch Lightning >= 2.0
+    strategy = "auto"  # Set to "auto" if using PyTorch Lightning >= 2.0
     # limit to single device if not using distributed training
     devices = min(devices, 1)
 
 # The dataset structure should be like this:
 
-path_to_train = "/datasets/imagenette2-160/train/"
-path_to_test = "/datasets/imagenette2-160/val/"
+path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
+path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 
 # Use BYOL augmentations
@@ -183,6 +185,11 @@ simmim_transform = SimCLRTransform(input_size=224)
 
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
+
+simsimp_transform = SimSimPTransform(
+    ens_size=3, 
+    inc_idnt=False,
+    input_size=input_size)
 
 # Multi crop augmentation for FastSiam
 fast_siam_transform = FastSiamTransform(input_size=input_size)
@@ -276,6 +283,7 @@ def create_dataset_train_ssl(model):
         SimCLRModel: simclr_transform,
         SimMIMModel: simmim_transform,
         SimSiamModel: simsiam_transform,
+        SimSimPModel: simsimp_transform,
         SwaVModel: swav_transform,
         SwaVQueueModel: swav_transform,
         SMoGModel: smog_transform,
@@ -416,6 +424,131 @@ class SimCLRModel(BenchmarkModule):
         )
         cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim], [cosine_scheduler]
+
+class SimSimPModel(BenchmarkModule):
+    def __init__(self, dataloader_kNN, num_classes):
+        super().__init__(dataloader_kNN, num_classes)
+        # self.automatic_optimization = False
+        # create a ResNet backbone and remove the classification head
+        emb_width = 512
+        deb_width = 2048
+        self.ens_size = 3
+        self.scale_up = 3
+
+        resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
+        self.headbone = nn.Sequential(
+                            *list(resnet.children())[:-1],
+                            nn.AdaptiveAvgPool2d(1),
+                        )
+        self.backbone = self.headbone
+        
+        projection_head = []
+        for i in range(self.ens_size):
+            projection_head.append(
+                heads.ProjectionHead(
+                    [
+                        (emb_width, deb_width*self.scale_up, nn.BatchNorm1d(deb_width*self.scale_up), nn.ReLU(inplace=True)),
+                        (deb_width*self.scale_up, emb_width, None, None),
+                    ])
+            )
+        self.projection_head = nn.ModuleList(projection_head)
+
+        prediction_head = []
+        for i in range(self.ens_size):
+            prediction_head.append(
+                nn.Sequential(
+                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(2048), nn.ReLU(inplace=True),
+                    nn.Linear(deb_width, deb_width, False), 
+                )
+            )
+        self.prediction_head = nn.ModuleList(prediction_head)
+
+        merge_head = []
+        merge_head_train = []
+        for i in range(self.ens_size):
+            bn1 = nn.BatchNorm1d(deb_width*self.scale_up)            
+            merge_head.append(
+                nn.Sequential(
+                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_up), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(deb_width*self.scale_up,                   deb_width), 
+                )
+            )
+            merge_head_train.append(bn1)
+        self.merge_head = nn.ModuleList(merge_head)
+        self.merge_head_train = nn.ModuleList(merge_head_train)
+
+        self.criterion = NegativeCosineSimilarity()
+
+    def forward(self, x):
+        g = []
+        p = []
+        for i in range(self.ens_size):
+            f_ = self.headbone( x[i] ).flatten(start_dim=1)
+            g_ = self.projection_head[i]( f_ )
+            g.append( g_.detach() )
+            p_ = self.prediction_head[i]( g_ )
+            p.append( p_ )        
+        z = []
+        for i in range(self.ens_size):
+            e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+            z_ = self.merge_head[i]( e_ )
+            z.append( z_ )
+        return p, z
+
+    def training_step(self, batch, batch_idx):
+        x, _, _ = batch
+        
+        p, z = self.forward( x )
+
+        loss_tot_l = 0
+        scale = 0
+        
+        for i in range(0, len(p)):
+            loss_tot_l += self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
+            scale += 1
+
+        loss_tot_l /= scale
+
+        self.log("pred_l", loss_tot_l,   prog_bar=True)
+        
+        # self.log("f_nm", f.norm(dim=1).mean())
+        # self.log("f_n", f.norm(dim=1).median())
+        # self.log("g_nm", g[0].norm(dim=1).mean())
+        # self.log("g_n", g[0].norm(dim=1).median())
+        # self.log("p_nm", p[0].norm(dim=1).mean())
+        # self.log("p_n", p[0].norm(dim=1).median())
+        # self.log("z_nm", z[0].norm(dim=1).median())
+        # self.log("z_n", z[0].norm(dim=1).median())
+        
+        # self.log("f_s", f.std(dim=0).median())
+        # self.log("g_s", g[0].std(dim=0).median())
+        self.log("p_s", p[0].std(dim=0).median())
+        self.log("z_s", z[0].std(dim=0).median())
+        
+        # self.log("g_d", self.criterion(g[0], g[1]))
+        # self.log("p_d", self.criterion(p[0], p[1]))
+        # self.log("z_d", self.criterion(z[0], z[1]))
+
+        return loss_tot_l
+
+    def configure_optimizers(self):
+        optims = []
+        optims.append({'params': self.headbone.parameters()})
+        for i in range(self.ens_size):
+            optims.extend(
+                [                
+                {'params': self.projection_head[i].parameters()},
+                {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},                
+                {'params': self.merge_head_train[i].parameters()},                
+                ])        
+        optim = torch.optim.SGD(    
+            optims,
+            lr=6e-2*lr_factor,
+            momentum=0.9,
+            weight_decay=5e-4,
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)  
+        return [optim], [scheduler]
 
 
 class SimSiamModel(BenchmarkModule):
@@ -1408,26 +1541,27 @@ class SwaVQueueModel(BenchmarkModule):
 
 
 models = [
-    BarlowTwinsModel,
-    BYOLModel,
-    DCL,
-    DCLW,
-    DINOModel,
-    FastSiamModel,
+    # BarlowTwinsModel,
+    # BYOLModel,
+    # DCL,
+    # DCLW,
+    # DINOModel,
+    # FastSiamModel,
     # MAEModel,  # disabled by default because MAE uses larger images with size 224
-    MSNModel,
-    MocoModel,
-    NNCLRModel,
-    PMSNModel,
-    SimCLRModel,
+    # MSNModel,
+    # MocoModel,
+    # NNCLRModel,
+    # PMSNModel,
+    # SimCLRModel,
     # SimMIMModel,  # disabled by default because SimMIM uses larger images with size 224
-    SimSiamModel,
-    SwaVModel,
-    SwaVQueueModel,
-    SMoGModel,
-    TiCoModel,
-    VICRegModel,
-    VICRegLModel,
+    # SimSiamModel,
+    SimSimPModel,
+    # SwaVModel,
+    # SwaVQueueModel,
+    # SMoGModel,
+    # TiCoModel,
+    # VICRegModel,
+    # VICRegLModel,
 ]
 
 bench_results = dict()

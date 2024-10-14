@@ -471,8 +471,8 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 5
-        self.scale_up = 4
+        self.ens_size = 2
+        self.scale_up = 2
         self.samebone = True
         self.mergetype = 'first'
 
