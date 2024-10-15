@@ -209,6 +209,7 @@ def create_dataset_train_ssl(model):
         SimCLRModel: simclr_transform,
         SimSiamModel: simsiam_transform,
         SimSimPModel: simsimp_transform,
+        NoiseModel: simsiam_transform,
         SwaVModel: swav_transform,
         SMoGModel: smog_transform,
         IJEPA: ijepa_transform,
@@ -472,7 +473,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048
         self.ens_size = 5
-        self.scale_up = 2
+        self.scale_up = 1
         self.scale_um = 5
         self.samebone = True
         self.mergetype = 'first'
@@ -654,6 +655,109 @@ class SimSimPModel(BenchmarkModule):
     #         scheduler.append(torch.optim.lr_scheduler.CosineAnnealingLR(optim[i], max_epochs))
     #         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, 6e-2*lr_factor, total_steps=19399)
     #     return optim, scheduler
+
+
+
+class NoiseModel(BenchmarkModule):
+    def __init__(self, dataloader_kNN, num_classes):
+        super().__init__(dataloader_kNN, num_classes)
+        # self.automatic_optimization = False
+        # create a ResNet backbone and remove the classification head
+        emb_width = 512
+        deb_width = 2048        
+
+        resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
+        self.headbone = nn.Sequential(
+                *list(resnet.children())[:-1],
+                nn.AdaptiveAvgPool2d(1),
+            )        
+        self.backbone = self.headbone
+        
+        self.projection_head = heads.ProjectionHead(
+                [
+                    (emb_width, deb_width*self.scale_up, nn.BatchNorm1d(deb_width*self.scale_up), nn.ReLU(inplace=True)),
+                    (deb_width*self.scale_up, emb_width, None, None),
+                ])
+
+        self.prediction_head = nn.Sequential(
+                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(2048), nn.ReLU(inplace=True),
+                    nn.Linear(deb_width, deb_width, False), 
+                )
+
+        self.criterion = NegativeCosineSimilarity()
+
+    def forward(self, x):
+        f0 = self.headbone( x[0] ).flatten(start_dim=1)
+        f1 = self.headbone( x[1] ).flatten(start_dim=1)
+        g0 = self.projection_head( f0 )
+        g1 = self.projection_head( f1 )
+        p0 = self.prediction_head( g0 )
+        p1 = self.prediction_head( g1 )
+
+        xn0 = x[0] + torch.randn(x[0].size(), device=self.device)
+        xn1 = x[1] + torch.randn(x[1].size(), device=self.device)      
+        fn0 = self.headbone( xn0 ).flatten(start_dim=1)
+        fn1 = self.headbone( xn1 ).flatten(start_dim=1)
+        gn0 = self.projection_head( fn0 )
+        gn1 = self.projection_head( fn1 )        
+        
+        n0 = gn0-g0.detach()
+        n1 = gn1-g1.detach()
+
+        return n0, n1, p0, p1
+
+    def training_step(self, batch, batch_idx):
+        (x0, x1), _, _ = batch
+        
+        n0, n1, p0, p1 = self.forward( [x0, x1] )
+
+        loss_tot = 0        
+        
+        loss_l0 = self.criterion( p0, n0.detach() )
+        loss_l1 = self.criterion( p1, n1.detach() )
+
+        loss_n0 = -self.criterion( p0.detach(), n0 )
+        loss_n1 = -self.criterion( p1.detach(), n1 )
+
+        loss_tot += loss_l0 + loss_n0
+        loss_tot += loss_l1 + loss_n1
+        scale = 4
+
+        loss_tot /= scale
+
+        self.log("pred_l", loss_tot,   prog_bar=True)
+        
+        self.log("n_nm", n0.norm(dim=1).mean())
+        self.log("n_n", n0.norm(dim=1).median())
+        self.log("p_nm", p0.norm(dim=1).mean())
+        self.log("p_n", p0.norm(dim=1).median())
+        
+        self.log("n_s", n0.std(dim=0).median())
+        self.log("p_s", p0.std(dim=0).median())
+        
+        self.log("n_d", self.criterion(n0, n1))
+        self.log("p_d", self.criterion(p0, p1))
+        
+                  
+        return loss_tot
+
+    def configure_optimizers(self):
+        optims = []
+        optims.extend(
+            [     
+            {'params': self.headbone.parameters()},
+            {'params': self.projection_head.parameters()},
+            {'params': self.prediction_head.parameters()},
+            ])
+        optim = torch.optim.SGD(    
+            optims,
+            lr=6e-2*lr_factor,
+            momentum=0.9,
+            weight_decay=5e-4,
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)  
+        return [optim], [scheduler]
+
 
 class SimSiamModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
@@ -1382,6 +1486,7 @@ models = [
     # SimCLRModel,
     # SimSiamModel,
     SimSimPModel,
+    # NoiseModel,
     # SwaVModel,
     # SMoGModel,
     # IJEPA,
