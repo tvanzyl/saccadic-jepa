@@ -471,8 +471,9 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 2
+        self.ens_size = 5
         self.scale_up = 2
+        self.scale_um = 5
         self.samebone = True
         self.mergetype = 'first'
 
@@ -517,12 +518,12 @@ class SimSimPModel(BenchmarkModule):
         merge_head = []
         merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(deb_width*self.scale_up)
+            bn1 = nn.BatchNorm1d(deb_width*self.scale_um)
             # bn2 = nn.BatchNorm1d(2048)
             merge_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_up), bn1, nn.ReLU(inplace=True),
-                    nn.Linear(deb_width*self.scale_up,                   deb_width), 
+                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(deb_width*self.scale_um,                   deb_width), 
                 )
             )
             merge_head_train.append(nn.ModuleList([bn1]))
