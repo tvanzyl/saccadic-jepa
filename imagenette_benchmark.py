@@ -536,11 +536,11 @@ class SimSimPModel(BenchmarkModule):
         optims.append({'params': self.headbone.parameters()})
         for i in range(self.ens_size):
             optims.extend(
-                [                
+                [
                 {'params': self.projection_head[i].parameters()},
-                {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},                
-                {'params': self.merge_head_train[i].parameters()},                
-                ])        
+                {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},
+                {'params': self.merge_head_train[i].parameters()},
+                ])
         optim = torch.optim.SGD(    
             optims,
             lr=6e-2*lr_factor,
