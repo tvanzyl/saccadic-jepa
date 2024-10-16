@@ -642,12 +642,20 @@ class NoiseModel(BenchmarkModule):
         emb_width = 256
         deb_width = 1024        
 
-        resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
-        self.headbone = nn.Sequential(
-                *list(resnet.children())[:-1],
+        resnet0 = ResNetGenerator("resnet-18", width=emb_width/512.0)
+        resnet1 = ResNetGenerator("resnet-18", width=emb_width/512.0)
+        self.headbone  = nn.ModuleList([
+            nn.Sequential(
+                *list(resnet0.children())[:-1],
                 nn.AdaptiveAvgPool2d(1),
-            )        
-        self.backbone = self.headbone
+            ),
+            nn.Sequential(
+                *list(resnet1.children())[:-1],
+                nn.AdaptiveAvgPool2d(1),
+            )
+        ])
+
+        self.backbone = self.headbone[1]
         
         self.projection_head = nn.ModuleList([
             heads.ProjectionHead(
@@ -664,12 +672,12 @@ class NoiseModel(BenchmarkModule):
 
         self.prediction_head = nn.ModuleList([
             nn.Sequential(
-                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, emb_width, False), 
+                    nn.Linear(emb_width, deb_width), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
+                    nn.Linear(deb_width, emb_width), 
                 ),
             nn.Sequential(
-                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, emb_width, False), 
+                    nn.Linear(emb_width, deb_width), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
+                    nn.Linear(deb_width, emb_width), 
                 )
         ])
 
@@ -677,20 +685,20 @@ class NoiseModel(BenchmarkModule):
 
     def forward(self, x):
         # f0 = self.headbone( x[0] ).flatten(start_dim=1)
-        f1 = self.headbone( x[1] ).flatten(start_dim=1)
+        f1 = self.headbone[1]( x[1] ).flatten(start_dim=1)
         # g0 = self.projection_head[0]( f0 )
         g1 = self.projection_head[1]( f1 )
         # p0 = self.prediction_head[0]( g0 )
-        p1 = self.prediction_head[1]( g1.detach() )
+        p1 = self.prediction_head[1]( g1 )
 
         xn0 = x[0] + torch.randn(x[0].size(), device=self.device)
         # xn1 = x[1] + torch.randn(x[1].size(), device=self.device)
-        fn0 = self.headbone( xn0 ).flatten(start_dim=1)
+        fn0 = self.headbone[0]( xn0 ).flatten(start_dim=1)
         # fn1 = self.headbone( xn1 ).flatten(start_dim=1)
         gn0 = self.projection_head[0]( fn0 )
         # gn1 = self.projection_head[1]( fn1 )
         
-        n0 = gn0-g1
+        n0 = gn0-g1.detach()
         # n1 = gn1-g1
 
         return n0, p1
@@ -700,42 +708,41 @@ class NoiseModel(BenchmarkModule):
         c_opt, e_opt = self.optimizers()
         
         n0, p1 = self.forward( [x0, x1] )
-
-        loss_tot = 0
         
-        # loss_l0 = self.criterion( p0, n1.detach() )
-        loss_l1 = self.criterion( p1, n0.detach() )
+        loss_e = -self.criterion( p1.detach(), n0 )
+        e_opt.zero_grad()
+        self.manual_backward(loss_e)
+        e_opt.step()
 
-        # loss_n0 = -self.criterion( p0.detach(), n1 )
-        loss_n1 = -self.criterion( p1.detach(), n0 )
+        n0, p1 = self.forward( [x0, x1] )
+        
+        loss_c = self.criterion( p1, n0.detach() )
+        c_opt.zero_grad()
+        self.manual_backward(loss_c)
+        c_opt.step()        
 
-        # loss_tot += loss_l0 + loss_n0
-        loss_tot += loss_l1 + loss_n1
-        scale = 4
-
-        loss_tot /= scale
-
-        self.log("pred_l", loss_tot,   prog_bar=True)
+        self.log("pred_c", loss_c,   prog_bar=True)
+        self.log("pred_e", loss_e,   prog_bar=True)
         
         c_sch, e_sch = self.lr_schedulers()
         c_sch.step()
         e_sch.step()
 
-        return loss_tot
-
     def configure_optimizers(self):
         opt_chaser = torch.optim.SGD(    
-            [     
-            {'params': self.prediction_head.parameters()},
+            [
+            {'params': self.headbone[1].parameters()},
+            {'params': self.prediction_head[1].parameters()},
+            {'params': self.projection_head[1].parameters()},
             ],
             lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
-        opt_evader = torch.optim.SGD(    
+        opt_evader = torch.optim.SGD(
             [     
-            {'params': self.headbone.parameters()},
-            {'params': self.projection_head.parameters()},
+            {'params': self.headbone[0].parameters()},
+            {'params': self.projection_head[0].parameters()},
             ],
             lr=6e-2*lr_factor,
             momentum=0.9,
@@ -1472,8 +1479,8 @@ models = [
     # NNCLRModel,
     # SimCLRModel,
     # SimSiamModel,
-    # SimSimPModel,
-    NoiseModel,
+    SimSimPModel,
+    # NoiseModel,
     # SwaVModel,
     # SMoGModel,
     # IJEPA,
