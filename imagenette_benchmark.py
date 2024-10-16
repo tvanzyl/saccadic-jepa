@@ -146,7 +146,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-batch_size = 32
+batch_size = 96
 lr_factor = batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -433,7 +433,8 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048
         self.ens_size = 3
-        self.scale_up = 3
+        self.scale_up = 2
+        self.scale_um = 2
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -444,20 +445,22 @@ class SimSimPModel(BenchmarkModule):
         
         projection_head = []
         for i in range(self.ens_size):
-            projection_head.append(
+            projection_head.append(                
                 heads.ProjectionHead(
                     [
                         (emb_width, deb_width*self.scale_up, nn.BatchNorm1d(deb_width*self.scale_up), nn.ReLU(inplace=True)),
                         (deb_width*self.scale_up, emb_width, None, None),
                     ])
             )
+        if len(projection_head) < self.ens_size:
+            projection_head = projection_head*self.ens_size
         self.projection_head = nn.ModuleList(projection_head)
 
         prediction_head = []
         for i in range(self.ens_size):
             prediction_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(2048), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
                     nn.Linear(deb_width, deb_width, False), 
                 )
             )
@@ -466,14 +469,15 @@ class SimSimPModel(BenchmarkModule):
         merge_head = []
         merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(deb_width*self.scale_up)            
+            bn1 = nn.BatchNorm1d(deb_width*self.scale_um)
+            # bn2 = nn.BatchNorm1d(2048)
             merge_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_up), bn1, nn.ReLU(inplace=True),
-                    nn.Linear(deb_width*self.scale_up,                   deb_width), 
+                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(deb_width*self.scale_um,                   deb_width), 
                 )
             )
-            merge_head_train.append(bn1)
+            merge_head_train.append(nn.ModuleList([bn1]))
         self.merge_head = nn.ModuleList(merge_head)
         self.merge_head_train = nn.ModuleList(merge_head_train)
 
@@ -539,7 +543,7 @@ class SimSimPModel(BenchmarkModule):
                 [                
                 {'params': self.projection_head[i].parameters()},
                 {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},                
-                {'params': self.merge_head_train[i].parameters()},                
+                {'params': self.merge_head_train[i].parameters()},
                 ])        
         optim = torch.optim.SGD(    
             optims,
