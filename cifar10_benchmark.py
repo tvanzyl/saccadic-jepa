@@ -543,12 +543,6 @@ class SimSimPModel(BenchmarkModule):
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
-        # opt = self.optimizers()
-        # sch = self.lr_schedulers()
-
-        # with torch.no_grad():
-        #     f = self.backbone(x[0]).flatten(start_dim=1)
-        
         p, z = self.forward( x )
 
         loss_tot_l = 0
@@ -556,41 +550,25 @@ class SimSimPModel(BenchmarkModule):
         
         # opt.zero_grad()
         for i in range(0, len(p)):
-            # opt[i].zero_grad()
             loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
             loss_tot_l += loss_l
             scale += 1
-            # self.manual_backward(loss_l, retain_graph=True)    
-            # opt[i].step()
-            # sch[i].step()
 
         loss_tot_l /= scale
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
         
-        # self.log("f_nm", f.norm(dim=1).mean())
-        # self.log("f_n", f.norm(dim=1).median())
-        # self.log("g_nm", g[0].norm(dim=1).mean())
-        # self.log("g_n", g[0].norm(dim=1).median())
         self.log("p_nm", p[0].norm(dim=1).mean())
         self.log("p_n", p[0].norm(dim=1).median())
         self.log("z_nm", z[0].norm(dim=1).median())
         self.log("z_n", z[0].norm(dim=1).median())
         
-        # self.log("f_s", f.std(dim=0).median())
-        # self.log("g_s", g[0].std(dim=0).median())
         self.log("p_s", p[0].std(dim=0).median())
         self.log("z_s", z[0].std(dim=0).median())
         
-        # self.log("g_d", self.criterion(g[0], g[1]))
         self.log("p_d", self.criterion(p[0], p[1]))
         self.log("z_d", self.criterion(z[0], z[1]))
 
-        # self.log("emb_med", f.median(), prog_bar=True)
-        # self.log("emb_mu",  f.mean(),   prog_bar=True)
-        # self.log("emb_std", f.std(),    prog_bar=True)
-        # self.log("emb_min", f.min(),    prog_bar=True)
-        # self.log("emb_max", f.max(),    prog_bar=True)        
         return loss_tot_l
 
     def configure_optimizers(self):
@@ -611,25 +589,6 @@ class SimSimPModel(BenchmarkModule):
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)  
         return [optim], [scheduler]
-
-    # def configure_optimizers(self):
-    #     optim = []
-    #     scheduler = []
-    #     for i in range(self.ens_size):
-    #         optim.append( torch.optim.SGD(
-    #             [
-    #             {'params': self.headbone[i].parameters()},
-    #             {'params': self.projection_head[i].parameters()},
-    #             {'params': self.prediction_head[i].parameters(), 'weight_decay':5e-4},
-    #             {'params': self.merge_head[i].parameters()}
-    #             ],                
-    #             lr=6e-2*lr_factor,
-    #             momentum=0.9,
-    #             # weight_decay=5e-4,
-    #         ) )
-    #         scheduler.append(torch.optim.lr_scheduler.CosineAnnealingLR(optim[i], max_epochs))
-    #         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optim, 6e-2*lr_factor, total_steps=19399)
-    #     return optim, scheduler
 
 
 
