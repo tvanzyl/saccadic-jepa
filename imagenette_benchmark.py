@@ -124,7 +124,7 @@ num_workers = 12
 memory_bank_size = 4096
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -146,8 +146,9 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-batch_size = 96
-lr_factor = batch_size / 256  # scales the learning rate linearly with batch size
+pseudo_batch_size = 256
+batch_size = 64
+lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
 devices = torch.cuda.device_count() if torch.cuda.is_available() else 1
@@ -163,7 +164,6 @@ else:
     devices = min(devices, 1)
 
 # The dataset structure should be like this:
-
 path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
@@ -187,7 +187,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
 simsimp_transform = SimSimPTransform(
-    ens_size=3, 
+    ens_size=4, 
     inc_idnt=False,
     input_size=input_size)
 
@@ -432,9 +432,8 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 3
-        self.scale_up = 2
-        self.scale_um = 2
+        self.ens_size = 4
+        self.scale_up = 2        
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -469,12 +468,12 @@ class SimSimPModel(BenchmarkModule):
         merge_head = []
         merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(deb_width*self.scale_um)
+            bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
             # bn2 = nn.BatchNorm1d(2048)
             merge_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
-                    nn.Linear(deb_width*self.scale_um,                   deb_width), 
+                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*self.ens_size,                   deb_width), 
                 )
             )
             merge_head_train.append(nn.ModuleList([bn1]))
@@ -1607,6 +1606,7 @@ for BenchmarkModel in models:
             sync_batchnorm=sync_batchnorm,
             logger=logger,
             callbacks=[checkpoint_callback],
+            accumulate_grad_batches=pseudo_batch_size/batch_size,
         )
         start = time.time()
         trainer.fit(
