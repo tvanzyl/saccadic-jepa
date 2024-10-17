@@ -509,10 +509,8 @@ class SimSimPModel(BenchmarkModule):
         merge_head_train = []
         for i in range(self.ens_size):
             bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
-            # bn2 = nn.BatchNorm1d(2048)
             merge_head.append(
                 nn.Sequential(
-                    # nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
                     nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), bn1, nn.ReLU(inplace=True),
                     nn.Linear(emb_width*self.ens_size,                   deb_width),
                 )
@@ -545,8 +543,7 @@ class SimSimPModel(BenchmarkModule):
 
         loss_tot_l = 0
         scale = 0
-        
-        # opt.zero_grad()
+                
         for i in range(0, len(p)):
             loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
             loss_tot_l += loss_l
