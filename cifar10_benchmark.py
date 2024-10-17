@@ -136,8 +136,7 @@ simsiam_transform = SimSiamTransform(
 
 # Use SimSiam augmentations
 simsimp_transform = SimSimPTransform(    
-    ens_size=5,
-    inc_idnt=False,
+    number_augments=3,    
     input_size=32,
     gaussian_blur=0.0,
 )
@@ -473,7 +472,7 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 5
+        self.ens_size = 6
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(

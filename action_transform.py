@@ -329,8 +329,8 @@ class SimSimPTransform(MultiViewTransform):
 
     def __init__(
         self,
-        ens_size:int = 2,
-        inc_idnt:bool = True,
+        number_augments:int = 2,
+        include_identity:bool = False,
         input_size: int = 224,
         cj_prob: float = 0.8,
         cj_strength: float = 1.0,
@@ -372,10 +372,10 @@ class SimSimPTransform(MultiViewTransform):
                                         T.ToTensor(),
                                         T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
                                                     std=IMAGENET_NORMALIZE["std"])])
-        if inc_idnt:
-            transforms=[identity_transform,]+[view_transform,]*ens_size
+        if include_identity:
+            transforms=[identity_transform,]+[view_transform,]*number_augments
         else:
-            transforms=[view_transform,]*ens_size
+            transforms=[view_transform,]*number_augments
         super().__init__(transforms=transforms)
 
 class RankingTransform(MultiViewTransform):
