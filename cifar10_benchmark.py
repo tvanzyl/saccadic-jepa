@@ -484,7 +484,6 @@ class SimSimPModel(BenchmarkModule):
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
-                # nn.Identity()
                 heads.ProjectionHead(
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
@@ -506,18 +505,18 @@ class SimSimPModel(BenchmarkModule):
         self.prediction_head = nn.ModuleList(prediction_head)
 
         merge_head = []
-        merge_head_train = []
+        # merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
+            # bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
             merge_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), nn.ReLU(inplace=True),
                     nn.Linear(emb_width*self.ens_size,                   deb_width),
                 )
             )
-            merge_head_train.append(nn.ModuleList([bn1]))
+            # merge_head_train.append(nn.ModuleList([bn1]))
         self.merge_head = nn.ModuleList(merge_head)
-        self.merge_head_train = nn.ModuleList(merge_head_train)
+        # self.merge_head_train = nn.ModuleList(merge_head_train)
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -574,7 +573,6 @@ class SimSimPModel(BenchmarkModule):
                 [                
                 {'params': self.projection_head[i].parameters()},
                 {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},                
-                # {'params': self.merge_head_train[i].parameters()},                
                 ])        
         optim = torch.optim.SGD(    
             optims,
