@@ -474,8 +474,6 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048
         self.ens_size = 5
-        self.scale_up = 2
-        self.scale_um = 2
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -490,8 +488,8 @@ class SimSimPModel(BenchmarkModule):
                 # nn.Identity()
                 heads.ProjectionHead(
                     [
-                        (emb_width, deb_width*self.scale_up, nn.BatchNorm1d(deb_width*self.scale_up), nn.ReLU(inplace=True)),
-                        (deb_width*self.scale_up, emb_width, None, None),
+                        (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
+                        (deb_width, emb_width, None, None),
                     ])
             )
         if len(projection_head) < self.ens_size:
@@ -511,12 +509,13 @@ class SimSimPModel(BenchmarkModule):
         merge_head = []
         merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(deb_width*self.scale_um)
+            bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
             # bn2 = nn.BatchNorm1d(2048)
             merge_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
-                    nn.Linear(deb_width*self.scale_um,                   deb_width), 
+                    # nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), bn1, nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*self.ens_size,                   deb_width),
                 )
             )
             merge_head_train.append(nn.ModuleList([bn1]))
