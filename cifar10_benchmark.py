@@ -525,15 +525,14 @@ class SimSimPModel(BenchmarkModule):
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
-        g = []
-        p = []
+        aug_size = len(x)
+        g, p, z = [], [], []
         for i in range(self.ens_size):
-            f_ = self.headbone( x[i] ).flatten(start_dim=1)
+            f_ = self.headbone( x[i%aug_size] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head[i]( g_ )
             p.append( p_ )        
-        z = []
         for i in range(self.ens_size):
             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
             z_ = self.merge_head[i]( e_ )
