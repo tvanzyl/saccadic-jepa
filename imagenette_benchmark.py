@@ -187,8 +187,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
 simsimp_transform = SimSimPTransform(
-    ens_size=4, 
-    inc_idnt=False,
+    number_augments=4,
     input_size=input_size)
 
 # Multi crop augmentation for FastSiam
@@ -433,28 +432,24 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048
         self.ens_size = 4
-        self.scale_up = 2        
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
-                            *list(resnet.children())[:-1],
-                            nn.AdaptiveAvgPool2d(1),
-                        )
+                *list(resnet.children())[:-1],
+                nn.AdaptiveAvgPool2d(1),
+            )        
         self.backbone = self.headbone
         
         projection_head = []
         for i in range(self.ens_size):
-            projection_head.append(                
-                heads.ProjectionHead(
-                    [
-                        (emb_width, deb_width*self.scale_up, nn.BatchNorm1d(deb_width*self.scale_up), nn.ReLU(inplace=True)),
-                        (deb_width*self.scale_up, emb_width, None, None),
+            projection_head.append(
+                heads.ProjectionHead([
+                        (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
+                        (deb_width, emb_width, None, None),
                     ])
             )
-        if len(projection_head) < self.ens_size:
-            projection_head = projection_head*self.ens_size
         self.projection_head = nn.ModuleList(projection_head)
-
+        
         prediction_head = []
         for i in range(self.ens_size):
             prediction_head.append(
@@ -466,32 +461,26 @@ class SimSimPModel(BenchmarkModule):
         self.prediction_head = nn.ModuleList(prediction_head)
 
         merge_head = []
-        merge_head_train = []
         for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
-            # bn2 = nn.BatchNorm1d(2048)
             merge_head.append(
                 nn.Sequential(
-                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), bn1, nn.ReLU(inplace=True),
-                    nn.Linear(emb_width*self.ens_size,                   deb_width), 
+                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), nn.BatchNorm1d(emb_width*self.ens_size), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*self.ens_size,                   deb_width),
                 )
-            )
-            merge_head_train.append(nn.ModuleList([bn1]))
+            )            
         self.merge_head = nn.ModuleList(merge_head)
-        self.merge_head_train = nn.ModuleList(merge_head_train)
 
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
-        g = []
-        p = []
+        aug_size = len(x)
+        g, p, z = [], [], []
         for i in range(self.ens_size):
-            f_ = self.headbone( x[i] ).flatten(start_dim=1)
+            f_ = self.headbone( x[i%aug_size] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head[i]( g_ )
             p.append( p_ )        
-        z = []
         for i in range(self.ens_size):
             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
             z_ = self.merge_head[i]( e_ )
@@ -500,59 +489,41 @@ class SimSimPModel(BenchmarkModule):
 
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
-        
+        # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         p, z = self.forward( x )
 
         loss_tot_l = 0
-        scale = 0
-        
+                
         for i in range(0, len(p)):
-            loss_tot_l += self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
-            scale += 1
+            loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()
+            loss_tot_l += loss_l
 
-        loss_tot_l /= scale
+        loss_tot_l /= len(p)
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
         
-        # self.log("f_nm", f.norm(dim=1).mean())
-        # self.log("f_n", f.norm(dim=1).median())
-        # self.log("g_nm", g[0].norm(dim=1).mean())
-        # self.log("g_n", g[0].norm(dim=1).median())
-        # self.log("p_nm", p[0].norm(dim=1).mean())
-        # self.log("p_n", p[0].norm(dim=1).median())
-        # self.log("z_nm", z[0].norm(dim=1).median())
-        # self.log("z_n", z[0].norm(dim=1).median())
+        self.log("p_nm", p[0].norm(dim=1).mean())
+        self.log("p_n", p[0].norm(dim=1).median())
+        self.log("z_nm", z[0].norm(dim=1).median())
+        self.log("z_n", z[0].norm(dim=1).median())
         
-        # self.log("f_s", f.std(dim=0).median())
-        # self.log("g_s", g[0].std(dim=0).median())
         self.log("p_s", p[0].std(dim=0).median())
         self.log("z_s", z[0].std(dim=0).median())
         
-        # self.log("g_d", self.criterion(g[0], g[1]))
-        # self.log("p_d", self.criterion(p[0], p[1]))
-        # self.log("z_d", self.criterion(z[0], z[1]))
+        self.log("p_d", self.criterion(p[0], p[1]))
+        self.log("z_d", self.criterion(z[0], z[1]))
 
         return loss_tot_l
 
     def configure_optimizers(self):
-        optims = []
-        optims.append({'params': self.headbone.parameters()})
-        for i in range(self.ens_size):
-            optims.extend(
-                [
-                {'params': self.projection_head[i].parameters()},
-                {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},                
-                {'params': self.merge_head_train[i].parameters()},
-                ])        
         optim = torch.optim.SGD(    
-            optims,
+            self.parameters(),
             lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)  
         return [optim], [scheduler]
-
 
 class SimSiamModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
