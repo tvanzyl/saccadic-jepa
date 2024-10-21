@@ -73,8 +73,9 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
+pseudo_batch_size = 512
 batch_size = 256
-lr_factor = batch_size / 128  # scales the learning rate linearly with batch size
+lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
 devices = torch.cuda.device_count() if torch.cuda.is_available() else 1
@@ -136,7 +137,7 @@ simsiam_transform = SimSiamTransform(
 
 # Use SimSiam augmentations
 simsimp_transform = SimSimPTransform(    
-    number_augments=3,    
+    number_augments=3,
     input_size=32,
     gaussian_blur=0.0,
 )
@@ -427,44 +428,6 @@ class SimCLRModel(BenchmarkModule):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim], [scheduler]
 
-
-class L2NormalizationLayer(nn.Module):
-    def __init__(self, dim=1, eps=1e-12):
-        super(L2NormalizationLayer, self).__init__()
-        self.dim = dim
-        self.eps = eps
-
-    def forward(self, x):
-        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
-
-
-class Twins(nn.Module):
-    def __init__(self, emb_width, twintype, module):        
-        super().__init__()        
-        self.twintype = twintype        
-        self.module = module
-        self.ens_size = len(self.module)
-        self.merge = heads.ProjectionHead(
-                        [                
-                            (emb_width*self.ens_size, emb_width, None, None),                            
-                        ])
-
-    def forward(self, x):
-        embeddings = [m(x).flatten(start_dim=1) for m in self.module]
-        if self.twintype == 'cat':
-            out = torch.concat(embeddings, dim=1)
-        elif self.twintype == 'rand':
-            out = self.merge(torch.concat(embeddings, dim=1))
-        elif self.twintype == 'first':
-            out = embeddings[0]
-        elif self.twintype == 'avg':
-            out = embeddings[0] / self.ens_size
-            for i in range(1, self.ens_size):
-                out += embeddings[i] / self.ens_size
-        else:
-            raise Exception("Twin Type Not Supported")
-        return out
-
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
@@ -472,7 +435,7 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 6
+        self.ens_size = 3
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -484,7 +447,6 @@ class SimSimPModel(BenchmarkModule):
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
-                # nn.Identity()
                 heads.ProjectionHead(
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
@@ -505,21 +467,16 @@ class SimSimPModel(BenchmarkModule):
             )
         self.prediction_head = nn.ModuleList(prediction_head)
 
-        merge_head = []
-        merge_head_train = []
-        for i in range(self.ens_size):
-            bn1 = nn.BatchNorm1d(emb_width*self.ens_size)
-            # bn2 = nn.BatchNorm1d(2048)
+        merge_head = []        
+        for i in range(self.ens_size):            
             merge_head.append(
                 nn.Sequential(
-                    # nn.Linear(emb_width*(self.ens_size-1), deb_width*self.scale_um), bn1, nn.ReLU(inplace=True),
-                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), bn1, nn.ReLU(inplace=True),
+                    #Even though BN is not learnable it is still valid                    
+                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), nn.BatchNorm1d(emb_width*self.ens_size), nn.ReLU(inplace=True),
                     nn.Linear(emb_width*self.ens_size,                   deb_width),
                 )
-            )
-            merge_head_train.append(nn.ModuleList([bn1]))
-        self.merge_head = nn.ModuleList(merge_head)
-        self.merge_head_train = nn.ModuleList(merge_head_train)
+            )            
+        self.merge_head = nn.ModuleList(merge_head)        
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -545,8 +502,7 @@ class SimSimPModel(BenchmarkModule):
 
         loss_tot_l = 0
         scale = 0
-        
-        # opt.zero_grad()
+                
         for i in range(0, len(p)):
             loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
             loss_tot_l += loss_l
@@ -570,17 +526,8 @@ class SimSimPModel(BenchmarkModule):
         return loss_tot_l
 
     def configure_optimizers(self):
-        optims = []
-        optims.append({'params': self.headbone.parameters()})
-        for i in range(self.ens_size):
-            optims.extend(
-                [                
-                {'params': self.projection_head[i].parameters()},
-                {'params': self.prediction_head[i].parameters()}, #, 'weight_decay':5e-4},                
-                # {'params': self.merge_head_train[i].parameters()},                
-                ])        
         optim = torch.optim.SGD(    
-            optims,
+            self.parameters(),
             lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
@@ -1482,7 +1429,7 @@ for BenchmarkModel in models:
             sync_batchnorm=sync_batchnorm,
             logger=logger,
             callbacks=[checkpoint_callback],
-            # accumulate_grad_batches=128,
+            accumulate_grad_batches=pseudo_batch_size/batch_size,
         )
         start = time.time()
         trainer.fit(
