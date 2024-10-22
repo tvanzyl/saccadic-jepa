@@ -47,6 +47,9 @@ from action_transform import ActionTransform, SimSimPTransform, RankingTransform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
+# Random Generator
+rng = np.random.default_rng()
+
 # Trade-off precision for performance.
 # torch.set_float32_matmul_precision('medium')
 
@@ -483,12 +486,13 @@ class SimSimPModel(BenchmarkModule):
     def forward(self, x):
         aug_size = len(x)
         g, p, z = [], [], []
+        perm = rng.permutation(self.ens_size)%aug_size
         for i in range(self.ens_size):
-            f_ = self.headbone( x[i%aug_size] ).flatten(start_dim=1)
+            f_ = self.headbone( x[perm[i]] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head[i]( g_ )
-            p.append( p_ )        
+            p.append( p_ )
         for i in range(self.ens_size):
             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
             z_ = self.merge_head[i]( e_ )
