@@ -77,7 +77,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 512
-batch_size = 256
+batch_size = 512
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -140,7 +140,7 @@ simsiam_transform = SimSiamTransform(
 
 # Use SimSiam augmentations
 simsimp_transform = SimSimPTransform(    
-    number_augments=3,
+    number_augments=2,
     input_size=32,
     gaussian_blur=0.0,
 )
@@ -438,7 +438,7 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 3
+        self.ens_size = 2
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
