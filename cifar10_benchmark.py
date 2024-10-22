@@ -502,10 +502,10 @@ class SimSimPModel(BenchmarkModule):
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
-        p, z = self.forward( x )
-
         loss_tot_l = 0
         scale = 0
+
+        p, z = self.forward( x )
                 
         for i in range(0, len(p)):
             loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()            
