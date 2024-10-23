@@ -483,38 +483,33 @@ class SimSimPModel(BenchmarkModule):
 
         self.criterion = NegativeCosineSimilarity()
 
-    def forward_(self, x, perm):
-        g, z = [], []
+    def forward(self, x):
+        aug_size = len(x)
+        perm = rng.permutation(self.ens_size)%aug_size
+        p, g, z = [], [], []
+        for i in range(self.ens_size):
+            f_ = self.headbone( x[perm[i]] ).flatten(start_dim=1)
+            g_ = self.projection_head[i]( f_ )
+            g.append( g_.detach() )
+            p_ = self.prediction_head[i]( g_ )
+            p.append( p_ )
         with torch.no_grad():
-            for i in range(self.ens_size):
-                f_ = self.headbone( x[perm[i]] ).flatten(start_dim=1)
-                g_ = self.projection_head[i]( f_ )
-                g.append( g_ )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
-        return z
-
-    def forward(self, x, xi, perm):
-        f_ = self.headbone( x[perm[xi]] ).flatten(start_dim=1)
-        g_ = self.projection_head[xi]( f_ )
-        p_ = self.prediction_head[xi]( g_ )        
-        return p_
+        return p, z
 
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
-        scale = 0
+        scale = 0        
+        
+        p, z = self.forward( x )
 
-        aug_size = len(x)
-        perm = rng.permutation(self.ens_size)%aug_size
-        z = self.forward_(x, perm)
-
-        for xi in range(self.ens_size):
-            p_ = self.forward( x, xi, perm )
-            loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()
+        for xi in range(self.ens_size):            
+            loss_l = self.criterion( p[xi], z[xi] ) #increase diversity with abs()
             loss_tot_l += loss_l
             scale += 1
 
@@ -522,16 +517,16 @@ class SimSimPModel(BenchmarkModule):
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
         
-        self.log("p_nm", p_.norm(dim=1).mean())
-        self.log("p_n", p_.norm(dim=1).median())
-        self.log("z_nm", z[-1].norm(dim=1).median())
-        self.log("z_n", z[-1].norm(dim=1).median())
+        self.log("p_nm", p[0].norm(dim=1).mean())
+        self.log("p_n",  p[0].norm(dim=1).median())
+        self.log("z_nm", z[0].norm(dim=1).median())
+        self.log("z_n",  z[0].norm(dim=1).median())
         
-        self.log("p_s", p_.std(dim=0).median())
-        self.log("z_s", z[-1].std(dim=0).median())
+        self.log("p_s", p[0].std(dim=0).median())
+        self.log("z_s", z[0].std(dim=0).median())
         
-        # self.log("p_d", self.criterion(p[0], p[1]))
-        # self.log("z_d", self.criterion(z[0], z[1]))
+        self.log("p_d", self.criterion(p[0], p[1]))
+        self.log("z_d", self.criterion(z[0], z[1]))
 
         return loss_tot_l
 
