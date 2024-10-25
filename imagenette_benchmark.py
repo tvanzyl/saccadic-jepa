@@ -120,6 +120,9 @@ from action_transform import ActionTransform, SimSimPTransform, RankingTransform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
+# Random Generator
+rng = np.random.default_rng()
+
 num_workers = 12
 memory_bank_size = 4096
 
@@ -147,7 +150,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 64
+batch_size = 32
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -187,7 +190,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
 simsimp_transform = SimSimPTransform(
-    number_augments=4,
+    number_augments=5,
     input_size=input_size)
 
 # Multi crop augmentation for FastSiam
@@ -431,7 +434,7 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 4
+        self.ens_size = 5
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -443,13 +446,16 @@ class SimSimPModel(BenchmarkModule):
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
-                heads.ProjectionHead([
+                heads.ProjectionHead(
+                    [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
                         (deb_width, emb_width, None, None),
                     ])
             )
+        if len(projection_head) < self.ens_size:
+            projection_head = projection_head*self.ens_size
         self.projection_head = nn.ModuleList(projection_head)
-        
+
         prediction_head = []
         for i in range(self.ens_size):
             prediction_head.append(
@@ -460,52 +466,57 @@ class SimSimPModel(BenchmarkModule):
             )
         self.prediction_head = nn.ModuleList(prediction_head)
 
-        merge_head = []
-        for i in range(self.ens_size):
+        merge_head = []        
+        for i in range(self.ens_size):            
             merge_head.append(
                 nn.Sequential(
+                    #Even though BN is not learnable it is still applied as a layer
                     nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), nn.BatchNorm1d(emb_width*self.ens_size), nn.ReLU(inplace=True),
                     nn.Linear(emb_width*self.ens_size,                   deb_width),
                 )
             )            
-        self.merge_head = nn.ModuleList(merge_head)
+        self.merge_head = nn.ModuleList(merge_head)        
 
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
         aug_size = len(x)
-        g, p, z = [], [], []
+        perm = rng.permutation(self.ens_size)%aug_size
+        p, g, z = [], [], []
         for i in range(self.ens_size):
-            f_ = self.headbone( x[i%aug_size] ).flatten(start_dim=1)
+            f_ = self.headbone( x[perm[i]] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head[i]( g_ )
-            p.append( p_ )        
-        for i in range(self.ens_size):
-            e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-            z_ = self.merge_head[i]( e_ )
-            z.append( z_ )
+            p.append( p_ )
+        with torch.no_grad():
+            for i in range(self.ens_size):
+                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                z_  = self.merge_head[i]( e_ )
+                z.append( z_ )
         return p, z
 
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
+        loss_tot_l = 0
+        scale = 0        
+        
         p, z = self.forward( x )
 
-        loss_tot_l = 0
-                
-        for i in range(0, len(p)):
-            loss_l = self.criterion( p[i], z[i].detach() ) #increase diversity with abs()
+        for xi in range(self.ens_size):            
+            loss_l = self.criterion( p[xi], z[xi] ) #increase diversity with abs()
             loss_tot_l += loss_l
+            scale += 1
 
-        loss_tot_l /= len(p)
+        loss_tot_l /= scale
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
         
         self.log("p_nm", p[0].norm(dim=1).mean())
-        self.log("p_n", p[0].norm(dim=1).median())
+        self.log("p_n",  p[0].norm(dim=1).median())
         self.log("z_nm", z[0].norm(dim=1).median())
-        self.log("z_n", z[0].norm(dim=1).median())
+        self.log("z_n",  z[0].norm(dim=1).median())
         
         self.log("p_s", p[0].std(dim=0).median())
         self.log("z_s", z[0].std(dim=0).median())
@@ -522,7 +533,7 @@ class SimSimPModel(BenchmarkModule):
             momentum=0.9,
             weight_decay=5e-4,
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)  
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim], [scheduler]
 
 class SimSiamModel(BenchmarkModule):

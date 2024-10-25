@@ -438,7 +438,7 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048
-        self.ens_size = 3
+        self.ens_size = 4
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -508,7 +508,7 @@ class SimSimPModel(BenchmarkModule):
         
         p, z = self.forward( x )
 
-        for xi in range(self.ens_size):            
+        for xi in range(self.ens_size):
             loss_l = self.criterion( p[xi], z[xi] ) #increase diversity with abs()
             loss_tot_l += loss_l
             scale += 1
