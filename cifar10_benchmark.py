@@ -437,8 +437,9 @@ class SimSimPModel(BenchmarkModule):
         # self.automatic_optimization = False
         # create a ResNet backbone and remove the classification head
         emb_width = 512
-        deb_width = 2048
-        self.ens_size = 4
+        deb_width = 2048*2
+        prd_width = 2048
+        self.ens_size = 3
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -456,8 +457,6 @@ class SimSimPModel(BenchmarkModule):
                         (deb_width, emb_width, None, None),
                     ])
             )
-        if len(projection_head) < self.ens_size:
-            projection_head = projection_head*self.ens_size
         self.projection_head = nn.ModuleList(projection_head)
 
         prediction_head = []
@@ -465,30 +464,28 @@ class SimSimPModel(BenchmarkModule):
             prediction_head.append(
                 nn.Sequential(
                     nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, deb_width, False), 
+                    nn.Linear(deb_width, prd_width, False), 
                 )
             )
         self.prediction_head = nn.ModuleList(prediction_head)
 
-        merge_head = []        
-        for i in range(self.ens_size):            
+        merge_head = []
+        for i in range(self.ens_size):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.Linear(emb_width*(self.ens_size-1), emb_width*self.ens_size), nn.BatchNorm1d(emb_width*self.ens_size), nn.ReLU(inplace=True),
-                    nn.Linear(emb_width*self.ens_size,                   deb_width),
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
-            )            
-        self.merge_head = nn.ModuleList(merge_head)        
+            )
+        self.merge_head = nn.ModuleList(merge_head)
 
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
-        aug_size = len(x)
-        perm = rng.permutation(self.ens_size)%aug_size
         p, g, z = [], [], []
         for i in range(self.ens_size):
-            f_ = self.headbone( x[perm[i]] ).flatten(start_dim=1)
+            f_ = self.headbone( x[i] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head[i]( g_ )
@@ -504,29 +501,27 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
-        scale = 0        
-        
+
         p, z = self.forward( x )
 
         for xi in range(self.ens_size):
             loss_l = self.criterion( p[xi], z[xi] ) #increase diversity with abs()
             loss_tot_l += loss_l
-            scale += 1
 
-        loss_tot_l /= scale
+        loss_tot_l /= self.ens_size       
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
         
-        self.log("p_nm", p[0].norm(dim=1).mean())
-        self.log("p_n",  p[0].norm(dim=1).median())
-        self.log("z_nm", z[0].norm(dim=1).median())
-        self.log("z_n",  z[0].norm(dim=1).median())
+        # self.log("p_nm", p[0].norm(dim=1).mean())
+        # self.log("p_n",  p[0].norm(dim=1).median())
+        # self.log("z_nm", z[0].norm(dim=1).median())
+        # self.log("z_n",  z[0].norm(dim=1).median())
         
-        self.log("p_s", p[0].std(dim=0).median())
-        self.log("z_s", z[0].std(dim=0).median())
+        # self.log("p_s", p[0].std(dim=0).median())
+        # self.log("z_s", z[0].std(dim=0).median())
         
-        self.log("p_d", self.criterion(p[0], p[1]))
-        self.log("z_d", self.criterion(z[0], z[1]))
+        # self.log("p_d", self.criterion(p[0], p[1]))
+        # self.log("z_d", self.criterion(z[0], z[1]))
 
         return loss_tot_l
 
