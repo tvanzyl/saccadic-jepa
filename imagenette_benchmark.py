@@ -127,7 +127,7 @@ num_workers = 12
 memory_bank_size = 4096
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -150,7 +150,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 64
+batch_size = 128
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -190,7 +190,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
 simsimp_transform = SimSimPTransform(
-    number_augments=4,
+    number_augments=2,
     input_size=input_size)
 
 # Multi crop augmentation for FastSiam
@@ -435,7 +435,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048*2
         prd_width = 2048
-        self.ens_size = 3
+        self.ens_size = 2
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -475,7 +475,7 @@ class SimSimPModel(BenchmarkModule):
                 )
             )
         self.merge_head = nn.ModuleList(merge_head)
-
+        
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
