@@ -54,7 +54,7 @@ rng = np.random.default_rng()
 # torch.set_float32_matmul_precision('medium')
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 num_workers = 8
 knn_k = 200
 knn_t = 0.1
@@ -77,7 +77,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 512
-batch_size = 512
+batch_size = 256
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -139,8 +139,8 @@ simsiam_transform = SimSiamTransform(
 )
 
 # Use SimSiam augmentations
-simsimp_transform = SimSimPTransform(    
-    number_augments=3,
+simsimp_transform = FastSiamTransform(    
+    num_views=5,
     input_size=32,
     gaussian_blur=0.0,
 )
@@ -439,7 +439,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048*2
         prd_width = 2048
-        self.ens_size = 3
+        self.ens_size = 5
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -511,17 +511,6 @@ class SimSimPModel(BenchmarkModule):
         loss_tot_l /= self.ens_size       
 
         self.log("pred_l", loss_tot_l,   prog_bar=True)
-        
-        # self.log("p_nm", p[0].norm(dim=1).mean())
-        # self.log("p_n",  p[0].norm(dim=1).median())
-        # self.log("z_nm", z[0].norm(dim=1).median())
-        # self.log("z_n",  z[0].norm(dim=1).median())
-        
-        # self.log("p_s", p[0].std(dim=0).median())
-        # self.log("z_s", z[0].std(dim=0).median())
-        
-        # self.log("p_d", self.criterion(p[0], p[1]))
-        # self.log("z_d", self.criterion(z[0], z[1]))
 
         return loss_tot_l
 
