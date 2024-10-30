@@ -114,7 +114,7 @@ rng = np.random.default_rng()
 # torch.set_float32_matmul_precision('medium')
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 num_workers = 8
 knn_k = 200
 knn_t = 0.1
@@ -578,7 +578,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(    
             self.parameters(),
-            lr=6e-2, #*lr_factor,
+            lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
