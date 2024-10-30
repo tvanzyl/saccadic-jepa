@@ -1,4 +1,64 @@
 # -*- coding: utf-8 -*-
+"""
+Benchmark Results
+
+Updated: 27.03.2023 (42a6a924b1b6d5b6cc89a6b2a0a0942cc4af93ab)
+
+------------------------------------------------------------------------------------------
+| Model         | Batch Size | Epochs |  KNN Test Accuracy |       Time | Peak GPU Usage |
+------------------------------------------------------------------------------------------
+| BarlowTwins   |        128 |    200 |              0.842 |  375.9 Min |      1.7 GByte |
+| BYOL          |        128 |    200 |              0.869 |  121.9 Min |      1.6 GByte |
+| DCL           |        128 |    200 |              0.844 |  102.2 Min |      1.5 GByte |
+| DCLW          |        128 |    200 |              0.833 |  100.4 Min |      1.5 GByte |
+| DINO          |        128 |    200 |              0.840 |  120.3 Min |      1.6 GByte |
+| FastSiam      |        128 |    200 |              0.906 |  164.0 Min |      2.7 GByte |
+| Moco          |        128 |    200 |              0.838 |  128.8 Min |      1.7 GByte |
+| NNCLR         |        128 |    200 |              0.834 |  101.5 Min |      1.5 GByte |
+| SimCLR        |        128 |    200 |              0.847 |   97.7 Min |      1.5 GByte |
+| SimSiam       |        128 |    200 |              0.819 |   97.3 Min |      1.6 GByte |
+| SwaV          |        128 |    200 |              0.812 |   99.6 Min |      1.5 GByte |
+| SMoG          |        128 |    200 |              0.743 |  192.2 Min |      1.2 GByte |
+------------------------------------------------------------------------------------------
+| BarlowTwins   |        512 |    200 |              0.819 |  153.3 Min |      5.1 GByte |
+| BYOL          |        512 |    200 |              0.868 |  108.3 Min |      5.6 GByte |
+| DCL           |        512 |    200 |              0.840 |   88.2 Min |      4.9 GByte |
+| DCLW          |        512 |    200 |              0.824 |   87.9 Min |      4.9 GByte |
+| DINO          |        512 |    200 |              0.813 |  108.6 Min |      5.0 GByte |
+| FastSiam      |        512 |    200 |              0.788 |  146.9 Min |      9.5 GByte |
+| Moco (*)      |        512 |    200 |              0.847 |  112.2 Min |      5.6 GByte |
+| NNCLR (*)     |        512 |    200 |              0.815 |   88.1 Min |      5.0 GByte |
+| SimCLR        |        512 |    200 |              0.848 |   87.1 Min |      4.9 GByte |
+| SimSiam       |        512 |    200 |              0.764 |   87.8 Min |      5.0 GByte |
+| SwaV          |        512 |    200 |              0.842 |   88.7 Min |      4.9 GByte |
+| SMoG          |        512 |    200 |              0.686 |  110.0 Min |      3.4 GByte |
+------------------------------------------------------------------------------------------
+| BarlowTwins   |        512 |    800 |              0.859 |  517.5 Min |      7.9 GByte |
+| BYOL          |        512 |    800 |              0.910 |  400.9 Min |      5.4 GByte |
+| DCL           |        512 |    800 |              0.874 |  334.6 Min |      4.9 GByte |
+| DCLW          |        512 |    800 |              0.871 |  333.3 Min |      4.9 GByte |
+| DINO          |        512 |    800 |              0.848 |  405.2 Min |      5.0 GByte |
+| FastSiam      |        512 |    800 |              0.902 |  582.0 Min |      9.5 GByte |
+| Moco (*)      |        512 |    800 |              0.899 |  417.8 Min |      5.4 GByte |
+| NNCLR (*)     |        512 |    800 |              0.892 |  335.0 Min |      5.0 GByte |
+| SimCLR        |        512 |    800 |              0.879 |  331.1 Min |      4.9 GByte |
+| SimSiam       |        512 |    800 |              0.904 |  333.7 Min |      5.1 GByte |
+| SwaV          |        512 |    800 |              0.884 |  330.5 Min |      5.0 GByte |
+| SMoG          |        512 |    800 |              0.800 |  415.6 Min |      3.2 GByte |
+------------------------------------------------------------------------------------------
+
+(*): Increased size of memory bank from 4096 to 8192 to avoid too quickly 
+changing memory bank due to larger batch size.
+
+The benchmarks were created on a single NVIDIA RTX A6000.
+
+Note that this benchmark also supports a multi-GPU setup. If you run it on
+a system with multiple GPUs make sure that you kill all the processes when
+killing the application. Due to the way we setup this benchmark the distributed
+processes might continue the benchmark if one of the nodes is killed.
+If you know how to fix this don't hesitate to create an issue or PR :)
+
+"""
 import copy
 import os
 import time
@@ -76,8 +136,8 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 512
-batch_size = 256
+pseudo_batch_size = 128
+batch_size = 128
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -139,8 +199,9 @@ simsiam_transform = SimSiamTransform(
 )
 
 # Use SimSiam augmentations
+num_views=5
 simsimp_transform = FastSiamTransform(    
-    num_views=5,
+    num_views=num_views,
     input_size=32,
     gaussian_blur=0.0,
 )
@@ -439,7 +500,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = 512
         deb_width = 2048*2
         prd_width = 2048
-        self.ens_size = 5
+        self.ens_size = num_views
 
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
@@ -517,7 +578,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(    
             self.parameters(),
-            lr=6e-2*lr_factor,
+            lr=6e-2, #*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
@@ -1416,7 +1477,7 @@ for BenchmarkModel in models:
             sync_batchnorm=sync_batchnorm,
             logger=logger,
             callbacks=[checkpoint_callback],
-            accumulate_grad_batches=pseudo_batch_size/batch_size,
+            accumulate_grad_batches=int(pseudo_batch_size/batch_size),
         )
         start = time.time()
         trainer.fit(
