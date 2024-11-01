@@ -150,7 +150,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 128
+batch_size = 256
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -189,9 +189,10 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-simsimp_transform = SimSimPTransform(
-    number_augments=2,
-    input_size=input_size)
+num_views=5
+simsimp_transform = FastSiamTransform(
+    num_views=num_views,
+    input_size=int(input_size*1.0))
 
 # Multi crop augmentation for FastSiam
 fast_siam_transform = FastSiamTransform(input_size=input_size)
@@ -430,20 +431,18 @@ class SimCLRModel(BenchmarkModule):
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
-        # self.automatic_optimization = False
+        self.automatic_optimization = False
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048*2
         prd_width = 2048
-        self.ens_size = 2
-
+        self.ens_size = num_views
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
                 *list(resnet.children())[:-1],
                 nn.AdaptiveAvgPool2d(1),
             )        
-        self.backbone = self.headbone
-        
+        self.backbone = self.headbone        
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
@@ -451,20 +450,20 @@ class SimSimPModel(BenchmarkModule):
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
                         (deb_width, emb_width, None, None),
+                        # (deb_width, emb_width, None, None), 
                     ])
             )
         self.projection_head = nn.ModuleList(projection_head)
-
         prediction_head = []
         for i in range(self.ens_size):
             prediction_head.append(
                 nn.Sequential(
                     nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
                     nn.Linear(deb_width, prd_width, False), 
+                    # nn.Linear(emb_width, prd_width, False), 
                 )
             )
         self.prediction_head = nn.ModuleList(prediction_head)
-
         merge_head = []
         for i in range(self.ens_size):
             merge_head.append(
@@ -475,37 +474,46 @@ class SimSimPModel(BenchmarkModule):
                 )
             )
         self.merge_head = nn.ModuleList(merge_head)
-        
         self.criterion = NegativeCosineSimilarity()
 
+    def forward_(self, x, i):
+        f_ = self.headbone( x[i] ).flatten(start_dim=1)
+        g_ = self.projection_head[i]( f_ )        
+        p_ = self.prediction_head[i]( g_ )
+        return p_
+    
     def forward(self, x):
-        p, g, z = [], [], []
-        for i in range(self.ens_size):
-            f_ = self.headbone( x[i] ).flatten(start_dim=1)
-            g_ = self.projection_head[i]( f_ )
-            g.append( g_.detach() )
-            p_ = self.prediction_head[i]( g_ )
-            p.append( p_ )
+        g, z = [], []
         with torch.no_grad():
+            for i in range(self.ens_size):
+                f_ = self.headbone( x[i] ).flatten(start_dim=1)
+                g_ = self.projection_head[i]( f_ )
+                g.append( g_ )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
-        return p, z
+        return z
 
     def training_step(self, batch, batch_idx):
+        opt = self.optimizers()        
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
 
-        p, z = self.forward( x )
+        z = self.forward( x )
 
         for xi in range(self.ens_size):
-            loss_l = self.criterion( p[xi], z[xi] ) #increase diversity with abs()
-            loss_tot_l += loss_l
-
-        loss_tot_l /= self.ens_size       
-
+            opt.zero_grad()
+            p_ = self.forward_(x, xi)
+            loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()            
+            self.manual_backward( loss_l/self.ens_size )
+            opt.step()
+            loss_tot_l += loss_l.detach() / self.ens_size   
+        
+        sch = self.lr_schedulers()
+        sch.step()
+        
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
         return loss_tot_l
@@ -1572,7 +1580,7 @@ for BenchmarkModel in models:
             sync_batchnorm=sync_batchnorm,
             logger=logger,
             callbacks=[checkpoint_callback],
-            accumulate_grad_batches=pseudo_batch_size/batch_size,
+            # accumulate_grad_batches=int(pseudo_batch_size/batch_size),
         )
         start = time.time()
         trainer.fit(
