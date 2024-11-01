@@ -189,7 +189,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=5
+num_views=3
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.0))
@@ -469,7 +469,8 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), nn.ReLU(inplace=True),
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
+                    nn.ReLU(inplace=True),
                     nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
             )
@@ -503,14 +504,14 @@ class SimSimPModel(BenchmarkModule):
 
         z = self.forward( x )
 
+        opt.zero_grad()
         for xi in range(self.ens_size):
-            opt.zero_grad()
             p_ = self.forward_(x, xi)
             loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()            
-            self.manual_backward( loss_l/self.ens_size )
-            opt.step()
+            self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() / self.ens_size   
-        
+        opt.step()
+                
         sch = self.lr_schedulers()
         sch.step()
         

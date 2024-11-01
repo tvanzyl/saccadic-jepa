@@ -535,7 +535,7 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    # nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
                     nn.ReLU(inplace=True),
                     nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
@@ -556,7 +556,7 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( F.normalize( g_, p=2, dim=1 ) )
+                g.append( g_ )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
@@ -572,10 +572,10 @@ class SimSimPModel(BenchmarkModule):
         z = self.forward( x )
 
         opt.zero_grad()
-        for xi in range(self.ens_size):            
+        for xi in range(self.ens_size):
             p_ = self.forward_(x, xi)
             loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()            
-            self.manual_backward( loss_l/self.ens_size )            
+            self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() / self.ens_size   
         opt.step()
                 
