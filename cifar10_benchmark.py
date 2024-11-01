@@ -199,7 +199,7 @@ simsiam_transform = SimSiamTransform(
 )
 
 # Use SimSiam augmentations
-num_views=5
+num_views=3
 simsimp_transform = FastSiamTransform(    
     num_views=num_views,
     input_size=32,
@@ -495,7 +495,7 @@ class SimCLRModel(BenchmarkModule):
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
-        # self.automatic_optimization = False
+        self.automatic_optimization = False
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048*2
@@ -535,7 +535,8 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), nn.ReLU(inplace=True),
+                    # nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
+                    nn.ReLU(inplace=True),
                     nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
             )
@@ -543,34 +544,44 @@ class SimSimPModel(BenchmarkModule):
 
         self.criterion = NegativeCosineSimilarity()
 
+    def forward_(self, x, i):
+        f_ = self.headbone( x[i] ).flatten(start_dim=1)
+        g_ = self.projection_head[i]( f_ )        
+        p_ = self.prediction_head[i]( g_ )
+        return p_
+    
     def forward(self, x):
-        p, g, z = [], [], []
-        for i in range(self.ens_size):
-            f_ = self.headbone( x[i] ).flatten(start_dim=1)
-            g_ = self.projection_head[i]( f_ )
-            g.append( g_.detach() )
-            p_ = self.prediction_head[i]( g_ )
-            p.append( p_ )
+        g, z = [], []
         with torch.no_grad():
+            for i in range(self.ens_size):
+                f_ = self.headbone( x[i] ).flatten(start_dim=1)
+                g_ = self.projection_head[i]( f_ )
+                g.append( F.normalize( g_, p=2, dim=1 ) )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
-        return p, z
+        return z
 
     def training_step(self, batch, batch_idx):
+        opt = self.optimizers()        
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
 
-        p, z = self.forward( x )
+        z = self.forward( x )
 
-        for xi in range(self.ens_size):
-            loss_l = self.criterion( p[xi], z[xi] ) #increase diversity with abs()
-            loss_tot_l += loss_l
-
-        loss_tot_l /= self.ens_size       
-
+        opt.zero_grad()
+        for xi in range(self.ens_size):            
+            p_ = self.forward_(x, xi)
+            loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()            
+            self.manual_backward( loss_l/self.ens_size )            
+            loss_tot_l += loss_l.detach() / self.ens_size   
+        opt.step()
+                
+        sch = self.lr_schedulers()
+        sch.step()
+        
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
         return loss_tot_l
