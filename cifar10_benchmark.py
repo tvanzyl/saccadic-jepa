@@ -579,9 +579,10 @@ class SimSimPModel(BenchmarkModule):
             self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() 
         opt.step()
-                
-        sch = self.lr_schedulers()
-        sch.step()
+        
+        if self.trainer.is_last_batch:
+            sch = self.lr_schedulers()
+            sch.step()
         
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
