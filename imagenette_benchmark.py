@@ -190,7 +190,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=4
+num_views=3
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.0))
@@ -512,8 +512,9 @@ class SimSimPModel(BenchmarkModule):
             loss_tot_l += loss_l.detach()
         opt.step()
                 
-        sch = self.lr_schedulers()
-        sch.step()
+        if self.trainer.is_last_batch:
+            sch = self.lr_schedulers()
+            sch.step()
         
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
