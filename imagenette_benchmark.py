@@ -190,7 +190,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=4
+num_views=2
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.0))

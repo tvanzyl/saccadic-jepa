@@ -136,8 +136,8 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 512
-batch_size = 512
+pseudo_batch_size = 128
+batch_size = 128
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -535,7 +535,7 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)),
                     nn.ReLU(inplace=True),
                     nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
