@@ -136,8 +136,8 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 128
-batch_size = 128
+pseudo_batch_size = 512
+batch_size = 512
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -199,7 +199,7 @@ simsiam_transform = SimSiamTransform(
 )
 
 # Use SimSiam augmentations
-num_views=3
+num_views=5
 simsimp_transform = FastSiamTransform(    
     num_views=num_views,
     input_size=32,
@@ -515,7 +515,7 @@ class SimSimPModel(BenchmarkModule):
                 heads.ProjectionHead(
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
-                        (deb_width, emb_width, None, None),
+                        (deb_width, emb_width, nn.BatchNorm1d(emb_width), None),
                     ])
             )
         self.projection_head = nn.ModuleList(projection_head)
@@ -556,7 +556,7 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( g_ )
+                g.append( F.normalize( g_, p=2, dim=1 ) )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
@@ -574,9 +574,10 @@ class SimSimPModel(BenchmarkModule):
         opt.zero_grad()
         for xi in range(self.ens_size):
             p_ = self.forward_(x, xi)
-            loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()            
+            #increase diversity with abs()
+            loss_l = self.criterion( p_, z[xi] )  / self.ens_size
             self.manual_backward( loss_l )
-            loss_tot_l += loss_l.detach() / self.ens_size   
+            loss_tot_l += loss_l.detach() 
         opt.step()
                 
         sch = self.lr_schedulers()

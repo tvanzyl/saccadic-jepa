@@ -189,7 +189,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=3
+num_views=4
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.0))
@@ -507,9 +507,10 @@ class SimSimPModel(BenchmarkModule):
         opt.zero_grad()
         for xi in range(self.ens_size):
             p_ = self.forward_(x, xi)
-            loss_l = self.criterion( p_, z[xi] ) #increase diversity with abs()            
-            self.manual_backward( loss_l )
-            loss_tot_l += loss_l.detach() / self.ens_size   
+            #increase diversity with abs()
+            loss_l = self.criterion( p_, z[xi] ) / self.ens_size
+            self.manual_backward( loss_l ) 
+            loss_tot_l += loss_l.detach()
         opt.step()
                 
         sch = self.lr_schedulers()
