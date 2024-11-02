@@ -515,7 +515,7 @@ class SimSimPModel(BenchmarkModule):
                 heads.ProjectionHead(
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
-                        (deb_width, emb_width, nn.BatchNorm1d(emb_width), None),
+                        (deb_width, emb_width, None, None),
                     ])
             )
         self.projection_head = nn.ModuleList(projection_head)
