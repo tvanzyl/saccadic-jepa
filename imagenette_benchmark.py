@@ -69,6 +69,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torchvision
+from torch.nn import functional as F
 from pytorch_lightning.loggers import TensorBoardLogger
 from timm.models.vision_transformer import vit_base_patch32_224
 from torchvision.models.vision_transformer import VisionTransformer
@@ -450,7 +451,6 @@ class SimSimPModel(BenchmarkModule):
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
                         (deb_width, emb_width, None, None),
-                        # (deb_width, emb_width, None, None), 
                     ])
             )
         self.projection_head = nn.ModuleList(projection_head)
@@ -459,8 +459,7 @@ class SimSimPModel(BenchmarkModule):
             prediction_head.append(
                 nn.Sequential(
                     nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, prd_width, False), 
-                    # nn.Linear(emb_width, prd_width, False), 
+                    nn.Linear(deb_width, prd_width, False),                     
                 )
             )
         self.prediction_head = nn.ModuleList(prediction_head)
@@ -489,7 +488,7 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( g_ )
+                g.append( F.normalize( g_, p=2, dim=1 ) )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
