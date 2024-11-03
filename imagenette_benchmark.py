@@ -151,7 +151,8 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 256
+batch_size = 128
+accumulate_grad_batches = pseudo_batch_size// batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -190,7 +191,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=3
+num_views=2
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.0))
@@ -502,15 +503,17 @@ class SimSimPModel(BenchmarkModule):
         loss_tot_l = 0
 
         z = self.forward( x )
-
-        opt.zero_grad()
+        
         for xi in range(self.ens_size):
             p_ = self.forward_(x, xi)
             #increase diversity with abs()
             loss_l = self.criterion( p_, z[xi] ) / self.ens_size
             self.manual_backward( loss_l ) 
             loss_tot_l += loss_l.detach()
-        opt.step()
+        
+        if (batch_idx + 1) % accumulate_grad_batches == 0:
+            opt.step()
+            opt.zero_grad()
                 
         if self.trainer.is_last_batch:
             sch = self.lr_schedulers()
