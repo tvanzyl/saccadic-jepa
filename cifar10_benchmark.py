@@ -536,7 +536,7 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    # nn.BatchNorm1d(emb_width*(self.ens_size-1)),
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)),
                     nn.ReLU(inplace=True),
                     nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
