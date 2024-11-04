@@ -151,7 +151,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 128
+batch_size = 256
 accumulate_grad_batches = pseudo_batch_size// batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
@@ -191,7 +191,7 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=2
+num_views=5
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.0))
@@ -489,7 +489,7 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( F.normalize( g_, p=2, dim=1 ) )
+                g.append( F.normalize( g_, p=2, dim=1 ) )                
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
