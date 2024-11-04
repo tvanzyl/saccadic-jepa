@@ -152,7 +152,7 @@ gather_distributed = False
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
 batch_size = 256
-accumulate_grad_batches = pseudo_batch_size// batch_size
+accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
@@ -444,7 +444,7 @@ class SimSimPModel(BenchmarkModule):
                 *list(resnet.children())[:-1],
                 nn.AdaptiveAvgPool2d(1),
             )        
-        self.backbone = self.headbone        
+        self.backbone = self.headbone
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
@@ -460,7 +460,7 @@ class SimSimPModel(BenchmarkModule):
             prediction_head.append(
                 nn.Sequential(
                     nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, prd_width, False),                     
+                    nn.Linear(deb_width, prd_width, False),
                 )
             )
         self.prediction_head = nn.ModuleList(prediction_head)
@@ -469,9 +469,8 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
-                    nn.ReLU(inplace=True),
-                    nn.Linear(emb_width*(self.ens_size-1), prd_width),
+                    nn.Linear(emb_width*(self.ens_size-1), deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
+                    nn.Linear(deb_width, prd_width),
                 )
             )
         self.merge_head = nn.ModuleList(merge_head)
@@ -497,7 +496,8 @@ class SimSimPModel(BenchmarkModule):
         return z
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()        
+        opt = self.optimizers()
+        sch = self.lr_schedulers()
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
@@ -511,8 +511,7 @@ class SimSimPModel(BenchmarkModule):
             self.manual_backward( loss_l ) 
             loss_tot_l += loss_l.detach()
         
-        if self.trainer.is_last_batch:
-            sch = self.lr_schedulers()
+        if self.trainer.is_last_batch:            
             opt.step()            
             sch.step()
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
@@ -520,8 +519,6 @@ class SimSimPModel(BenchmarkModule):
             opt.zero_grad() 
         
         self.log("pred_l", loss_tot_l,   prog_bar=True)
-
-        return loss_tot_l
 
     def configure_optimizers(self):
         optim = torch.optim.SGD(    
