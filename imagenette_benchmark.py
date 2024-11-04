@@ -191,10 +191,10 @@ simmim_transform = SimCLRTransform(input_size=224)
 # Use SimSiam augmentations
 simsiam_transform = SimSiamTransform(input_size=input_size)
 
-num_views=5
+num_views=3
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
-    input_size=int(input_size*1.0))
+    input_size=int(input_size*0.82))
 
 # Multi crop augmentation for FastSiam
 fast_siam_transform = FastSiamTransform(input_size=input_size)
@@ -511,13 +511,13 @@ class SimSimPModel(BenchmarkModule):
             self.manual_backward( loss_l ) 
             loss_tot_l += loss_l.detach()
         
-        if (batch_idx + 1) % accumulate_grad_batches == 0:
-            opt.step()
-            opt.zero_grad()
-                
         if self.trainer.is_last_batch:
             sch = self.lr_schedulers()
+            opt.step()            
             sch.step()
+        elif (batch_idx + 1) % accumulate_grad_batches == 0:
+            opt.step()
+            opt.zero_grad() 
         
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
