@@ -469,7 +469,7 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size), deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
                     nn.Linear(deb_width, prd_width),
                 )
             )
@@ -490,7 +490,7 @@ class SimSimPModel(BenchmarkModule):
                 g_ = self.projection_head[i]( f_ )
                 g.append( F.normalize( g_, p=2, dim=1 ) )                
             for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                e_ = torch.concat([g[j] for j in range(self.ens_size)], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
@@ -512,7 +512,7 @@ class SimSimPModel(BenchmarkModule):
             loss_tot_l += loss_l.detach()
         
         if self.trainer.is_last_batch:            
-            opt.step()            
+            opt.step()
             sch.step()
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
