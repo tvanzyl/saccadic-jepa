@@ -502,14 +502,12 @@ class SimSimPModel(BenchmarkModule):
         deb_width = 2048*2
         prd_width = 2048
         self.ens_size = num_views
-
         resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
         self.headbone = nn.Sequential(
                 *list(resnet.children())[:-1],
                 nn.AdaptiveAvgPool2d(1),
             )        
         self.backbone = self.headbone
-        
         projection_head = []
         for i in range(self.ens_size):
             projection_head.append(
@@ -520,25 +518,23 @@ class SimSimPModel(BenchmarkModule):
                     ])
             )
         self.projection_head = nn.ModuleList(projection_head)
-
         prediction_head = []
         for i in range(self.ens_size):
             prediction_head.append(
                 nn.Sequential(
                     nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, prd_width, False), 
+                    nn.Linear(deb_width, prd_width, False),
                 )
             )
         self.prediction_head = nn.ModuleList(prediction_head)
         merge_head = []
-        merge_head_ = nn.Sequential(
-                        #Even though BN is not learnable it is still applied as a layer
-                        nn.Linear(emb_width, deb_width*2, False), nn.BatchNorm1d(deb_width*2), nn.ReLU(inplace=True),
-                        nn.Linear(deb_width*2, prd_width),
-                    )
         for i in range(self.ens_size):
             merge_head.append(
-                merge_head_
+                nn.Sequential(
+                    #Even though BN is not learnable it is still applied as a layer
+                    nn.Linear(emb_width*(self.ens_size), deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
+                    nn.Linear(deb_width, prd_width),
+                )
             )
         self.merge_head = nn.ModuleList(merge_head)
         self.criterion = NegativeCosineSimilarity()
@@ -555,10 +551,10 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( F.normalize( g_, p=2, dim=1 ) )
-            e_ = torch.stack([g[j] for j in range(self.ens_size)], dim=2).sum( dim=2 )
-            z_  = self.merge_head[i]( e_ )
+                g.append( F.normalize( g_, p=2, dim=1 ) )                
             for i in range(self.ens_size):
+                e_ = torch.concat([g[j] for j in range(self.ens_size)], dim=1)
+                z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
 
