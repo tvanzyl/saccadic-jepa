@@ -194,7 +194,7 @@ simsiam_transform = SimSiamTransform(input_size=input_size)
 num_views=3
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
-    input_size=int(input_size*0.82))
+    input_size=int(input_size*1.00))
 
 # Multi crop augmentation for FastSiam
 fast_siam_transform = FastSiamTransform(input_size=input_size)
@@ -439,7 +439,7 @@ class SimSimPModel(BenchmarkModule):
         deb_width = 2048*2
         prd_width = 2048
         self.ens_size = num_views
-        resnet = ResNetGenerator("resnet-18", width=emb_width/512.0)
+        resnet = ResNetGenerator("resnet-18", width=emb_width/512)
         self.headbone = nn.Sequential(
                 *list(resnet.children())[:-1],
                 nn.AdaptiveAvgPool2d(1),
@@ -469,7 +469,7 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size-1), deb_width), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
                     nn.Linear(deb_width, prd_width),
                 )
             )
@@ -488,9 +488,9 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( F.normalize( g_, p=2, dim=1 ) )                
+                g.append( F.normalize( g_, p=2, dim=1 ) )
             for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                e_ = torch.concat([0.5*(g[j]+g[i]) for j in range(self.ens_size) if j != i], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
@@ -511,8 +511,9 @@ class SimSimPModel(BenchmarkModule):
             self.manual_backward( loss_l ) 
             loss_tot_l += loss_l.detach()
         
-        if self.trainer.is_last_batch:            
-            opt.step()            
+        if self.trainer.is_last_batch:
+            opt.step()      
+            opt.zero_grad()
             sch.step()
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()

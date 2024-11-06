@@ -565,7 +565,8 @@ class SimSimPModel(BenchmarkModule):
         return z
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()        
+        opt = self.optimizers()
+        sch = self.lr_schedulers()
         x, _, _ = batch
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
@@ -580,12 +581,12 @@ class SimSimPModel(BenchmarkModule):
             loss_tot_l += loss_l.detach() 
         
         if self.trainer.is_last_batch:
-            sch = self.lr_schedulers()
-            opt.step()            
+            opt.step()
+            opt.zero_grad()
             sch.step()
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
-            opt.zero_grad() 
+            opt.zero_grad()
         
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
