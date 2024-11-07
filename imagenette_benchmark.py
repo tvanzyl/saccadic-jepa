@@ -173,10 +173,10 @@ path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 # Use FastSiam augmentations
-num_views=3
+num_views=4
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
-    input_size=int(input_size*0.82))
+    input_size=int(input_size*1.00))
 
 normalize_transform = torchvision.transforms.Normalize(
     mean=IMAGENET_NORMALIZE["mean"],
@@ -244,6 +244,7 @@ def get_data_loaders(batch_size: int, dataset_train_ssl):
     )
 
     return dataloader_train_ssl, dataloader_train_kNN, dataloader_test
+
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
@@ -252,17 +253,16 @@ class SimSimPModel(BenchmarkModule):
         deb_width, prd_width = 2048*2, 2048
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
-        emb_width = list(resnet.children())[-1].in_features
+        emb_width = list(resnet.children())[-1].in_features        
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         projection_head = []
-        projection_head_ = heads.ProjectionHead(
+        for i in range(self.ens_size):
+            projection_head.append(
+                heads.ProjectionHead(
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
                         (deb_width, emb_width, None, None),
                     ])
-        for i in range(self.ens_size):
-            projection_head.append(
-                projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []
