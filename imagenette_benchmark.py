@@ -128,7 +128,7 @@ num_workers = 12
 memory_bank_size = 4096
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -173,7 +173,7 @@ path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 # Use FastSiam augmentations
-num_views=4
+num_views=5
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.00))
@@ -249,11 +249,12 @@ class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
+        self.fastforward = True
         # create a ResNet backbone and remove the classification head
         deb_width, prd_width = 2048*2, 2048
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
-        emb_width = list(resnet.children())[-1].in_features        
+        emb_width = list(resnet.children())[-1].in_features
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         projection_head = []
         for i in range(self.ens_size):
@@ -279,8 +280,8 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.Linear(emb_width*(self.ens_size-1), deb_width), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, prd_width),
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
             )
         self.merge_head = nn.ModuleList(merge_head)
@@ -300,35 +301,52 @@ class SimSimPModel(BenchmarkModule):
                 g_ = self.projection_head[i]( f_ )
                 g.append( F.normalize( g_, p=2, dim=1 ) )
             for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                e_ = torch.concat([g[j] for j in range(self.ens_size)], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
 
+    def fforward(self, x):
+        p, g, z = [], [], []
+        for i in range(self.ens_size):
+            f_ = self.backbone( x[i] ).flatten(start_dim=1)
+            g_ = self.projection_head[i]( f_ )
+            g.append( F.normalize( g_.detach(), p=2, dim=1 ) )
+            p_ = self.prediction_head[i]( g_ )
+            p.append( p_ )
+        with torch.no_grad():
+            for i in range(self.ens_size):
+                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                z_  = self.merge_head[i]( e_ )
+                z.append( z_ )        
+        return p, z
+
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
+        opt = self.optimizers()        
         sch = self.lr_schedulers()
-        x, _, _ = batch
-        # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
+        x, _, _ = batch        
         loss_tot_l = 0
 
-        z = self.forward( x )
+        if self.fastforward:
+            p, z = self.fforward( x )
+        else:
+            z = self.forward( x )
         
         for xi in range(self.ens_size):
-            p_ = self.forward_(x, xi)
+            p_ = p[xi] if self.fastforward else self.forward_(x, xi)
             #increase diversity with abs()
-            loss_l = self.criterion( p_, z[xi] ) / self.ens_size
-            self.manual_backward( loss_l ) 
-            loss_tot_l += loss_l.detach()
+            loss_l = self.criterion( p_, z[xi] ) #/ self.ens_size
+            self.manual_backward( loss_l )
+            loss_tot_l += loss_l.detach() 
         
-        if self.trainer.is_last_batch:
-            opt.step()      
+        if self.trainer.is_last_batch:            
+            opt.step()
             opt.zero_grad()
-            sch.step()
+            sch.step()            
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
-            opt.zero_grad() 
-        
+            opt.zero_grad()
+                
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
     def configure_optimizers(self):
