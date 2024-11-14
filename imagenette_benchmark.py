@@ -173,7 +173,7 @@ path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 # Use FastSiam augmentations
-num_views=5
+num_views=6
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=int(input_size*1.00))
@@ -257,22 +257,23 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         projection_head = []
-        projection_head_ = heads.ProjectionHead(
-                    [
-                        (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
-                        (deb_width, emb_width, None, None),
-                    ])
-        for i in range(self.ens_size):
+        projection_head_ = nn.Sequential(
+                nn.BatchNorm1d(emb_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(emb_width, emb_width),
+            )
+        for i in range(self.ens_size):            
             projection_head.append(
                 projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
-        prediction_head = []        
-        for i in range(self.ens_size):
+        prediction_head = []   
+        for i in range(self.ens_size):            
             prediction_head_ = nn.Sequential(
-                    nn.Linear(emb_width, deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, prd_width, False),
-                )
+                nn.BatchNorm1d(emb_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(emb_width, emb_width, False),
+            )
             prediction_head.append(
                 prediction_head_
             )
@@ -280,10 +281,12 @@ class SimSimPModel(BenchmarkModule):
         merge_head = []        
         merge_head_ = nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), nn.ReLU(inplace=True),
-                    nn.Linear(emb_width*(self.ens_size-1), prd_width),
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
+                    nn.ReLU(inplace=True),
+                    #replace with sparse encoding 
+                    nn.Linear(emb_width*(self.ens_size-1), emb_width),
                 )
-        for i in range(self.ens_size):            
+        for i in range(self.ens_size):
             merge_head.append(
                 merge_head_
             )
