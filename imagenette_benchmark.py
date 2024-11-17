@@ -132,7 +132,7 @@ max_epochs = 200
 knn_k = 200
 knn_t = 0.1
 classes = 10
-input_size = 128
+input_size = 128 #int(128*0.63)
 
 # Set to True to enable Distributed Data Parallel training.
 distributed = False
@@ -173,10 +173,10 @@ path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 # Use FastSiam augmentations
-num_views=6
+num_views=5
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
-    input_size=int(input_size*1.00))
+    input_size=input_size)
 
 normalize_transform = torchvision.transforms.Normalize(
     mean=IMAGENET_NORMALIZE["mean"],
@@ -251,40 +251,46 @@ class SimSimPModel(BenchmarkModule):
         self.automatic_optimization = False
         self.fastforward = True        
         # create a ResNet backbone and remove the classification head
-        deb_width, prd_width = 2048*2, 2048
+        prd_width = 128
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         projection_head = []
         projection_head_ = nn.Sequential(
+                nn.Linear(emb_width, emb_width),
                 nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
-                nn.Linear(emb_width, emb_width),
+                # nn.Linear(emb_width, emb_width),
+                # nn.ReLU(inplace=True), 
             )
         for i in range(self.ens_size):            
             projection_head.append(
                 projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
-        prediction_head = []   
+        prediction_head = []
         for i in range(self.ens_size):            
             prediction_head_ = nn.Sequential(
-                nn.BatchNorm1d(emb_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(emb_width, emb_width, False),
+                # nn.BatchNorm1d(emb_width),
+                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, prd_width, False),
             )
             prediction_head.append(
                 prediction_head_
             )
         self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []        
+        merge_head = []
         merge_head_ = nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
-                    nn.ReLU(inplace=True),
-                    #replace with sparse encoding 
-                    nn.Linear(emb_width*(self.ens_size-1), emb_width),
+                    #replace with sparse random projection
+                    #using a gaussian random projection
+                    # nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
+                    # nn.ReLU(inplace=True),                    
+                    # nn.Linear(emb_width*(self.ens_size-1), prd_width),
+                    # nn.ReLU(inplace=True), 
+                    nn.BatchNorm1d(emb_width),                                        
+                    nn.Linear(emb_width, prd_width),
                 )
         for i in range(self.ens_size):
             merge_head.append(
@@ -307,7 +313,8 @@ class SimSimPModel(BenchmarkModule):
                 g_ = self.projection_head[i]( f_ )
                 g.append( g_.detach() )
             for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
@@ -322,7 +329,8 @@ class SimSimPModel(BenchmarkModule):
             p.append( p_ )
         with torch.no_grad():
             for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )        
         return p, z
@@ -499,3 +507,4 @@ for model, results in bench_results.items():
         flush=True,
     )
 print("-" * len(header))
+
