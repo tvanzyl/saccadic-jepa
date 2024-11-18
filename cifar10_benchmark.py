@@ -99,12 +99,6 @@ from lightly.transforms import (
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils.benchmarking import BenchmarkModule
 
-from lightly.data.collate import IJEPAMaskCollator
-from lightly.models.modules.ijepa import IJEPABackbone, IJEPAPredictor
-from lightly.transforms.ijepa_transform import IJEPATransform
-
-from action_transform import ActionTransform, SimSimPTransform, RankingTransform
-
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
 # Random Generator
@@ -136,8 +130,8 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 512
-batch_size = 512
+pseudo_batch_size = 128
+batch_size = 128
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
@@ -199,8 +193,8 @@ simsiam_transform = SimSiamTransform(
     gaussian_blur=0.0,
 )
 
-# Use SimSiam augmentations
-num_views=2
+# Use FastSiam augmentations
+num_views=5
 simsimp_transform = FastSiamTransform(    
     num_views=num_views,
     input_size=32,
@@ -237,7 +231,6 @@ smog_transform = SMoGTransform(
     crop_max_scales=(1.0, 1.0),
 )
 
-ijepa_transform = IJEPATransform(32)
 simmim_transform = MAETransform(32)
 
 # No additional augmentations for the test set
@@ -274,21 +267,15 @@ def create_dataset_train_ssl(model):
         NNCLRModel: simclr_transform,
         SimCLRModel: simclr_transform,
         SimSiamModel: simsiam_transform,
-        SimSimPModel: simsimp_transform,
-        NoiseModel: simsiam_transform,
+        SimSimPModel: simsimp_transform,        
         SwaVModel: swav_transform,
-        SMoGModel: smog_transform,
-        IJEPA: ijepa_transform,
+        SMoGModel: smog_transform,        
         SimMIM: simmim_transform,
 
     }
     transform = model_to_transform[model]
     return LightlyDataset(input_dir=path_to_train, transform=transform)
 
-ijepa_collator = IJEPAMaskCollator(
-    input_size=(32, 32),
-    patch_size=4,
-)
 
 def get_data_loaders(batch_size: int, dataset_train_ssl, collator):
     """Helper method to create dataloaders for ssl, kNN train and kNN test.
@@ -497,6 +484,7 @@ class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
+        self.fastforward = True
         # create a ResNet backbone and remove the classification head
         emb_width = 512
         deb_width = 2048*2
@@ -509,13 +497,14 @@ class SimSimPModel(BenchmarkModule):
             )        
         self.backbone = self.headbone
         projection_head = []
-        for i in range(self.ens_size):
-            projection_head.append(
-                heads.ProjectionHead(
+        projection_head_ = heads.ProjectionHead(
                     [
                         (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
                         (deb_width, emb_width, None, None),
                     ])
+        for i in range(self.ens_size):
+            projection_head.append(
+                projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []
@@ -532,8 +521,8 @@ class SimSimPModel(BenchmarkModule):
             merge_head.append(
                 nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
-                    nn.Linear(emb_width*(self.ens_size), deb_width, False), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, prd_width),
+                    nn.BatchNorm1d(emb_width*(self.ens_size-1)), nn.ReLU(inplace=True),
+                    nn.Linear(emb_width*(self.ens_size-1), prd_width),
                 )
             )
         self.merge_head = nn.ModuleList(merge_head)
@@ -551,12 +540,27 @@ class SimSimPModel(BenchmarkModule):
             for i in range(self.ens_size):
                 f_ = self.headbone( x[i] ).flatten(start_dim=1)
                 g_ = self.projection_head[i]( f_ )
-                g.append( F.normalize( g_, p=2, dim=1 ) )                
+                g.append( F.normalize( g_, p=2, dim=1 ) )
             for i in range(self.ens_size):
                 e_ = torch.concat([g[j] for j in range(self.ens_size)], dim=1)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
+
+    def fforward(self, x):
+        p, g, z = [], [], []
+        for i in range(self.ens_size):
+            f_ = self.headbone( x[i] ).flatten(start_dim=1)
+            g_ = self.projection_head[i]( f_ )
+            g.append( F.normalize( g_.detach(), p=2, dim=1 ) )
+            p_ = self.prediction_head[i]( g_ )
+            p.append( p_ )
+        with torch.no_grad():
+            for i in range(self.ens_size):
+                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                z_  = self.merge_head[i]( e_ )
+                z.append( z_ )        
+        return p, z
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()        
@@ -565,12 +569,15 @@ class SimSimPModel(BenchmarkModule):
         # ((x), (x0,at0), (x1,at1), (x2,at2), (x3,at3)), _, _ = batch
         loss_tot_l = 0
 
-        z = self.forward( x )
+        if self.fastforward:
+            p, z = self.fforward( x )
+        else:
+            z = self.forward( x )
         
         for xi in range(self.ens_size):
-            p_ = self.forward_(x, xi)
+            p_ = p[xi] if self.fastforward else self.forward_(x, xi)
             #increase diversity with abs()
-            loss_l = self.criterion( p_, z[xi] )  / self.ens_size
+            loss_l = self.criterion( p_, z[xi] ) / self.ens_size
             self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() 
         
@@ -593,124 +600,6 @@ class SimSimPModel(BenchmarkModule):
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim], [scheduler]
-
-class NoiseModel(BenchmarkModule):
-    def __init__(self, dataloader_kNN, num_classes):
-        super().__init__(dataloader_kNN, num_classes)
-        self.automatic_optimization = False
-        # create a ResNet backbone and remove the classification head
-        emb_width = 256
-        deb_width = 1024        
-
-        resnet0 = ResNetGenerator("resnet-18", width=emb_width/512.0)
-        resnet1 = ResNetGenerator("resnet-18", width=emb_width/512.0)
-        self.headbone  = nn.ModuleList([
-            nn.Sequential(
-                *list(resnet0.children())[:-1],
-                nn.AdaptiveAvgPool2d(1),
-            ),
-            nn.Sequential(
-                *list(resnet1.children())[:-1],
-                nn.AdaptiveAvgPool2d(1),
-            )
-        ])
-
-        self.backbone = self.headbone[1]
-        
-        self.projection_head = nn.ModuleList([
-            heads.ProjectionHead(
-                [
-                    (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
-                    (deb_width, emb_width, None, None),
-                ]),
-            heads.ProjectionHead(
-                [
-                    (emb_width, deb_width, nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True)),
-                    (deb_width, emb_width, None, None),
-                ])
-        ])
-
-        self.prediction_head = nn.ModuleList([
-            nn.Sequential(
-                    nn.Linear(emb_width, deb_width), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, emb_width), 
-                ),
-            nn.Sequential(
-                    nn.Linear(emb_width, deb_width), nn.BatchNorm1d(deb_width), nn.ReLU(inplace=True),
-                    nn.Linear(deb_width, emb_width), 
-                )
-        ])
-
-        self.criterion = NegativeCosineSimilarity()
-
-    def forward(self, x):
-        # f0 = self.headbone( x[0] ).flatten(start_dim=1)
-        f1 = self.headbone[1]( x[1] ).flatten(start_dim=1)
-        # g0 = self.projection_head[0]( f0 )
-        g1 = self.projection_head[1]( f1 )
-        # p0 = self.prediction_head[0]( g0 )
-        p1 = self.prediction_head[1]( g1 )
-
-        xn0 = x[0] + torch.randn(x[0].size(), device=self.device)
-        # xn1 = x[1] + torch.randn(x[1].size(), device=self.device)
-        fn0 = self.headbone[0]( xn0 ).flatten(start_dim=1)
-        # fn1 = self.headbone( xn1 ).flatten(start_dim=1)
-        gn0 = self.projection_head[0]( fn0 )
-        # gn1 = self.projection_head[1]( fn1 )
-        
-        n0 = gn0-g1.detach()
-        # n1 = gn1-g1
-
-        return n0, p1
-
-    def training_step(self, batch, batch_idx):
-        (x0, x1), _, _ = batch
-        c_opt, e_opt = self.optimizers()
-        
-        n0, p1 = self.forward( [x0, x1] )
-        
-        loss_e = -self.criterion( p1.detach(), n0 )
-        e_opt.zero_grad()
-        self.manual_backward(loss_e)
-        e_opt.step()
-
-        n0, p1 = self.forward( [x0, x1] )
-        
-        loss_c = self.criterion( p1, n0.detach() )
-        c_opt.zero_grad()
-        self.manual_backward(loss_c)
-        c_opt.step()        
-
-        self.log("pred_c", loss_c,   prog_bar=True)
-        self.log("pred_e", loss_e,   prog_bar=True)
-        
-        c_sch, e_sch = self.lr_schedulers()
-        c_sch.step()
-        e_sch.step()
-
-    def configure_optimizers(self):
-        opt_chaser = torch.optim.SGD(    
-            [
-            {'params': self.headbone[1].parameters()},
-            {'params': self.prediction_head[1].parameters()},
-            {'params': self.projection_head[1].parameters()},
-            ],
-            lr=6e-2*lr_factor,
-            momentum=0.9,
-            weight_decay=5e-4,
-        )
-        opt_evader = torch.optim.SGD(
-            [     
-            {'params': self.headbone[0].parameters()},
-            {'params': self.projection_head[0].parameters()},
-            ],
-            lr=6e-2*lr_factor,
-            momentum=0.9,
-            weight_decay=5e-4,
-        )
-        sch_chaser = torch.optim.lr_scheduler.CosineAnnealingLR(opt_chaser, max_epochs)  
-        sch_evader = torch.optim.lr_scheduler.CosineAnnealingLR(opt_evader, max_epochs)  
-        return [opt_chaser, opt_evader], [sch_chaser, sch_evader]
 
 
 class SimSiamModel(BenchmarkModule):
@@ -1324,111 +1213,6 @@ def apply_masks(
     return torch.cat(all_x, dim=0)
 
 
-class IJEPA(BenchmarkModule):
-    def __init__(self, dataloader_kNN, num_classes):
-        super().__init__(dataloader_kNN, num_classes)
-        
-        ema = (0.996, 1.0)
-        ipe_scale = 1.0
-        ipe = len(dataloader_kNN)
-        num_epochs = 10 
-        momentum_scheduler = (
-            ema[0] + i * (ema[1] - ema[0]) / (ipe * num_epochs * ipe_scale)
-            for i in range(int(ipe * num_epochs * ipe_scale) + 1)
-        )
-
-        vit_predictor = torchvision.models.vision_transformer._vision_transformer(
-            patch_size=4,
-            num_layers=1,
-            num_heads=12,
-            hidden_dim=96,
-            mlp_dim=128,
-            weights=None,
-            progress=False,
-            image_size=32,
-        )
-
-        vit_encoder = torchvision.models.vision_transformer._vision_transformer(
-            patch_size=4,
-            num_layers=1,
-            num_heads=12,
-            hidden_dim=96,
-            mlp_dim=128,
-            weights=None,
-            progress=False,
-            image_size=32
-        )
-
-        # vit_predictor = torchvision.models.vit_b_32(pretrained=False)
-        # vit_encoder = torchvision.models.vit_b_32(pretrained=False)
-
-        self.encoder = IJEPABackbone.from_vit(vit_encoder)
-        self.backbone = nn.Sequential(
-            self.encoder, nn.Flatten()
-        )
-
-        self.predictor = IJEPAPredictor.from_vit_encoder(
-            vit_predictor.encoder,
-            (vit_predictor.image_size // vit_predictor.patch_size) ** 2,
-        )
-        self.target_encoder = copy.deepcopy(self.encoder)
-        self.momentum_scheduler = momentum_scheduler
-
-        self.criterion = nn.SmoothL1Loss()
-
-    def forward_target(self, imgs, masks_enc, masks_pred):
-        with torch.no_grad():
-            h = self.target_encoder(imgs)
-            h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim
-            B = len(h)
-            # -- create targets (masked regions of h)
-            h = apply_masks(h, masks_pred)
-            h = repeat_interleave_batch(h, B, repeat=len(masks_enc))
-            return h
-
-    def forward_context(self, imgs, masks_enc, masks_pred):
-        z = self.encoder(imgs, masks_enc)
-        z = self.predictor(z, masks_enc, masks_pred)
-        return z
-
-    def forward(self, x):
-        imgs, masks_enc, masks_pred = x
-        z = self.forward_context(imgs, masks_enc, masks_pred)
-        h = self.forward_target(imgs, masks_enc, masks_pred)
-        return z, h
-    
-    def training_step(self, batch, batch_idx):
-        (imgs, _, _), masks_enc, masks_pred = batch
-        self.update_target_encoder()
-        z, h = self.forward((imgs, masks_enc, masks_pred))
-        loss = self.criterion(z, h)
-        self.log("train_loss_ssl", loss)
-        return loss
-
-    # def configure_optimizers(self):
-    #     params = (
-    #         list(self.encoder.parameters())
-    #         + list(self.predictor.parameters())            
-    #     )
-    #     optim = torch.optim.AdamW(params, lr=1.5e-4)
-    #     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
-    #     return [optim], [scheduler]
-
-    def configure_optimizers(self):
-        optim = torch.optim.SGD(
-            self.parameters(), lr=6e-2 * lr_factor, momentum=0.9, weight_decay=5e-4
-        )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
-        return [optim], [scheduler]
-
-    def update_target_encoder(self):
-        with torch.no_grad():
-            m = next(self.momentum_scheduler)
-            for param_q, param_k in zip(
-                self.encoder.parameters(), self.target_encoder.parameters()
-            ):
-                param_k.data.mul_(m).add_((1.0 - m) * param_q.detach().data)
-
 models = [
     # BarlowTwinsModel,
     # BYOLModel,
@@ -1439,11 +1223,9 @@ models = [
     # NNCLRModel,
     # SimCLRModel,
     # SimSiamModel,
-    SimSimPModel,
-    # NoiseModel,
+    SimSimPModel,    
     # SwaVModel,
     # SMoGModel,
-    # IJEPA,
     # SimMIM,
 ]
 bench_results = dict()
@@ -1454,11 +1236,10 @@ for BenchmarkModel in models:
     runs = []
     model_name = BenchmarkModel.__name__.replace("Model", "")
     for seed in range(n_runs):
-        pl.seed_everything(seed)
-        collator_ssl = ijepa_collator if BenchmarkModel is IJEPA else None        
+        pl.seed_everything(seed)               
         dataset_train_ssl = create_dataset_train_ssl(BenchmarkModel)
         dataloader_train_ssl, dataloader_train_kNN, dataloader_test = get_data_loaders(
-            batch_size=batch_size, dataset_train_ssl=dataset_train_ssl, collator=collator_ssl
+            batch_size=batch_size, dataset_train_ssl=dataset_train_ssl, collator=None
         )
         benchmark_model = BenchmarkModel(dataloader_train_kNN, classes)
 
@@ -1485,8 +1266,7 @@ for BenchmarkModel in models:
             strategy=strategy,
             sync_batchnorm=sync_batchnorm,
             logger=logger,
-            callbacks=[checkpoint_callback],
-            accumulate_grad_batches=int(pseudo_batch_size/batch_size),
+            callbacks=[checkpoint_callback],            
         )
         start = time.time()
         trainer.fit(
