@@ -215,7 +215,7 @@ class SimSimPModel(BenchmarkModule):
         prediction_head = []
         for i in range(self.ens_size):            
             prediction_head_ = nn.Sequential(
-                # nn.BatchNorm1d(emb_width),
+                nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
