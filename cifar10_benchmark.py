@@ -583,10 +583,7 @@ class SimSimPModel(BenchmarkModule):
 
         if self.fastforward:
             p, z = self.fforward( x )
-        else:
-            if self.fastforward:
-            p, z = self.fforward( x )
-        else:
+        else:     
             z = self.forward( x )
         
         for xi in range(self.ens_size):
