@@ -40,21 +40,12 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from lightly.data import LightlyDataset
 from lightly.loss import (
-    BarlowTwinsLoss,
-    DINOLoss,
     NegativeCosineSimilarity,
-    NTXentLoss,
-    SwaVLoss,
 )
 from lightly.models import modules, utils
 from lightly.models.modules import heads
 from lightly.transforms import (
-    BYOLTransform,
-    DINOTransform,
     FastSiamTransform,
-    SimCLRTransform,
-    SimSiamTransform,
-    SwaVTransform,
 )
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils.benchmarking import BenchmarkModule
@@ -64,7 +55,6 @@ from lightly.utils.scheduler import CosineWarmupScheduler
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
 num_workers = 12
-memory_bank_size = 2**16
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
 max_epochs = 200
@@ -90,7 +80,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 256
+batch_size = 128
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
@@ -113,7 +103,7 @@ path_to_train = "/media/tvanzyl/data/imagenet100/train/"
 path_to_test = "/media/tvanzyl/data/imagenet100/val/"
 
 # Use FastSiam augmentations
-num_views=3
+num_views=5
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
 )
@@ -192,9 +182,9 @@ class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
-        self.fastforward = False        
+        self.fastforward = True
         # create a ResNet backbone and remove the classification head
-        prd_width = 256
+        prd_width = 128
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
