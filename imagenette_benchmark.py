@@ -225,12 +225,12 @@ class SimSimPModel(BenchmarkModule):
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         projection_head = []
         projection_head_ = nn.Sequential(
-                # nn.Identity(),                
+                # nn.Identity(),
+                nn.Linear(emb_width, emb_width),
                 nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, emb_width),
                 nn.BatchNorm1d(emb_width, affine=False),
-                nn.ReLU(inplace=True),
             )
         for i in range(self.ens_size):            
             projection_head.append(
@@ -239,8 +239,8 @@ class SimSimPModel(BenchmarkModule):
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []
         prediction_head_ = nn.Sequential(
-                # nn.BatchNorm1d(emb_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, emb_width, False),
+                nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
         for i in range(self.ens_size):
@@ -253,9 +253,6 @@ class SimSimPModel(BenchmarkModule):
                     #Even though BN is not learnable it is still applied as a layer
                     #replace with sparse random projection
                     #using a gaussian random projection
-                    # nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
-                    # nn.BatchNorm1d(emb_width),
-                    # nn.ReLU(inplace=True), 
                     nn.Linear(emb_width, prd_width),
                 )
         for i in range(self.ens_size):
