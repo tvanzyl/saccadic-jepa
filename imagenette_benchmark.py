@@ -249,8 +249,7 @@ class SimSimPModel(BenchmarkModule):
             )
         self.prediction_head = nn.ModuleList(prediction_head)
         merge_head = []        
-        merge_head_ = nn.Sequential(
-                    #Even though BN is not learnable it is still applied as a layer
+        merge_head_ = nn.Sequential(                    
                     #replace with sparse random projection
                     #using a gaussian random projection
                     nn.Linear(emb_width, prd_width),
