@@ -92,10 +92,9 @@ logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 rng = np.random.default_rng()
 
 num_workers = 12
-memory_bank_size = 4096
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -316,7 +315,8 @@ class SimSimPModel(BenchmarkModule):
             self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() / self.ens_size
 
-        f_ = self.backbone(x[xi]).flatten(start_dim=1)
+        with torch.no_grad():
+            f_ = self.backbone(x[xi]).flatten(start_dim=1)
         g_ = g[xi]
         self.log("f_", std_of_l2_normalized(f_),   prog_bar=True)
         self.log("g_", std_of_l2_normalized(g_),   prog_bar=True)
@@ -327,18 +327,18 @@ class SimSimPModel(BenchmarkModule):
             opt.step()
             opt.zero_grad()
             sch.step()     
-            print(f_[0, :8].detach().tolist())
-            print(f_[1, :8].detach().tolist())
-            print("f---")
-            print(g_[0, :8].detach().tolist())
-            print(g_[1, :8].detach().tolist())
-            print("g---")
-            print(p_[0, :8].detach().tolist())
-            print(p_[1, :8].detach().tolist())
-            print("p---")
-            print(z_[0, :8].detach().tolist())
-            print(z_[1, :8].detach().tolist())
-            print("z---")
+            # print(f_[0, :8].detach().tolist())
+            # print(f_[1, :8].detach().tolist())
+            # print("f---")
+            # print(g_[0, :8].detach().tolist())
+            # print(g_[1, :8].detach().tolist())
+            # print("g---")
+            # print(p_[0, :8].detach().tolist())
+            # print(p_[1, :8].detach().tolist())
+            # print("p---")
+            # print(z_[0, :8].detach().tolist())
+            # print(z_[1, :8].detach().tolist())
+            # print("z---")
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
