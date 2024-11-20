@@ -71,53 +71,20 @@ import torch.nn as nn
 import torchvision
 from torch.nn import functional as F
 from pytorch_lightning.loggers import TensorBoardLogger
-from timm.models.vision_transformer import vit_base_patch32_224
-from torchvision.models.vision_transformer import VisionTransformer
 
 from lightly.data import LightlyDataset
 from lightly.loss import (
-    BarlowTwinsLoss,
-    DCLLoss,
-    DCLWLoss,
-    DINOLoss,
-    MSNLoss,
     NegativeCosineSimilarity,
-    NTXentLoss,
-    PMSNLoss,
-    SwaVLoss,
-    TiCoLoss,
-    VICRegLLoss,
-    VICRegLoss,
 )
-from lightly.models import ResNetGenerator, modules, utils
-from lightly.models.modules import (
-    MAEDecoderTIMM,
-    MaskedVisionTransformerTIMM,
-    MaskedVisionTransformerTorchvision,
-    heads,
-    memory_bank,
-)
+
 from lightly.transforms import (
-    BYOLTransform,
-    BYOLView1Transform,
-    BYOLView2Transform,
-    DINOTransform,
     FastSiamTransform,
-    MAETransform,
-    MSNTransform,
-    SimCLRTransform,
-    SimSiamTransform,
-    SMoGTransform,
-    SwaVTransform,
-    VICRegLTransform,
-    VICRegTransform,
 )
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils import scheduler
 from lightly.utils.benchmarking import BenchmarkModule
 from lightly.utils.lars import LARS
-
-from action_transform import ActionTransform, SimSimPTransform, RankingTransform
+from lightly.utils.debug import std_of_l2_normalized
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
@@ -128,11 +95,11 @@ num_workers = 12
 memory_bank_size = 4096
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
-input_size = 128 #int(128*0.63)
+input_size = 128
 
 # Set to True to enable Distributed Data Parallel training.
 distributed = False
@@ -173,7 +140,7 @@ path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 # Use FastSiam augmentations
-num_views=5
+num_views=2
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=input_size)
@@ -258,11 +225,12 @@ class SimSimPModel(BenchmarkModule):
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         projection_head = []
         projection_head_ = nn.Sequential(
-                nn.Linear(emb_width, emb_width),
+                # nn.Identity(),                
                 nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
-                # nn.Linear(emb_width, emb_width),
-                # nn.ReLU(inplace=True), 
+                nn.Linear(emb_width, emb_width),
+                nn.BatchNorm1d(emb_width, affine=False),
+                nn.ReLU(inplace=True),
             )
         for i in range(self.ens_size):            
             projection_head.append(
@@ -270,26 +238,24 @@ class SimSimPModel(BenchmarkModule):
             )
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []
-        for i in range(self.ens_size):            
-            prediction_head_ = nn.Sequential(
+        prediction_head_ = nn.Sequential(
                 # nn.BatchNorm1d(emb_width),
                 # nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
+        for i in range(self.ens_size):
             prediction_head.append(
                 prediction_head_
             )
         self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []
+        merge_head = []        
         merge_head_ = nn.Sequential(
                     #Even though BN is not learnable it is still applied as a layer
                     #replace with sparse random projection
                     #using a gaussian random projection
                     # nn.BatchNorm1d(emb_width*(self.ens_size-1)), 
-                    # nn.ReLU(inplace=True),                    
-                    # nn.Linear(emb_width*(self.ens_size-1), prd_width),
+                    # nn.BatchNorm1d(emb_width),
                     # nn.ReLU(inplace=True), 
-                    nn.BatchNorm1d(emb_width),                                        
                     nn.Linear(emb_width, prd_width),
                 )
         for i in range(self.ens_size):
@@ -332,8 +298,8 @@ class SimSimPModel(BenchmarkModule):
                 # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
                 z_  = self.merge_head[i]( e_ )
-                z.append( z_ )        
-        return p, z
+                z.append( z_ )
+        return p, z, g
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -342,25 +308,45 @@ class SimSimPModel(BenchmarkModule):
         loss_tot_l = 0
 
         if self.fastforward:
-            p, z = self.fforward( x )
+            p, z, g = self.fforward( x )
         else:
             z = self.forward( x )
         
         for xi in range(self.ens_size):
             p_ = p[xi] if self.fastforward else self.forward_(x, xi)
             #increase diversity with abs()
-            loss_l = self.criterion( p_, z[xi] ) #/ self.ens_size
+            z_ = z[xi]
+            loss_l = self.criterion( p_, z_  ) #/ self.ens_size
             self.manual_backward( loss_l )
-            loss_tot_l += loss_l.detach() 
-        
+            loss_tot_l += loss_l.detach() / self.ens_size
+
+        f_ = self.backbone(x[xi]).flatten(start_dim=1)
+        g_ = g[xi]
+        self.log("f_", std_of_l2_normalized(f_),   prog_bar=True)
+        self.log("g_", std_of_l2_normalized(g_),   prog_bar=True)
+        self.log("z_", std_of_l2_normalized(z_),   prog_bar=True)        
+        self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
+
         if self.trainer.is_last_batch:            
             opt.step()
             opt.zero_grad()
-            sch.step()            
+            sch.step()     
+            print(f_[0, :8].detach().tolist())
+            print(f_[1, :8].detach().tolist())
+            print("f---")
+            print(g_[0, :8].detach().tolist())
+            print(g_[1, :8].detach().tolist())
+            print("g---")
+            print(p_[0, :8].detach().tolist())
+            print(p_[1, :8].detach().tolist())
+            print("p---")
+            print(z_[0, :8].detach().tolist())
+            print(z_[1, :8].detach().tolist())
+            print("z---")
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
-                
+        
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
     def configure_optimizers(self):
