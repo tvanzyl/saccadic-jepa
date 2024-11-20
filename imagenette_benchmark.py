@@ -308,9 +308,9 @@ class SimSimPModel(BenchmarkModule):
             z = self.forward( x )
         
         for xi in range(self.ens_size):
-            p_ = p[xi] if self.fastforward else self.forward_(x, xi)
-            #increase diversity with abs()
+            p_ = p[xi] if self.fastforward else self.forward_(x, xi)            
             z_ = z[xi]
+            #increase diversity with abs()
             loss_l = self.criterion( p_, z_  ) #/ self.ens_size
             self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() / self.ens_size
