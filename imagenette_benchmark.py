@@ -116,14 +116,18 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
+num_views = 5
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
-lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
+lr_factor = (pseudo_batch_size/2*num_views) / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
 devices = torch.cuda.device_count() if torch.cuda.is_available() else 1
 accelerator = "gpu" if torch.cuda.is_available() else "cpu"
+
+# Set precison to high to increase performance
+torch.set_float32_matmul_precision('high')
 
 if distributed:
     strategy = "ddp"
@@ -139,7 +143,6 @@ path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
 # Use FastSiam augmentations
-num_views=2
 simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=input_size)
@@ -215,30 +218,30 @@ class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
-        self.fastforward = True        
+        self.fastforward = True
         # create a ResNet backbone and remove the classification head
-        prd_width = 128
+        prd_width = 512
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        projection_head = []
+        projection_head = []     
         projection_head_ = nn.Sequential(
                 # nn.Identity(),
                 nn.Linear(emb_width, emb_width),
                 nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width, affine=False),
-            )
-        for i in range(self.ens_size):            
+            )   
+        for i in range(self.ens_size):
             projection_head.append(
                 projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []
         prediction_head_ = nn.Sequential(
-                nn.Linear(emb_width, emb_width, False),
+                nn.BatchNorm1d(emb_width, affine=False),
+                nn.Linear(emb_width, prd_width, False),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
@@ -247,12 +250,14 @@ class SimSimPModel(BenchmarkModule):
                 prediction_head_
             )
         self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []        
-        merge_head_ = nn.Sequential(                    
-                    #replace with sparse random projection
-                    #using a gaussian random projection
-                    nn.Linear(emb_width, prd_width),
-                )
+        merge_head = []     
+        merge_head_ = nn.Sequential(
+                #replace with sparse random projection
+                #using a gaussian random projection
+                nn.BatchNorm1d(emb_width, affine=False),
+                nn.Linear(emb_width, prd_width),
+                # nn.BatchNorm1d(emb_width, affine=False),
+            )
         for i in range(self.ens_size):
             merge_head.append(
                 merge_head_
@@ -311,7 +316,7 @@ class SimSimPModel(BenchmarkModule):
             p_ = p[xi] if self.fastforward else self.forward_(x, xi)            
             z_ = z[xi]
             #increase diversity with abs()
-            loss_l = self.criterion( p_, z_  ) #/ self.ens_size
+            loss_l = self.criterion( p_, z_  ) / self.ens_size
             self.manual_backward( loss_l )
             loss_tot_l += loss_l.detach() / self.ens_size
 
@@ -323,10 +328,10 @@ class SimSimPModel(BenchmarkModule):
         self.log("z_", std_of_l2_normalized(z_),   prog_bar=True)        
         self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
 
-        if self.trainer.is_last_batch:            
+        if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()     
+            sch.step()
             # print(f_[0, :8].detach().tolist())
             # print(f_[1, :8].detach().tolist())
             # print("f---")
