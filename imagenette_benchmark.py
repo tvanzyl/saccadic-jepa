@@ -120,7 +120,8 @@ num_views = 5
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
-lr_factor = (pseudo_batch_size/2*num_views) / 256  # scales the learning rate linearly with batch size
+# lr_factor = (pseudo_batch_size/2*num_views) / 256  # scales the learning rate linearly with batch size
+lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
 # Number of devices and hardware to use for training.
 devices = torch.cuda.device_count() if torch.cuda.is_available() else 1
@@ -220,7 +221,7 @@ class SimSimPModel(BenchmarkModule):
         self.automatic_optimization = False
         self.fastforward = True
         # create a ResNet backbone and remove the classification head
-        prd_width = 512
+        prd_width = 256
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
@@ -232,7 +233,7 @@ class SimSimPModel(BenchmarkModule):
                 nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width, affine=False),
+                # nn.BatchNorm1d(emb_width, affine=False),
             ) 
         for i in range(self.ens_size):            
             projection_head.append(
@@ -240,9 +241,9 @@ class SimSimPModel(BenchmarkModule):
             )
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []        
-        prediction_head_ = nn.Sequential(
-                # nn.BatchNorm1d(emb_width, affine=False),
-                nn.Linear(emb_width, prd_width, False),
+        prediction_head_ = nn.Sequential(                
+                nn.Linear(emb_width, emb_width, False),
+                nn.BatchNorm1d(emb_width, affine=False),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
@@ -256,9 +257,9 @@ class SimSimPModel(BenchmarkModule):
                 #replace with sparse random projection
                 #using a gaussian random projection
                 # nn.BatchNorm1d(emb_width, affine=False),
-                nn.Linear(emb_width, prd_width),
                 # nn.Linear((self.ens_size-1)*emb_width, prd_width),
-                # nn.BatchNorm1d(emb_width, affine=False),
+                nn.BatchNorm1d(emb_width, affine=False),
+                nn.Linear(emb_width, prd_width),                
             )
         for i in range(self.ens_size):            
             merge_head.append(
@@ -303,9 +304,9 @@ class SimSimPModel(BenchmarkModule):
                 # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
                 # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
                 # z_  = self.merge_head[i]( e_ )
-                # z.append( z_ )
+                # z.append( z_ )        
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)                
+            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
             z.append( z_ )
         return p, z, g
 
@@ -326,7 +327,7 @@ class SimSimPModel(BenchmarkModule):
             #increase diversity with abs()
             loss_l = self.criterion( p_, z_  ) / self.ens_size
             self.manual_backward( loss_l )
-            loss_tot_l += loss_l.detach() / self.ens_size
+            loss_tot_l += loss_l.detach() #/ self.ens_size
 
         with torch.no_grad():
             f_ = self.backbone(x[xi]).flatten(start_dim=1)
@@ -340,6 +341,7 @@ class SimSimPModel(BenchmarkModule):
             opt.step()
             opt.zero_grad()
             sch.step()
+            # nn.init.orthogonal_(self.rand_proj.weight)
             # print(f_[0, :8].detach().tolist())
             # print(f_[1, :8].detach().tolist())
             # print("f---")
