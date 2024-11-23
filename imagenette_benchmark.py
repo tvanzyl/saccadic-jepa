@@ -225,40 +225,42 @@ class SimSimPModel(BenchmarkModule):
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        projection_head = []     
+        projection_head = []               
         projection_head_ = nn.Sequential(
                 # nn.Identity(),
                 nn.Linear(emb_width, emb_width),
                 nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, emb_width),
-            )   
-        for i in range(self.ens_size):
+                nn.BatchNorm1d(emb_width, affine=False),
+            ) 
+        for i in range(self.ens_size):            
             projection_head.append(
                 projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
-        prediction_head = []
+        prediction_head = []        
         prediction_head_ = nn.Sequential(
-                nn.BatchNorm1d(emb_width, affine=False),
+                # nn.BatchNorm1d(emb_width, affine=False),
                 nn.Linear(emb_width, prd_width, False),
                 nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
-        for i in range(self.ens_size):
+        for i in range(self.ens_size):            
             prediction_head.append(
                 prediction_head_
             )
         self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []     
+        merge_head = []             
         merge_head_ = nn.Sequential(
                 #replace with sparse random projection
                 #using a gaussian random projection
-                nn.BatchNorm1d(emb_width, affine=False),
+                # nn.BatchNorm1d(emb_width, affine=False),
                 nn.Linear(emb_width, prd_width),
+                # nn.Linear((self.ens_size-1)*emb_width, prd_width),
                 # nn.BatchNorm1d(emb_width, affine=False),
             )
-        for i in range(self.ens_size):
+        for i in range(self.ens_size):            
             merge_head.append(
                 merge_head_
             )
@@ -279,26 +281,32 @@ class SimSimPModel(BenchmarkModule):
                 g_ = self.projection_head[i]( f_ )
                 g.append( g_.detach() )
             for i in range(self.ens_size):
-                # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-                e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+                # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
 
     def fforward(self, x):
-        p, g, z = [], [], []
+        p, g, e, z = [], [], [], []
         for i in range(self.ens_size):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
             g_ = self.projection_head[i]( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head[i]( g_ )
             p.append( p_ )
-        with torch.no_grad():
-            for i in range(self.ens_size):
+            with torch.no_grad():
+                e_ = self.merge_head[i]( g_.detach() )
+            e.append( e_ )
+        # with torch.no_grad():
+        #     for i in range(self.ens_size):
                 # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-                e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-                z_  = self.merge_head[i]( e_ )
-                z.append( z_ )
+                # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+                # z_  = self.merge_head[i]( e_ )
+                # z.append( z_ )
+        for i in range(self.ens_size):
+            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)                
+            z.append( z_ )
         return p, z, g
 
     def training_step(self, batch, batch_idx):
