@@ -94,7 +94,7 @@ rng = np.random.default_rng()
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -116,7 +116,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-num_views = 2
+num_views = 8
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -220,8 +220,9 @@ class SimSimPModel(BenchmarkModule):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
         self.fastforward = True
+        self.layernorm = True
         # create a ResNet backbone and remove the classification head
-        prd_width = 512
+        prd_width = 4096
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
@@ -229,11 +230,12 @@ class SimSimPModel(BenchmarkModule):
         projection_head = []               
         projection_head_ = nn.Sequential(
                 # nn.Identity(),
-                nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(emb_width, emb_width),
+                # nn.Linear(emb_width, emb_width),
+                # nn.BatchNorm1d(emb_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(emb_width, emb_width),
                 # nn.BatchNorm1d(emb_width, affine=False),
+                nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
             ) 
         for i in range(self.ens_size):            
             projection_head.append(
@@ -242,9 +244,9 @@ class SimSimPModel(BenchmarkModule):
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []        
         prediction_head_ = nn.Sequential(                
-                nn.Linear(emb_width, emb_width, False),
-                nn.BatchNorm1d(emb_width, affine=False),
-                nn.ReLU(inplace=True),
+                # nn.Linear(emb_width, emb_width, False),
+                # nn.BatchNorm1d(emb_width, affine=False),
+                # nn.ReLU(inplace=True),
                 nn.Linear(emb_width, prd_width, False),
             )
         for i in range(self.ens_size):            
@@ -258,8 +260,8 @@ class SimSimPModel(BenchmarkModule):
                 #using a gaussian random projection
                 # nn.BatchNorm1d(emb_width, affine=False),
                 # nn.Linear((self.ens_size-1)*emb_width, prd_width),
-                nn.BatchNorm1d(emb_width, affine=False),
-                nn.Linear(emb_width, prd_width),                
+                # nn.BatchNorm1d(emb_width, affine=False),
+                nn.Linear(emb_width, prd_width),
             )
         for i in range(self.ens_size):            
             merge_head.append(
@@ -287,6 +289,26 @@ class SimSimPModel(BenchmarkModule):
                 z_  = self.merge_head[i]( e_ )
                 z.append( z_ )
         return z
+
+    def ffforward(self, x):
+        p, g, e, z, f = [], [], [], [], []
+        for i in range(self.ens_size):
+            f_ = self.backbone( x[i] ).flatten(start_dim=1)
+            f.append( f_ )
+        f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
+        g__ = self.projection_head[0]( f__ )
+        for i in range(self.ens_size):            
+            g_ = g__[:,i]
+            p_ = self.prediction_head[0]( g_ )
+            g.append( g_ )
+            p.append( p_ )
+            with torch.no_grad():
+                e_ = self.merge_head[0]( g_.detach() )
+            e.append( e_ )
+        for i in range(self.ens_size):
+            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+            z.append( z_ )            
+        return p, z, g
 
     def fforward(self, x):
         p, g, e, z = [], [], [], []
@@ -316,7 +338,9 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch        
         loss_tot_l = 0
 
-        if self.fastforward:
+        if self.fastforward and self.layernorm:            
+            p, z, g = self.ffforward( x )
+        elif self.fastforward:
             p, z, g = self.fforward( x )
         else:
             z = self.forward( x )
@@ -326,7 +350,7 @@ class SimSimPModel(BenchmarkModule):
             z_ = z[xi]
             #increase diversity with abs()
             loss_l = self.criterion( p_, z_  ) / self.ens_size
-            self.manual_backward( loss_l )
+            self.manual_backward( loss_l, retain_graph=True)
             loss_tot_l += loss_l.detach() #/ self.ens_size
 
         with torch.no_grad():
@@ -504,4 +528,5 @@ for model, results in bench_results.items():
         flush=True,
     )
 print("-" * len(header))
+
 
