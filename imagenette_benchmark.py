@@ -116,7 +116,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-num_views = 8
+num_views = 10
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -220,7 +220,7 @@ class SimSimPModel(BenchmarkModule):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
         self.fastforward = True
-        self.layernorm = True
+        self.layernorm = False
         # create a ResNet backbone and remove the classification head
         prd_width = 4096
         self.ens_size = num_views
@@ -234,8 +234,8 @@ class SimSimPModel(BenchmarkModule):
                 # nn.BatchNorm1d(emb_width),
                 # nn.ReLU(inplace=True),
                 # nn.Linear(emb_width, emb_width),
-                # nn.BatchNorm1d(emb_width, affine=False),
-                nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
+                nn.BatchNorm1d(emb_width, affine=False),
+                # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
             ) 
         for i in range(self.ens_size):            
             projection_head.append(
