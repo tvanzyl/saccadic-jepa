@@ -95,7 +95,7 @@ rng = np.random.default_rng()
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -226,9 +226,9 @@ class SimSimPModel(BenchmarkModule):
         # create a ResNet backbone and remove the classification head        
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
-        emb_width = list(resnet.children())[-1].in_features
-        self.prd_width = prd_width = 1024
+        emb_width = list(resnet.children())[-1].in_features        
         self.upd_width = upd_width = 1024
+        self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1],
                                     #   nn.Flatten(start_dim=1),
