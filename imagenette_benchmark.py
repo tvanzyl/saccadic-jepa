@@ -227,7 +227,7 @@ class SimSimPModel(BenchmarkModule):
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
         emb_width = list(resnet.children())[-1].in_features
-        self.prd_width = prd_width = 512
+        self.prd_width = prd_width = 1024
         self.upd_width = upd_width = 1024
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1],
@@ -364,11 +364,12 @@ class SimSimPModel(BenchmarkModule):
         self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
 
         if self.drift:
-            rand_proj = nn.Linear(self.upd_width, self.prd_width)
-            nn.init.orthogonal_(rand_proj)
-            _do_momentum_update(self.rand_proj.parameters(), 
-                                rand_proj.parameters(),
-                                0.999)
+            with torch.no_grad():
+                rand_proj = nn.Linear(self.upd_width, self.prd_width)
+                nn.init.orthogonal_(rand_proj)
+                _do_momentum_update(self.rand_proj.parameters(), 
+                                    rand_proj.parameters(),
+                                    0.999)
 
         if self.trainer.is_last_batch:
             opt.step()
