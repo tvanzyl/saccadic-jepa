@@ -94,7 +94,7 @@ rng = np.random.default_rng()
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -221,94 +221,94 @@ class SimSimPModel(BenchmarkModule):
         self.automatic_optimization = False
         self.fastforward = True
         self.layernorm = False
-        # create a ResNet backbone and remove the classification head
-        prd_width = 512
+        # create a ResNet backbone and remove the classification head        
         self.ens_size = num_views
-        resnet = torchvision.models.resnet18()
+        resnet = torchvision.models.resnet18()        
         emb_width = list(resnet.children())[-1].in_features
-        self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        projection_head = []               
+        prd_width = 256
+        upd_width = 512
+
+        self.backbone = nn.Sequential(*list(resnet.children())[:-1],
+                                    #   nn.Flatten(start_dim=1),
+                                    #   nn.BatchNorm1d(emb_width, affine=False),
+                                      )
+        projection_head = []
         projection_head_ = nn.Sequential(
-                # nn.Identity(),
-                # nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(emb_width, emb_width),
-                # nn.BatchNorm1d(emb_width, affine=False),
+                nn.Identity(),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-            ) 
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, upd_width),
+                nn.BatchNorm1d(upd_width, affine=False),
+            )
         for i in range(self.ens_size):            
             projection_head.append(
                 projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []                
-        for i in range(self.ens_size):            
-            prediction_head_ = nn.Sequential(                
-                nn.Linear(emb_width, emb_width, False),
-                nn.BatchNorm1d(emb_width, affine=False),
+        prediction_head_ = nn.Sequential(      
                 nn.ReLU(inplace=True),
-                nn.Linear(emb_width, prd_width, False),
+                nn.Linear(upd_width, prd_width, False),
             )
+        for i in range(self.ens_size):                        
             prediction_head.append(
                 prediction_head_
             )
         self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []                     
-        for i in range(self.ens_size):            
-            merge_head_ = nn.Sequential(
-                #replace with sparse random projection
-                #using a gaussian random projection
-                # nn.BatchNorm1d(emb_width, affine=False),
-                # nn.Linear((self.ens_size-1)*emb_width, prd_width),
-                nn.BatchNorm1d(emb_width, affine=False),
-                nn.Linear(emb_width, prd_width),
-            )
+        merge_head = []    
+        rand_proj = nn.Linear(upd_width, prd_width)
+        nn.init.orthogonal_(rand_proj.weight)
+        merge_head_ = nn.Sequential(
+                rand_proj
+            )        
+        for i in range(self.ens_size):                        
             merge_head.append(
                 merge_head_
             )
         self.merge_head = nn.ModuleList(merge_head)
         self.criterion = NegativeCosineSimilarity()
 
-    def forward_(self, x, i):
-        f_ = self.backbone( x[i] ).flatten(start_dim=1)
-        g_ = self.projection_head[i]( f_ )        
-        p_ = self.prediction_head[i]( g_ )
-        return p_
+    # def forward_(self, x, i):
+    #     f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #     g_ = self.projection_head[i]( f_ )        
+    #     p_ = self.prediction_head[i]( g_ )
+    #     return p_
     
-    def forward(self, x):
-        g, z = [], []
-        with torch.no_grad():
-            for i in range(self.ens_size):
-                f_ = self.backbone( x[i] ).flatten(start_dim=1)
-                g_ = self.projection_head[i]( f_ )
-                g.append( g_.detach() )
-            for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-                # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-                z_  = self.merge_head[i]( e_ )
-                z.append( z_ )
-        return z
+    # def forward(self, x):
+    #     g, z = [], []
+    #     with torch.no_grad():
+    #         for i in range(self.ens_size):
+    #             f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #             g_ = self.projection_head[i]( f_ )
+    #             g.append( g_.detach() )
+    #         for i in range(self.ens_size):
+    #             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+    #             # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+    #             z_  = self.merge_head[i]( e_ )
+    #             z.append( z_ )
+    #     return z
 
-    def ffforward(self, x):
-        p, g, e, z, f = [], [], [], [], []
-        for i in range(self.ens_size):
-            f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            f.append( f_ )
-        f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
-        g__ = self.projection_head[0]( f__ )
-        for i in range(self.ens_size):            
-            g_ = g__[:,i]
-            p_ = self.prediction_head[0]( g_ )
-            g.append( g_ )
-            p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head[0]( g_.detach() )
-            e.append( e_ )
-        for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-            z.append( z_ )            
-        return p, z, g
+    # def ffforward(self, x):
+    #     p, g, e, z, f = [], [], [], [], []
+    #     for i in range(self.ens_size):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #         f.append( f_ )
+    #     f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
+    #     g__ = self.projection_head[0]( f__ )
+    #     for i in range(self.ens_size):            
+    #         g_ = g__[:,i]
+    #         p_ = self.prediction_head[0]( g_ )
+    #         g.append( g_ )
+    #         p.append( p_ )
+    #         with torch.no_grad():
+    #             e_ = self.merge_head[0]( g_.detach() )
+    #         e.append( e_ )
+    #     for i in range(self.ens_size):
+    #         z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+    #         z.append( z_ )            
+    #     return p, z, g
 
     def fforward(self, x):
         p, g, e, z = [], [], [], []
@@ -442,7 +442,7 @@ for BenchmarkModel in models:
     runs = []
     model_name = BenchmarkModel.__name__.replace("Model", "")
     for seed in range(n_runs):
-        pl.seed_everything(seed)
+        # pl.seed_everything(seed)
         dataset_train_ssl = create_dataset_train_ssl(BenchmarkModel)
         dataloader_train_ssl, dataloader_train_kNN, dataloader_test = get_data_loaders(
             batch_size=batch_size, dataset_train_ssl=dataset_train_ssl
