@@ -222,27 +222,27 @@ class SimSimPModel(BenchmarkModule):
         self.automatic_optimization = False
         self.fastforward = True
         self.layernorm = False
-        self.drift = False
+        self.drift = True
         # create a ResNet backbone and remove the classification head        
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
         emb_width = list(resnet.children())[-1].in_features        
-        self.upd_width = upd_width = 2048
-        self.prd_width = prd_width = 1024
+        self.upd_width = upd_width = 512
+        self.prd_width = prd_width = 256
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1],
-                                    #   nn.Flatten(start_dim=1),
-                                    #   nn.BatchNorm1d(emb_width, affine=False),
+                                      nn.Flatten(start_dim=1),
+                                      nn.BatchNorm1d(emb_width, affine=False),
                                       )
         projection_head = []
         projection_head_ = nn.Sequential(
                 nn.Identity(),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, upd_width),
-                nn.BatchNorm1d(upd_width, affine=False),
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(upd_width, upd_width),
+                # nn.BatchNorm1d(upd_width, affine=False),
             )
         for i in range(self.ens_size):            
             projection_head.append(
@@ -251,8 +251,8 @@ class SimSimPModel(BenchmarkModule):
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []                
         prediction_head_ = nn.Sequential(      
-                nn.Linear(upd_width, upd_width),
-                nn.BatchNorm1d(upd_width, affine=False),
+                # nn.Linear(upd_width, upd_width),
+                # nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width, False),
             )
@@ -368,7 +368,7 @@ class SimSimPModel(BenchmarkModule):
         if self.drift:
             with torch.no_grad():
                 rand_proj = nn.Linear(self.upd_width, self.prd_width)
-                nn.init.orthogonal_(rand_proj)
+                nn.init.orthogonal_(rand_proj.weight)
                 _do_momentum_update(self.rand_proj.parameters(), 
                                     rand_proj.parameters(),
                                     0.999)
