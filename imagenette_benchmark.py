@@ -367,7 +367,7 @@ class SimSimPModel(BenchmarkModule):
 
         if self.drift:
             with torch.no_grad():
-                rand_proj = nn.Linear(self.upd_width, self.prd_width)
+                rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
                 nn.init.orthogonal_(rand_proj.weight)
                 _do_momentum_update(self.rand_proj.parameters(), 
                                     rand_proj.parameters(),
