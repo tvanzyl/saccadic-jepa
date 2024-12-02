@@ -87,6 +87,8 @@ from lightly.utils.lars import LARS
 from lightly.utils.debug import std_of_l2_normalized
 from lightly.models._momentum import _do_momentum_update
 
+from SimplRSiam import L2NormalizationLayer
+
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
 # Random Generator
@@ -215,15 +217,6 @@ def get_data_loaders(batch_size: int, dataset_train_ssl):
     )
 
     return dataloader_train_ssl, dataloader_train_kNN, dataloader_test
-
-class L2NormalizationLayer(nn.Module):
-    def __init__(self, dim=1, eps=1e-12):
-        super(L2NormalizationLayer, self).__init__()
-        self.dim = dim
-        self.eps = eps
-
-    def forward(self, x):
-        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
