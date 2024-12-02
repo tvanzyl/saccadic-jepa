@@ -98,6 +98,7 @@ num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
 max_epochs = 800
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -233,8 +234,8 @@ class SimSimPModel(BenchmarkModule):
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1],
-                                    #   nn.Flatten(start_dim=1),
-                                    #   nn.BatchNorm1d(emb_width, affine=False),
+                                      nn.Flatten(start_dim=1),
+                                      nn.BatchNorm1d(emb_width, affine=False),
                                       )
         projection_head = []
         projection_head_ = nn.Sequential(
@@ -254,6 +255,8 @@ class SimSimPModel(BenchmarkModule):
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []                
         prediction_head_ = nn.Sequential(      
+                # nn.Linear(upd_width, upd_width),
+                # nn.BatchNorm1d(upd_width, affine=False),
                 # nn.Linear(upd_width, upd_width),
                 # nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(inplace=True),
@@ -370,8 +373,8 @@ class SimSimPModel(BenchmarkModule):
 
         if self.drift:
             with torch.no_grad():
-                rand_proj = nn.Linear(self.upd_width, self.prd_width)
-                nn.init.orthogonal_(rand_proj)
+                rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
+                nn.init.orthogonal_(rand_proj.weight)
                 _do_momentum_update(self.rand_proj.parameters(), 
                                     rand_proj.parameters(),
                                     self.drift)
