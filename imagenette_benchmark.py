@@ -120,7 +120,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-num_views = 5
+num_views = 2
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -230,31 +230,31 @@ class SimSimPModel(BenchmarkModule):
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
         emb_width = list(resnet.children())[-1].in_features        
-        self.upd_width = upd_width = 512
-        self.prd_width = prd_width = 512
+        self.upd_width = upd_width = 1024
+        self.prd_width = prd_width = 1024
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1],
-                                      nn.Flatten(start_dim=1),
-                                      nn.BatchNorm1d(emb_width, affine=False),
+                                    #   nn.Flatten(start_dim=1),
+                                    #   nn.BatchNorm1d(emb_width, affine=False),
                                       )
         projection_head = []
         projection_head_ = nn.Sequential(
-                nn.Identity(),
+                # nn.Identity(),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
-                # nn.Linear(upd_width, upd_width),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),      
+                nn.Linear(upd_width, upd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
             )
-        for i in range(self.ens_size):            
+        for i in range(self.ens_size):
             projection_head.append(
                 projection_head_
             )
         self.projection_head = nn.ModuleList(projection_head)
-        prediction_head = []                
-        prediction_head_ = nn.Sequential(      
+        prediction_head = []
+        prediction_head_ = nn.Sequential(
                 # nn.Linear(upd_width, upd_width),
                 # nn.BatchNorm1d(upd_width, affine=False),
                 # nn.Linear(upd_width, upd_width),
@@ -262,7 +262,7 @@ class SimSimPModel(BenchmarkModule):
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width, False),
             )
-        for i in range(self.ens_size):                        
+        for i in range(self.ens_size):
             prediction_head.append(
                 prediction_head_
             )
