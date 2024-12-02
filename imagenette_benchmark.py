@@ -95,7 +95,7 @@ rng = np.random.default_rng()
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -216,19 +216,28 @@ def get_data_loaders(batch_size: int, dataset_train_ssl):
 
     return dataloader_train_ssl, dataloader_train_kNN, dataloader_test
 
+class L2NormalizationLayer(nn.Module):
+    def __init__(self, dim=1, eps=1e-12):
+        super(L2NormalizationLayer, self).__init__()
+        self.dim = dim
+        self.eps = eps
+
+    def forward(self, x):
+        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
+
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
         self.fastforward = True
         self.layernorm = False
-        self.drift = False
+        self.drift = False #0.999
         # create a ResNet backbone and remove the classification head        
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
-        emb_width = list(resnet.children())[-1].in_features
-        self.prd_width = prd_width = 1024
-        self.upd_width = upd_width = 1024
+        emb_width = list(resnet.children())[-1].in_features        
+        self.upd_width = upd_width = 512
+        self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1],
                                     #   nn.Flatten(start_dim=1),
@@ -238,10 +247,11 @@ class SimSimPModel(BenchmarkModule):
         projection_head_ = nn.Sequential(
                 nn.Identity(),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, upd_width),
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(upd_width, upd_width),
+                L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
             )
         for i in range(self.ens_size):            
@@ -251,6 +261,8 @@ class SimSimPModel(BenchmarkModule):
         self.projection_head = nn.ModuleList(projection_head)
         prediction_head = []                
         prediction_head_ = nn.Sequential(      
+                # nn.Linear(upd_width, upd_width),
+                # nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width, False),
             )
@@ -369,7 +381,7 @@ class SimSimPModel(BenchmarkModule):
                 nn.init.orthogonal_(rand_proj)
                 _do_momentum_update(self.rand_proj.parameters(), 
                                     rand_proj.parameters(),
-                                    0.999)
+                                    self.drift)
 
         if self.trainer.is_last_batch:
             opt.step()
