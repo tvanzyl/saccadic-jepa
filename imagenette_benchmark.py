@@ -97,7 +97,7 @@ rng = np.random.default_rng()
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 max_epochs = 800
 knn_k = 200
 knn_t = 0.1
@@ -120,7 +120,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-num_views = 2
+num_views = 5
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -231,53 +231,31 @@ class SimSimPModel(BenchmarkModule):
         resnet = torchvision.models.resnet18()        
         emb_width = list(resnet.children())[-1].in_features        
         self.upd_width = upd_width = 1024
-        self.prd_width = prd_width = 1024
+        self.prd_width = prd_width = 512
 
-        self.backbone = nn.Sequential(*list(resnet.children())[:-1],
-                                    #   nn.Flatten(start_dim=1),
-                                    #   nn.BatchNorm1d(emb_width, affine=False),
-                                      )
-        projection_head = []
-        projection_head_ = nn.Sequential(
-                # nn.Identity(),
+        self.backbone = nn.Sequential(*list(resnet.children())[:-1])
+        self.projection_head = nn.Sequential(
+                nn.Identity(),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
                 nn.Linear(emb_width, upd_width),
                 nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),      
-                nn.Linear(upd_width, upd_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
-                nn.BatchNorm1d(upd_width, affine=False),
+                nn.BatchNorm1d(emb_width, affine=False),
             )
-        for i in range(self.ens_size):
-            projection_head.append(
-                projection_head_
-            )
-        self.projection_head = nn.ModuleList(projection_head)
-        prediction_head = []
-        prediction_head_ = nn.Sequential(
-                # nn.Linear(upd_width, upd_width),
-                # nn.BatchNorm1d(upd_width, affine=False),
-                # nn.Linear(upd_width, upd_width),
-                # nn.BatchNorm1d(upd_width, affine=False),
+        self.prediction_head = nn.Sequential(
+                nn.Linear(emb_width, upd_width, False),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width, False),
             )
-        for i in range(self.ens_size):
-            prediction_head.append(
-                prediction_head_
+        # self.rand_proj = nn.Linear(upd_width, prd_width)
+        # nn.init.orthogonal_(self.rand_proj.weight)
+        self.merge_head = nn.Sequential(
+                nn.Linear(emb_width, upd_width),                
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, prd_width),
             )
-        self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []    
-        self.rand_proj = nn.Linear(upd_width, prd_width)
-        nn.init.orthogonal_(self.rand_proj.weight)
-        merge_head_ = nn.Sequential(
-                self.rand_proj
-            )        
-        for i in range(self.ens_size):                        
-            merge_head.append(
-                merge_head_
-            )
-        self.merge_head = nn.ModuleList(merge_head)
         self.criterion = NegativeCosineSimilarity()
 
     # def forward_(self, x, i):
@@ -317,7 +295,7 @@ class SimSimPModel(BenchmarkModule):
     #         e.append( e_ )
     #     for i in range(self.ens_size):
     #         z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-    #         z.append( z_ )            
+    #         z.append( z_ )
     #     return p, z, g
 
     def fforward(self, x):
@@ -331,12 +309,6 @@ class SimSimPModel(BenchmarkModule):
             with torch.no_grad():
                 e_ = self.merge_head[i]( g_.detach() )
             e.append( e_ )
-        # with torch.no_grad():
-        #     for i in range(self.ens_size):
-                # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-                # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-                # z_  = self.merge_head[i]( e_ )
-                # z.append( z_ )        
         for i in range(self.ens_size):
             z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
             z.append( z_ )
@@ -385,16 +357,7 @@ class SimSimPModel(BenchmarkModule):
             sch.step()            
             # print(f_[0, :8].detach().tolist())
             # print(f_[1, :8].detach().tolist())
-            # print("f---")
-            # print(g_[0, :8].detach().tolist())
-            # print(g_[1, :8].detach().tolist())
-            # print("g---")
-            # print(p_[0, :8].detach().tolist())
-            # print(p_[1, :8].detach().tolist())
-            # print("p---")
-            # print(z_[0, :8].detach().tolist())
-            # print(z_[1, :8].detach().tolist())
-            # print("z---")
+            # print("f---")            
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
@@ -410,42 +373,6 @@ class SimSimPModel(BenchmarkModule):
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim], [scheduler]
-
-# class SimSiamModel(BenchmarkModule):
-#     def __init__(self, dataloader_kNN, num_classes):
-#         super().__init__(dataloader_kNN, num_classes)
-#         # create a ResNet backbone and remove the classification head
-#         resnet = torchvision.models.resnet18()
-#         feature_dim = list(resnet.children())[-1].in_features
-#         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-#         self.projection_head = heads.SimSiamProjectionHead(feature_dim, 2048, 2048)
-#         self.prediction_head = heads.SimSiamPredictionHead(2048, 512, 2048)
-#         self.criterion = NegativeCosineSimilarity()
-
-#     def forward(self, x):
-#         f = self.backbone(x).flatten(start_dim=1)
-#         z = self.projection_head(f)
-#         p = self.prediction_head(z)
-#         z = z.detach()
-#         return z, p
-
-#     def training_step(self, batch, batch_idx):
-#         (x0, x1), _, _ = batch
-#         z0, p0 = self.forward(x0)
-#         z1, p1 = self.forward(x1)
-#         loss = 0.5 * (self.criterion(z0, p1) + self.criterion(z1, p0))
-#         self.log("train_loss_ssl", loss)
-#         return loss
-
-#     def configure_optimizers(self):
-#         optim = torch.optim.SGD(
-#             self.parameters(),
-#             lr=6e-2,  # no lr-scaling, results in better training stability
-#             momentum=0.9,
-#             weight_decay=5e-4,
-#         )
-#         cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
-#         return [optim], [cosine_scheduler]
 
 models = [
     SimSimPModel,
