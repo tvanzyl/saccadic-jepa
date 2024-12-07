@@ -98,7 +98,6 @@ num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
 max_epochs = 200
-max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -120,7 +119,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-num_views = 5
+num_views = 2
 pseudo_batch_size = 256
 batch_size = 256
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -234,15 +233,14 @@ class SimSimPModel(BenchmarkModule):
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        self.projection_head = nn.Sequential(
-                nn.Identity(),
-                # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, emb_width),
+        self.projection_head = nn.Sequential(                                
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(emb_width, affine=False),
+                # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
             )
         self.prediction_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
@@ -255,7 +253,7 @@ class SimSimPModel(BenchmarkModule):
                 nn.Linear(emb_width, upd_width),                
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
-            )
+            )        
         self.criterion = NegativeCosineSimilarity()
 
     # def forward_(self, x, i):
@@ -278,36 +276,36 @@ class SimSimPModel(BenchmarkModule):
     #             z.append( z_ )
     #     return z
 
-    # def ffforward(self, x):
-    #     p, g, e, z, f = [], [], [], [], []
-    #     for i in range(self.ens_size):
-    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)
-    #         f.append( f_ )
-    #     f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
-    #     g__ = self.projection_head[0]( f__ )
-    #     for i in range(self.ens_size):            
-    #         g_ = g__[:,i]
-    #         p_ = self.prediction_head[0]( g_ )
-    #         g.append( g_ )
-    #         p.append( p_ )
-    #         with torch.no_grad():
-    #             e_ = self.merge_head[0]( g_.detach() )
-    #         e.append( e_ )
-    #     for i in range(self.ens_size):
-    #         z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-    #         z.append( z_ )
-    #     return p, z, g
+    def ffforward(self, x):
+        p, g, e, z, f = [], [], [], [], []
+        for i in range(self.ens_size):
+            f_ = self.backbone( x[i] ).flatten(start_dim=1)
+            f.append( f_ )
+        f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
+        g__ = self.projection_head( f__ )
+        for i in range(self.ens_size):            
+            g_ = g__[:,i]
+            p_ = self.prediction_head( g_ )
+            g.append( g_ )
+            p.append( p_ )
+            with torch.no_grad():
+                e_ = self.merge_head( g_.detach() )
+            e.append( e_ )
+        for i in range(self.ens_size):
+            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+            z.append( z_ )
+        return p, z, g
 
     def fforward(self, x):
         p, g, e, z = [], [], [], []
         for i in range(self.ens_size):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            g_ = self.projection_head[i]( f_ )
+            g_ = self.projection_head( f_ )
             g.append( g_.detach() )
-            p_ = self.prediction_head[i]( g_ )
+            p_ = self.prediction_head( g_ )
             p.append( p_ )
             with torch.no_grad():
-                e_ = self.merge_head[i]( g_.detach() )
+                e_ = self.merge_head( g_.detach() )            
             e.append( e_ )
         for i in range(self.ens_size):
             z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
@@ -365,7 +363,7 @@ class SimSimPModel(BenchmarkModule):
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
     def configure_optimizers(self):
-        optim = torch.optim.SGD(    
+        optim = torch.optim.SGD(
             self.parameters(),
             lr=6e-2*lr_factor,
             momentum=0.9,
@@ -472,5 +470,6 @@ for model, results in bench_results.items():
         flush=True,
     )
 print("-" * len(header))
+
 
 
