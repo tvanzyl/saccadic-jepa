@@ -52,6 +52,9 @@ from lightly.utils.benchmarking import BenchmarkModule
 from lightly.utils.lars import LARS
 from lightly.utils.scheduler import CosineWarmupScheduler
 from lightly.utils.debug import std_of_l2_normalized
+from lightly.models._momentum import _do_momentum_update
+
+from SimplRSiam import L2NormalizationLayer
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
@@ -188,76 +191,57 @@ class SimSimPModel(BenchmarkModule):
         self.automatic_optimization = False
         self.fastforward = True
         self.layernorm = False
-        # create a ResNet backbone and remove the classification head
-        prd_width = 512
+        self.drift = False #0.999
+        # create a ResNet backbone and remove the classification head        
         self.ens_size = num_views
-        resnet = torchvision.models.resnet18()
-        emb_width = list(resnet.children())[-1].in_features
+        resnet = torchvision.models.resnet18()        
+        emb_width = list(resnet.children())[-1].in_features        
+        self.upd_width = upd_width = 1024
+        self.prd_width = prd_width = 512
+
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        projection_head = []               
-        projection_head_ = nn.Sequential(
-                # nn.Identity(),
-                nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(emb_width, emb_width),
-                # nn.BatchNorm1d(emb_width, affine=False),
-                # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-            ) 
-        for i in range(self.ens_size):            
-            projection_head.append(
-                projection_head_
-            )
-        self.projection_head = nn.ModuleList(projection_head)
-        prediction_head = []                
-        prediction_head_ = nn.Sequential(                
-                nn.Linear(emb_width, emb_width, False),
-                nn.BatchNorm1d(emb_width, affine=False),
-                nn.ReLU(inplace=True),
-                nn.Linear(emb_width, prd_width, False),
-            )
-        for i in range(self.ens_size):                        
-            prediction_head.append(
-                prediction_head_
-            )
-        self.prediction_head = nn.ModuleList(prediction_head)
-        merge_head = []                     
-        merge_head_ = nn.Sequential(
-                #replace with sparse random projection
-                #using a gaussian random projection
-                # nn.BatchNorm1d(emb_width, affine=False),
-                # nn.Linear((self.ens_size-1)*emb_width, prd_width),
-                # nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width, affine=False),
+        self.projection_head = nn.Sequential(                                
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
                 # nn.ReLU(inplace=True),
-                nn.Linear(emb_width, prd_width),
+                # nn.Linear(upd_width, emb_width),
+                L2NormalizationLayer(),
+                nn.BatchNorm1d(emb_width, affine=False),
+                # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
             )
-        for i in range(self.ens_size):                        
-            merge_head.append(
-                merge_head_
+        self.prediction_head = nn.Sequential(
+                nn.Linear(emb_width, upd_width, False),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, prd_width, False),
             )
-        self.merge_head = nn.ModuleList(merge_head)
+        # self.rand_proj = nn.Linear(upd_width, prd_width)
+        # nn.init.orthogonal_(self.rand_proj.weight)
+        self.merge_head = nn.Sequential(
+                nn.Linear(emb_width, upd_width),                
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, prd_width),
+            )        
         self.criterion = NegativeCosineSimilarity()
 
-    def forward_(self, x, i):
-        f_ = self.backbone( x[i] ).flatten(start_dim=1)
-        g_ = self.projection_head[i]( f_ )        
-        p_ = self.prediction_head[i]( g_ )
-        return p_
+    # def forward_(self, x, i):
+    #     f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #     g_ = self.projection_head[i]( f_ )        
+    #     p_ = self.prediction_head[i]( g_ )
+    #     return p_
     
-    def forward(self, x):
-        g, z = [], []
-        with torch.no_grad():
-            for i in range(self.ens_size):
-                f_ = self.backbone( x[i] ).flatten(start_dim=1)
-                g_ = self.projection_head[i]( f_ )
-                g.append( g_.detach() )
-            for i in range(self.ens_size):
-                e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-                # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-                z_  = self.merge_head[i]( e_ )
-                z.append( z_ )
-        return z
+    # def forward(self, x):
+    #     g, z = [], []
+    #     with torch.no_grad():
+    #         for i in range(self.ens_size):
+    #             f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #             g_ = self.projection_head[i]( f_ )
+    #             g.append( g_.detach() )
+    #         for i in range(self.ens_size):
+    #             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
+    #             # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
+    #             z_  = self.merge_head[i]( e_ )
+    #             z.append( z_ )
+    #     return z
 
     def ffforward(self, x):
         p, g, e, z, f = [], [], [], [], []
@@ -265,37 +249,31 @@ class SimSimPModel(BenchmarkModule):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
             f.append( f_ )
         f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
-        g__ = self.projection_head[0]( f__ )
+        g__ = self.projection_head( f__ )
         for i in range(self.ens_size):            
             g_ = g__[:,i]
-            p_ = self.prediction_head[0]( g_ )
+            p_ = self.prediction_head( g_ )
             g.append( g_ )
             p.append( p_ )
             with torch.no_grad():
-                e_ = self.merge_head[0]( g_.detach() )
+                e_ = self.merge_head( g_.detach() )
             e.append( e_ )
         for i in range(self.ens_size):
             z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-            z.append( z_ )            
+            z.append( z_ )
         return p, z, g
 
     def fforward(self, x):
         p, g, e, z = [], [], [], []
         for i in range(self.ens_size):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            g_ = self.projection_head[i]( f_ )
+            g_ = self.projection_head( f_ )
             g.append( g_.detach() )
-            p_ = self.prediction_head[i]( g_ )
+            p_ = self.prediction_head( g_ )
             p.append( p_ )
             with torch.no_grad():
-                e_ = self.merge_head[i]( g_.detach() )
+                e_ = self.merge_head( g_.detach() )            
             e.append( e_ )
-        # with torch.no_grad():
-        #     for i in range(self.ens_size):
-                # e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-                # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-                # z_  = self.merge_head[i]( e_ )
-                # z.append( z_ )        
         for i in range(self.ens_size):
             z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
             z.append( z_ )
@@ -330,47 +308,26 @@ class SimSimPModel(BenchmarkModule):
         self.log("z_", std_of_l2_normalized(z_),   prog_bar=True)        
         self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
 
+        if self.drift:
+            with torch.no_grad():
+                rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
+                nn.init.orthogonal_(rand_proj.weight)
+                _do_momentum_update(self.rand_proj.parameters(), 
+                                    rand_proj.parameters(),
+                                    self.drift)
+
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()
-            # nn.init.orthogonal_(self.rand_proj.weight)
+            sch.step()            
             # print(f_[0, :8].detach().tolist())
             # print(f_[1, :8].detach().tolist())
-            # print("f---")
-            # print(g_[0, :8].detach().tolist())
-            # print(g_[1, :8].detach().tolist())
-            # print("g---")
-            # print(p_[0, :8].detach().tolist())
-            # print(p_[1, :8].detach().tolist())
-            # print("p---")
-            # print(z_[0, :8].detach().tolist())
-            # print(z_[1, :8].detach().tolist())
-            # print("z---")
+            # print("f---")            
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
         
         self.log("pred_l", loss_tot_l,   prog_bar=True)
-
-    # def configure_optimizers(self):
-    #     param = list(self.backbone.parameters()) + list(self.head.parameters())
-    #     optim = LARS(
-    #         param,
-    #         lr=0.3 * lr_factor,
-    #         weight_decay=1e-6,
-    #         momentum=0.9,
-    #     )
-    #     scheduler = {
-    #         "scheduler": CosineWarmupScheduler(
-    #             optimizer=optim,
-    #             warmup_epochs=steps_per_epoch * 10,
-    #             max_epochs=steps_per_epoch * max_epochs,
-    #         ),
-    #         "interval": "step",
-    #         "frequency": 1,
-    #     }
-    #     return [optim], [scheduler]
 
     def configure_optimizers(self):
         optim = torch.optim.SGD(
