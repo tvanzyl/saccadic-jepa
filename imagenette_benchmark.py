@@ -78,6 +78,7 @@ from lightly.loss import (
 )
 
 from lightly.transforms import (
+    SimCLRTransform,
     FastSiamTransform,
 )
 from lightly.transforms.utils import IMAGENET_NORMALIZE
@@ -97,7 +98,7 @@ rng = np.random.default_rng()
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
+max_epochs = 800
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -151,6 +152,12 @@ simsimp_transform = FastSiamTransform(
     num_views=num_views,
     input_size=input_size)
 
+# Use SimCLR augmentations
+simclr_transform = SimCLRTransform(
+    input_size=input_size,
+    cj_strength=0.5,
+)
+
 normalize_transform = torchvision.transforms.Normalize(
     mean=IMAGENET_NORMALIZE["mean"],
     std=IMAGENET_NORMALIZE["std"],
@@ -180,6 +187,7 @@ def create_dataset_train_ssl(model):
             Model class for which to select the transform.
     """
     model_to_transform = {                
+        # SimSimPModel: simclr_transform, #simsimp_transform,
         SimSimPModel: simsimp_transform,
     }
     transform = model_to_transform[model]
@@ -224,7 +232,7 @@ class SimSimPModel(BenchmarkModule):
         self.automatic_optimization = False
         self.fastforward = True
         self.layernorm = False
-        self.drift = False #0.999
+        self.drift = False
         # create a ResNet backbone and remove the classification head        
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
@@ -233,26 +241,35 @@ class SimSimPModel(BenchmarkModule):
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        self.projection_head = nn.Sequential(                                
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
-                # nn.Linear(upd_width, emb_width),
+        self.projection_head = nn.Sequential(
+                # nn.Linear(emb_width, emb_width),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(emb_width, affine=False),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
             )
+        self.rand_proj_p = nn.Linear(emb_width, prd_width, False)
+        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
         self.prediction_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, prd_width, False),
+                # self.rand_proj_p,                
+                # nn.BatchNorm1d(prd_width, affine=False),
+                # nn.ReLU(inplace=True),
+                self.rand_proj_q,
             )
-        # self.rand_proj = nn.Linear(upd_width, prd_width)
+        # self.rand_proj_m = nn.Linear(emb_width, prd_width)
+        # self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
+        self.rand_proj_n = nn.Linear(emb_width, prd_width)
+        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
+        # nn.init.eye_(self.rand_proj_n.weight)
         # nn.init.orthogonal_(self.rand_proj.weight)
+
         self.merge_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),                
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, prd_width),
+                # self.rand_proj_m,
+                # nn.ReLU(inplace=True),
+                self.rand_proj_n,
             )        
         self.criterion = NegativeCosineSimilarity()
 
@@ -343,16 +360,19 @@ class SimSimPModel(BenchmarkModule):
 
         if self.drift:
             with torch.no_grad():
-                rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
-                nn.init.orthogonal_(rand_proj.weight)
-                _do_momentum_update(self.rand_proj.parameters(), 
-                                    rand_proj.parameters(),
-                                    self.drift)
+                # rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
+                # nn.init.orthogonal_(rand_proj.weight)
+                # _do_momentum_update(self.rand_proj.parameters(), 
+                #                     rand_proj.parameters(),
+                #                     self.drift)
+                tmp = self.rand_proj.bias.data.clone()
+                nn.init.normal_(self.rand_proj.bias, std=self.drift)
+                self.rand_proj.bias.data += (1.0-self.drift)*tmp.data
 
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()            
+            sch.step()
             # print(f_[0, :8].detach().tolist())
             # print(f_[1, :8].detach().tolist())
             # print("f---")            
@@ -370,7 +390,7 @@ class SimSimPModel(BenchmarkModule):
             weight_decay=5e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
-        return [optim], [scheduler]
+        return [optim] , [scheduler]
 
 models = [
     SimSimPModel,
