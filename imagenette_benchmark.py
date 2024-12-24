@@ -187,8 +187,8 @@ def create_dataset_train_ssl(model):
             Model class for which to select the transform.
     """
     model_to_transform = {                
-        # SimSimPModel: simclr_transform, #simsimp_transform,
-        SimSimPModel: simsimp_transform,
+        SimSimPModel: simclr_transform,
+        # SimSimPModel: simsimp_transform,
     }
     transform = model_to_transform[model]
     return LightlyDataset(input_dir=path_to_train, transform=transform)
@@ -233,42 +233,44 @@ class SimSimPModel(BenchmarkModule):
         self.fastforward = True
         self.layernorm = False
         self.drift = False
-        # create a ResNet backbone and remove the classification head        
+        # create a ResNet backbone and remove the classification head
         self.ens_size = num_views
-        resnet = torchvision.models.resnet18()        
-        emb_width = list(resnet.children())[-1].in_features        
-        self.upd_width = upd_width = 1024
+        resnet = torchvision.models.resnet18()
+        emb_width = list(resnet.children())[-1].in_features
+        self.upd_width = upd_width = 512
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, emb_width),
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, emb_width),
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(upd_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
-                nn.BatchNorm1d(emb_width, affine=False),
+                nn.BatchNorm1d(prd_width, affine=False),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
             )
-        self.rand_proj_p = nn.Linear(emb_width, prd_width, False)
+        # self.rand_proj_p = nn.Linear(prd_width, prd_width, False)
         self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
         self.prediction_head = nn.Sequential(
-                # self.rand_proj_p,                
+                # self.rand_proj_p,
                 # nn.BatchNorm1d(prd_width, affine=False),
-                # nn.ReLU(inplace=True),
+                nn.ReLU(inplace=True),
                 self.rand_proj_q,
             )
-        # self.rand_proj_m = nn.Linear(emb_width, prd_width)
+        # self.rand_proj_m = nn.Linear(prd_width, prd_width)
         # self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
-        self.rand_proj_n = nn.Linear(emb_width, prd_width)
+        # nn.init.eye_(self.rand_proj_m.weight)
+        self.rand_proj_n = nn.Linear(prd_width, prd_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        # nn.init.orthogonal_(self.rand_proj.weight)
+        # nn.init.orthogonal_(self.rand_proj_n.weight)
 
         self.merge_head = nn.Sequential(
                 # self.rand_proj_m,
-                # nn.ReLU(inplace=True),
                 self.rand_proj_n,
             )        
         self.criterion = NegativeCosineSimilarity()
@@ -346,7 +348,7 @@ class SimSimPModel(BenchmarkModule):
             p_ = p[xi] if self.fastforward else self.forward_(x, xi)            
             z_ = z[xi]
             #increase diversity with abs()
-            loss_l = self.criterion( p_, z_  ) / self.ens_size
+            loss_l = self.criterion( p_, z_ ) / self.ens_size
             self.manual_backward( loss_l )#, retain_graph=True)
             loss_tot_l += loss_l.detach()
 
