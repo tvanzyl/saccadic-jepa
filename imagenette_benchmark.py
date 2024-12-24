@@ -237,16 +237,16 @@ class SimSimPModel(BenchmarkModule):
         self.ens_size = num_views
         resnet = torchvision.models.resnet18()        
         emb_width = list(resnet.children())[-1].in_features        
-        self.upd_width = upd_width = 1024
+        self.upd_width = upd_width = 512        
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
         self.projection_head = nn.Sequential(
                 # nn.Linear(emb_width, emb_width),
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, emb_width),
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
+                # nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(emb_width, affine=False),
                 # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
@@ -254,21 +254,21 @@ class SimSimPModel(BenchmarkModule):
         self.rand_proj_p = nn.Linear(emb_width, prd_width, False)
         self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
         self.prediction_head = nn.Sequential(
-                # self.rand_proj_p,                
-                # nn.BatchNorm1d(prd_width, affine=False),
-                # nn.ReLU(inplace=True),
+                self.rand_proj_p,                
+                nn.BatchNorm1d(prd_width, affine=False),
+                nn.ReLU(inplace=True),
                 self.rand_proj_q,
             )
-        # self.rand_proj_m = nn.Linear(emb_width, prd_width)
-        # self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
+        self.rand_proj_m = nn.Linear(emb_width, prd_width)
+        self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
+        # nn.init.eye_(self.rand_proj_m.weight)
         self.rand_proj_n = nn.Linear(emb_width, prd_width)
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        # nn.init.orthogonal_(self.rand_proj.weight)
+        # nn.init.orthogonal_(self.rand_proj_n.weight)
 
         self.merge_head = nn.Sequential(
-                # self.rand_proj_m,
-                # nn.ReLU(inplace=True),
+                self.rand_proj_m,
                 self.rand_proj_n,
             )        
         self.criterion = NegativeCosineSimilarity()
