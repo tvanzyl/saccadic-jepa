@@ -229,15 +229,12 @@ def get_data_loaders(batch_size: int, dataset_train_ssl):
 class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
-        self.automatic_optimization = False
-        self.fastforward = True
-        self.layernorm = False
-        self.drift = False
+        self.automatic_optimization = False        
         # create a ResNet backbone and remove the classification head
         self.ens_size = num_views
-        resnet = torchvision.models.resnet18()        
+        resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features        
-        self.upd_width = upd_width = 1024
+        self.upd_width = upd_width = 512
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
@@ -275,46 +272,6 @@ class SimSimPModel(BenchmarkModule):
             )        
         self.criterion = NegativeCosineSimilarity()
 
-    # def forward_(self, x, i):
-    #     f_ = self.backbone( x[i] ).flatten(start_dim=1)
-    #     g_ = self.projection_head[i]( f_ )        
-    #     p_ = self.prediction_head[i]( g_ )
-    #     return p_
-    
-    # def forward(self, x):
-    #     g, z = [], []
-    #     with torch.no_grad():
-    #         for i in range(self.ens_size):
-    #             f_ = self.backbone( x[i] ).flatten(start_dim=1)
-    #             g_ = self.projection_head[i]( f_ )
-    #             g.append( g_.detach() )
-    #         for i in range(self.ens_size):
-    #             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-    #             # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-    #             z_  = self.merge_head[i]( e_ )
-    #             z.append( z_ )
-    #     return z
-
-    def ffforward(self, x):
-        p, g, e, z, f = [], [], [], [], []
-        for i in range(self.ens_size):
-            f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            f.append( f_ )
-        f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
-        g__ = self.projection_head( f__ )
-        for i in range(self.ens_size):            
-            g_ = g__[:,i]
-            p_ = self.prediction_head( g_ )
-            g.append( g_ )
-            p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )
-            e.append( e_ )
-        for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-            z.append( z_ )
-        return p, z, g
-
     def fforward(self, x):
         p, g, e, z = [], [], [], []
         for i in range(self.ens_size):
@@ -337,15 +294,10 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch        
         loss_tot_l = 0
 
-        if self.fastforward and self.layernorm:            
-            p, z, g = self.ffforward( x )
-        elif self.fastforward:
-            p, z, g = self.fforward( x )
-        else:
-            z = self.forward( x )
+        p, z, g = self.fforward( x )
         
         for xi in range(self.ens_size):
-            p_ = p[xi] if self.fastforward else self.forward_(x, xi)            
+            p_ = p[xi]
             z_ = z[xi]
             #increase diversity with abs()
             loss_l = self.criterion( p_, z_ ) / self.ens_size
@@ -360,24 +312,10 @@ class SimSimPModel(BenchmarkModule):
         self.log("z_", std_of_l2_normalized(z_),   prog_bar=True)        
         self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
 
-        if self.drift:
-            with torch.no_grad():
-                # rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
-                # nn.init.orthogonal_(rand_proj.weight)
-                # _do_momentum_update(self.rand_proj.parameters(), 
-                #                     rand_proj.parameters(),
-                #                     self.drift)
-                tmp = self.rand_proj.bias.data.clone()
-                nn.init.normal_(self.rand_proj.bias, std=self.drift)
-                self.rand_proj.bias.data += (1.0-self.drift)*tmp.data
-
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
             sch.step()
-            # print(f_[0, :8].detach().tolist())
-            # print(f_[1, :8].detach().tolist())
-            # print("f---")            
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
