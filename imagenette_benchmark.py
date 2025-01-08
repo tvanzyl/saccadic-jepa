@@ -121,8 +121,8 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 num_views = 2
-pseudo_batch_size = 256
-batch_size = 256
+pseudo_batch_size = 64
+batch_size = 64
 accumulate_grad_batches = pseudo_batch_size // batch_size
 # lr_factor = (pseudo_batch_size/2*num_views) / 256  # scales the learning rate linearly with batch size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
@@ -235,47 +235,37 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 512
+        self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
+
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
-                # nn.Linear(upd_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
-                nn.BatchNorm1d(prd_width, affine=False),                
+                nn.BatchNorm1d(prd_width, affine=False),
             )
-        self.rand_proj_p = nn.Linear(prd_width, prd_width, False)
+        
         self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
         self.prediction_head = nn.Sequential(
-                self.rand_proj_p,
-                nn.BatchNorm1d(prd_width, affine=False),
                 nn.ReLU(inplace=True),
                 self.rand_proj_q,
             )
         
-        self.rand_proj_m = nn.Linear(prd_width, prd_width)
-        self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
-        # nn.init.eye_(self.rand_proj_m.weight)
         self.rand_proj_n = nn.Linear(prd_width, prd_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
-        # nn.init.eye_(self.rand_proj_n.weight)
-        # nn.init.orthogonal_(self.rand_proj_n.weight)
-        self.merge_head = nn.Sequential(
-                self.rand_proj_m,
-                self.rand_proj_n,
-            )        
+        self.merge_head = self.rand_proj_n
+
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
-        p, g, e, z = [], [], [], []
+        f, p, g, e, z = [], [], [], [], []
         for i in range(self.ens_size):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
+            f.append( f_.detach() )
             g_ = self.projection_head( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
@@ -284,9 +274,9 @@ class SimSimPModel(BenchmarkModule):
                 e_ = self.merge_head( g_.detach() )
             e.append( e_ )
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-            z.append( z_ )
-        return p, z, g
+            z_ = [e[j] for j in range(self.ens_size) if j != i]
+            z.append( z_[0] )
+        return f, p, z, g
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -294,22 +284,22 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch        
         loss_tot_l = 0
 
-        p, z, g = self.forward( x )
+        f, p, z, g = self.forward( x )
         
+        loss_l = 0
         for xi in range(self.ens_size):
             p_ = p[xi]
-            z_ = z[xi]            
-            loss_l = self.criterion( p_, z_ ) / self.ens_size
-            self.manual_backward( loss_l ) #, retain_graph=True)
-            loss_tot_l += loss_l.detach()
+            z_ = z[xi]
+            loss_l += self.criterion( p_, z_ ) / self.ens_size
+        loss_tot_l = loss_l.detach()
+        self.manual_backward( loss_l )
 
-        with torch.no_grad():
-            f_ = self.backbone(x[xi]).flatten(start_dim=1)
         g_ = g[xi]
-        self.log("f_", std_of_l2_normalized(f_),   prog_bar=True)
-        self.log("g_", std_of_l2_normalized(g_),   prog_bar=True)
-        self.log("z_", std_of_l2_normalized(z_),   prog_bar=True)        
-        self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
+        f_ = f[xi]
+        self.log("f_", std_of_l2_normalized(f_))
+        self.log("g_", std_of_l2_normalized(g_))
+        self.log("z_", std_of_l2_normalized(z_))
+        self.log("p_", std_of_l2_normalized(p_))
 
         if self.trainer.is_last_batch:
             opt.step()
@@ -357,7 +347,7 @@ for BenchmarkModel in models:
             save_dir=os.path.join(logs_root_dir, "imagenette"),
             name="",
             sub_dir=sub_dir,
-            version=experiment_version,
+            version=experiment_version,            
         )
         if experiment_version is None:
             # Save results of all models under same version directory
@@ -373,7 +363,8 @@ for BenchmarkModel in models:
             strategy=strategy,
             sync_batchnorm=sync_batchnorm,
             logger=logger,
-            callbacks=[checkpoint_callback],            
+            log_every_n_steps=10,
+            callbacks=[checkpoint_callback],
         )
         start = time.time()
         trainer.fit(

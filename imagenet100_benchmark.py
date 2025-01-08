@@ -45,6 +45,7 @@ from lightly.loss import (
 from lightly.models import modules, utils
 from lightly.models.modules import heads
 from lightly.transforms import (
+    SimCLRTransform,
     FastSiamTransform,
 )
 from lightly.transforms.utils import IMAGENET_NORMALIZE
@@ -115,6 +116,9 @@ simsimp_transform = FastSiamTransform(
     num_views=num_views,
 )
 
+# Use SimCLR augmentations
+simclr_transform = SimCLRTransform()
+
 # No additional augmentations for the test set
 test_transforms = torchvision.transforms.Compose(
     [
@@ -147,7 +151,8 @@ def create_dataset_train_ssl(model):
             Model class for which to select the transform.
     """
     model_to_transform = {
-        SimSimPModel: simsimp_transform,
+        SimSimPModel: simclr_transform,
+        # SimSimPModel: simsimp_transform,
     }
     transform = model_to_transform[model]
     return LightlyDataset(input_dir=path_to_train, transform=transform)
@@ -189,95 +194,53 @@ class SimSimPModel(BenchmarkModule):
     def __init__(self, dataloader_kNN, num_classes):
         super().__init__(dataloader_kNN, num_classes)
         self.automatic_optimization = False
-        self.fastforward = True
-        self.layernorm = False
-        self.drift = False #0.999
-        # create a ResNet backbone and remove the classification head        
-        self.ens_size = num_views
-        resnet = torchvision.models.resnet18()        
-        emb_width = list(resnet.children())[-1].in_features        
+        # create a ResNet backbone and remove the classification head
+        resnet = torchvision.models.resnet18()
+        emb_width = list(resnet.children())[-1].in_features
+        
+        self.ens_size = num_views        
         self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
-        self.projection_head = nn.Sequential(                                
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
-                # nn.Linear(upd_width, emb_width),
-                L2NormalizationLayer(),
-                nn.BatchNorm1d(emb_width, affine=False),
-                # nn.LayerNorm((num_views, emb_width), elementwise_affine=False),
-            )
-        self.prediction_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, prd_width, False),
-            )
-        # self.rand_proj = nn.Linear(upd_width, prd_width)
-        # nn.init.orthogonal_(self.rand_proj.weight)
-        self.merge_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),                
+
+        self.projection_head = nn.Sequential(
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
-            )        
+                L2NormalizationLayer(),
+                nn.BatchNorm1d(prd_width, affine=False),
+            )
+        
+        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
+        self.prediction_head = nn.Sequential(
+                nn.ReLU(inplace=True),
+                self.rand_proj_q,
+            )
+        
+        self.rand_proj_n = nn.Linear(prd_width, prd_width) 
+        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data        
+        self.merge_head = self.rand_proj_n
+
         self.criterion = NegativeCosineSimilarity()
 
-    # def forward_(self, x, i):
-    #     f_ = self.backbone( x[i] ).flatten(start_dim=1)
-    #     g_ = self.projection_head[i]( f_ )        
-    #     p_ = self.prediction_head[i]( g_ )
-    #     return p_
-    
-    # def forward(self, x):
-    #     g, z = [], []
-    #     with torch.no_grad():
-    #         for i in range(self.ens_size):
-    #             f_ = self.backbone( x[i] ).flatten(start_dim=1)
-    #             g_ = self.projection_head[i]( f_ )
-    #             g.append( g_.detach() )
-    #         for i in range(self.ens_size):
-    #             e_ = torch.concat([g[j] for j in range(self.ens_size) if j != i], dim=1)
-    #             # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-    #             z_  = self.merge_head[i]( e_ )
-    #             z.append( z_ )
-    #     return z
-
-    def ffforward(self, x):
-        p, g, e, z, f = [], [], [], [], []
+    def forward(self, x):
+        f, p, g, e, z = [], [], [], [], []
         for i in range(self.ens_size):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            f.append( f_ )
-        f__ = torch.stack([f[i] for i in range(self.ens_size)], dim=1)
-        g__ = self.projection_head( f__ )
-        for i in range(self.ens_size):            
-            g_ = g__[:,i]
-            p_ = self.prediction_head( g_ )
-            g.append( g_ )
-            p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )
-            e.append( e_ )
-        for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-            z.append( z_ )
-        return p, z, g
-
-    def fforward(self, x):
-        p, g, e, z = [], [], [], []
-        for i in range(self.ens_size):
-            f_ = self.backbone( x[i] ).flatten(start_dim=1)
+            f.append( f_.detach() )
             g_ = self.projection_head( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
             with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )            
+                e_ = self.merge_head( g_.detach() )
             e.append( e_ )
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=2).mean(dim=2)
-            z.append( z_ )
-        return p, z, g
+            z_ = [e[j] for j in range(self.ens_size) if j != i]
+            z.append( z_[0] )
+        return f, p, z, g
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -285,44 +248,27 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch        
         loss_tot_l = 0
 
-        if self.fastforward and self.layernorm:            
-            p, z, g = self.ffforward( x )
-        elif self.fastforward:
-            p, z, g = self.fforward( x )
-        else:
-            z = self.forward( x )
+        f, p, z, g = self.forward( x )
         
+        loss_l = 0
         for xi in range(self.ens_size):
-            p_ = p[xi] if self.fastforward else self.forward_(x, xi)            
-            z_ = z[xi]
-            #increase diversity with abs()
-            loss_l = self.criterion( p_, z_  ) / self.ens_size
-            self.manual_backward( loss_l )#, retain_graph=True)
-            loss_tot_l += loss_l.detach()
+            p_ = p[xi]
+            z_ = z[xi]            
+            loss_l += self.criterion( p_, z_ ) / self.ens_size
+        loss_tot_l = loss_l.detach()
+        self.manual_backward( loss_l )
 
-        with torch.no_grad():
-            f_ = self.backbone(x[xi]).flatten(start_dim=1)
         g_ = g[xi]
-        self.log("f_", std_of_l2_normalized(f_),   prog_bar=True)
-        self.log("g_", std_of_l2_normalized(g_),   prog_bar=True)
-        self.log("z_", std_of_l2_normalized(z_),   prog_bar=True)        
-        self.log("p_", std_of_l2_normalized(p_),   prog_bar=True)
-
-        if self.drift:
-            with torch.no_grad():
-                rand_proj = nn.Linear(self.upd_width, self.prd_width, device=self.device)
-                nn.init.orthogonal_(rand_proj.weight)
-                _do_momentum_update(self.rand_proj.parameters(), 
-                                    rand_proj.parameters(),
-                                    self.drift)
+        f_ = f[xi]
+        self.log("f_", std_of_l2_normalized(f_))
+        self.log("g_", std_of_l2_normalized(g_))
+        self.log("z_", std_of_l2_normalized(z_))
+        self.log("p_", std_of_l2_normalized(p_))
 
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
             sch.step()            
-            # print(f_[0, :8].detach().tolist())
-            # print(f_[1, :8].detach().tolist())
-            # print("f---")            
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
@@ -332,7 +278,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=0.05 * lr_factor,
+            lr=0.05*lr_factor*2.0,
             momentum=0.9,
             weight_decay=1e-4,
         )
