@@ -59,6 +59,9 @@ from SimplRSiam import L2NormalizationLayer
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
+# Trade-off precision for performance.
+torch.set_float32_matmul_precision('high')
+
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
