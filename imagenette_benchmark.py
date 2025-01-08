@@ -121,8 +121,8 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 num_views = 2
-pseudo_batch_size = 256
-batch_size = 256
+pseudo_batch_size = 64
+batch_size = 64
 accumulate_grad_batches = pseudo_batch_size // batch_size
 # lr_factor = (pseudo_batch_size/2*num_views) / 256  # scales the learning rate linearly with batch size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
@@ -250,24 +250,24 @@ class SimSimPModel(BenchmarkModule):
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),                
             )
-        self.rand_proj_p = nn.Linear(prd_width, prd_width, False)
+        # self.rand_proj_p = nn.Linear(prd_width, prd_width, False)
         self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
         self.prediction_head = nn.Sequential(
-                self.rand_proj_p,
-                nn.BatchNorm1d(prd_width, affine=False),
+                # self.rand_proj_p,
+                # nn.BatchNorm1d(prd_width, affine=False),
                 nn.ReLU(inplace=True),
                 self.rand_proj_q,
             )
         
-        self.rand_proj_m = nn.Linear(prd_width, prd_width)
-        self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
+        # self.rand_proj_m = nn.Linear(prd_width, prd_width)
+        # self.rand_proj_m.weight.data = self.rand_proj_p.weight.data
         # nn.init.eye_(self.rand_proj_m.weight)
         self.rand_proj_n = nn.Linear(prd_width, prd_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
         # nn.init.orthogonal_(self.rand_proj_n.weight)
         self.merge_head = nn.Sequential(
-                self.rand_proj_m,
+                # self.rand_proj_m,
                 self.rand_proj_n,
             )        
         self.criterion = NegativeCosineSimilarity()
