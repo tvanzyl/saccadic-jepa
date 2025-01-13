@@ -127,8 +127,6 @@ num_views = 2
 simsimp_transform = BYOLTransform(
     view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
     view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
-    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.2),
-    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.2),
 )
 
 # No additional augmentations for the test set
