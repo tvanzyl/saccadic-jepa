@@ -200,10 +200,10 @@ simsiam_transform = SimSiamTransform(
 # Use BYOL augmentations (no blur, no solarization)
 num_views=2
 # Use SWAV augmentations
-simsimp_transform = SimCLRTransform(input_size=32,
-                                    cj_strength=0.5,
-                                    gaussian_blur=0.0,
-                                    min_scale=0.14)
+simsimp_transform = BYOLTransform(
+    view_1_transform=BYOLView1Transform(input_size=32, gaussian_blur=0.0, min_scale=0.14),
+    view_2_transform=BYOLView2Transform(input_size=32, gaussian_blur=0.0, min_scale=0.14),
+)
 
 # Multi crop augmentation for FastSiam
 fast_siam_transform = FastSiamTransform(input_size=32, gaussian_blur=0.0)
@@ -503,9 +503,9 @@ class SimSimPModel(BenchmarkModule):
                         )    
             
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),                
