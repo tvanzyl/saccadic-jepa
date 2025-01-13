@@ -125,6 +125,8 @@ simsimp_transform = FastSiamTransform(
 # Use BYOL augmentations
 num_views = 2
 simsimp_transform = BYOLTransform(
+    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
+    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
     view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.2),
     view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.2),
 )
@@ -209,11 +211,15 @@ class SimSimPModel(BenchmarkModule):
         
         self.ens_size = num_views        
         self.upd_width = upd_width = 512
+        self.upd_width = upd_width = 512
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         self.projection_head = nn.Sequential(
+                # nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
                 # nn.Linear(emb_width, upd_width),
                 # nn.BatchNorm1d(upd_width),
                 # nn.ReLU(inplace=True),
@@ -289,6 +295,7 @@ class SimSimPModel(BenchmarkModule):
             self.parameters(),
             lr=0.2*lr_factor,
             momentum=0.9,
+            weight_decay=1e-4,
             weight_decay=1e-4,
         )
         # optim = torch.optim.AdamW(
