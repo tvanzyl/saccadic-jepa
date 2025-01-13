@@ -318,7 +318,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=6e-2*lr_factor*2.5,
+            lr=6e-2*lr_factor*2.0,
             momentum=0.9,
             weight_decay=5e-4,
         )
