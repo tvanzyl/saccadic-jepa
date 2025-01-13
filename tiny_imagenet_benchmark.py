@@ -91,7 +91,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 256
+batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 

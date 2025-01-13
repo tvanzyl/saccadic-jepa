@@ -137,8 +137,6 @@ gather_distributed = False
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 128
 batch_size = pseudo_batch_size
-pseudo_batch_size = 128
-batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 128  # scales the learning rate linearly with batch size
 
@@ -505,12 +503,9 @@ class SimSimPModel(BenchmarkModule):
                         )    
             
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),                
