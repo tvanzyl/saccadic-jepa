@@ -119,8 +119,8 @@ path_to_test = "/media/tvanzyl/data/imagenet100/val/"
 # Use FastSiam augmentations
 num_views=2
 simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=input_size),
-    view_2_transform=BYOLView2Transform(input_size=input_size),
+    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
+    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
 )
 
 # No additional augmentations for the test set
@@ -202,15 +202,15 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 512
+        self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
@@ -281,7 +281,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=0.1*lr_factor, #larger (Nette 0.06)
+            lr=0.25*lr_factor, #larger (Nette 0.06)
             momentum=0.9,
             weight_decay=1e-4, #smaller larger is more decay (Nette 5e-4)
         )
