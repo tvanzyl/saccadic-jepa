@@ -91,7 +91,7 @@ gather_distributed = False
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
-batch_size = 256
+batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
 
@@ -125,8 +125,8 @@ simsimp_transform = FastSiamTransform(
 # Use BYOL augmentations
 num_views = 2
 simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
-    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
+    view_1_transform=BYOLView1Transform(input_size=input_size, gaussian_blur=0.0, min_scale=0.14),
+    view_2_transform=BYOLView2Transform(input_size=input_size, gaussian_blur=0.0, min_scale=0.14),
 )
 
 # No additional augmentations for the test set
@@ -207,13 +207,13 @@ class SimSimPModel(BenchmarkModule):
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         
-        self.ens_size = num_views        
+        self.ens_size = num_views                
         self.upd_width = upd_width = 512
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
-        self.projection_head = nn.Sequential(
+        self.projection_head = nn.Sequential(                
                 # nn.Linear(emb_width, upd_width),
                 # nn.BatchNorm1d(upd_width),
                 # nn.ReLU(inplace=True),
@@ -287,12 +287,19 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=0.25*lr_factor,
-            momentum=0.9,
+            lr=0.2*lr_factor,
+            momentum=0.9,            
             weight_decay=1e-4,
         )
+        # optim = torch.optim.AdamW(
+        #     self.parameters(),
+        #     lr=0.001,
+        #     weight_decay=1e-6
+        # )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
+        # scheduler = torch.optim.lr_scheduler.ConstantLR(optim, factor=1.0, total_iters=0)
         return [optim], [scheduler]
+        
 
 models = [
     SimSimPModel,
@@ -305,7 +312,7 @@ for BenchmarkModel in models:
     runs = []
     model_name = BenchmarkModel.__name__.replace("Model", "")
     for seed in range(n_runs):
-        pl.seed_everything(seed)
+        pl.seed_everything(seed+1)
         dataset_train_ssl = create_dataset_train_ssl(BenchmarkModel)
         dataloader_train_ssl, dataloader_train_kNN, dataloader_test = get_data_loaders(
             batch_size=batch_size, dataset_train_ssl=dataset_train_ssl

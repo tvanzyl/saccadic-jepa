@@ -113,6 +113,7 @@ torch.set_float32_matmul_precision('high')
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
 max_epochs = 200
+max_epochs = 200
 num_workers = 8
 knn_k = 200
 knn_t = 0.1
@@ -199,10 +200,9 @@ simsiam_transform = SimSiamTransform(
 
 # Use BYOL augmentations (no blur, no solarization)
 num_views=2
-# Use SWAV augmentations
 simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=32, gaussian_blur=0.0, min_scale=0.14),
-    view_2_transform=BYOLView2Transform(input_size=32, gaussian_blur=0.0, min_scale=0.14),
+    view_1_transform=BYOLView1Transform(input_size=32, gaussian_blur=0.0, min_scale=0.2),
+    view_2_transform=BYOLView2Transform(input_size=32, gaussian_blur=0.0, min_scale=0.2),
 )
 
 # Multi crop augmentation for FastSiam
@@ -270,7 +270,7 @@ def create_dataset_train_ssl(model):
         MocoModel: simclr_transform,
         NNCLRModel: simclr_transform,
         SimCLRModel: simclr_transform,
-        SimSiamModel: simsiam_transform,
+        SimSiamModel: simsiam_transform,        
         SimSimPModel: simsimp_transform,
         SwaVModel: swav_transform,
         SMoGModel: smog_transform,        
@@ -503,9 +503,9 @@ class SimSimPModel(BenchmarkModule):
                         )    
             
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),                
