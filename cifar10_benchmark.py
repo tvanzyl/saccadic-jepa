@@ -197,12 +197,42 @@ simsiam_transform = SimSiamTransform(
     gaussian_blur=0.0,
 )
 
-# Use BYOL augmentations (no blur, no solarization)
-num_views=2
-simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=32, gaussian_blur=0.0, min_scale=0.08),
-    view_2_transform=BYOLView2Transform(input_size=32, gaussian_blur=0.0, min_scale=0.08),
-)
+input_size=32
+# Use Multi-Crop augmentations https://arxiv.org/html/2403.05726v1#bib.bib7
+num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
+num_views = 2 + num_local_views
+simsimp_transform = {
+32:DINOTransform(global_crop_size=32,
+                 global_crop_scale=(0.14, 1.0),
+                 n_local_views=0,
+                 gaussian_blur=(0, 0, 0),
+                ),
+64:DINOTransform(global_crop_size=64,
+                 global_crop_scale=(0.25, 1.0),
+                 local_crop_size=32,
+                 local_crop_scale=(0.14, 0.25),
+                 gaussian_blur=(0, 0, 0),
+                ),
+96:DINOTransform(global_crop_size=96,
+                 global_crop_scale=(0.25, 1.0),
+                 local_crop_size=48,
+                 local_crop_scale=(0.14, 0.25),
+                ),
+128:DINOTransform(global_crop_size=128,
+                  global_crop_scale=(0.25, 1.0),
+                  local_crop_size=64,
+                  local_crop_scale=(0.08, 0.25),
+                ),
+244:DINOTransform(global_crop_size=224,
+                  global_crop_scale=(0.25, 1.0),
+                  local_crop_scale =(0.08, 0.25),
+                ),
+}[input_size]
+# num_views=2
+# simsimp_transform = BYOLTransform(
+#     view_1_transform=BYOLView1Transform(input_size=32, gaussian_blur=0.0, min_scale=0.08),
+#     view_2_transform=BYOLView2Transform(input_size=32, gaussian_blur=0.0, min_scale=0.08),
+# )
 
 # Multi crop augmentation for FastSiam
 fast_siam_transform = FastSiamTransform(input_size=32, gaussian_blur=0.0)
@@ -535,7 +565,7 @@ class SimSimPModel(BenchmarkModule):
                 e_ = self.merge_head( g_.detach() )
             e.append( e_ )
         for i in range(self.ens_size):
-            z_ = [e[j] for j in range(self.ens_size) if j != i]
+            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
             z.append( z_[0] )
         return f, p, z, g
 

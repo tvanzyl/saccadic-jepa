@@ -119,8 +119,8 @@ path_to_test = "/media/tvanzyl/data/imagenet100/val/"
 # Use FastSiam augmentations
 num_views=2
 simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
-    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
+    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.08),
+    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.08),
 )
 
 # No additional augmentations for the test set
@@ -281,7 +281,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=0.25*lr_factor, #larger (Nette 0.06)
+            lr=0.2*lr_factor, #larger (Nette 0.06)
             momentum=0.9,
             weight_decay=1e-4, #smaller larger is more decay (Nette 5e-4)
         )
