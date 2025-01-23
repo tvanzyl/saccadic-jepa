@@ -82,7 +82,9 @@ from lightly.transforms import (
     FastSiamTransform,
     BYOLTransform,
     BYOLView1Transform,
-    BYOLView2Transform,    
+    BYOLView2Transform,
+    DINOTransform,
+    
 )
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils import scheduler
@@ -152,12 +154,40 @@ else:
 path_to_train = "/media/tvanzyl/data/imagenette2-160/train/"
 path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 
-# Use BYOL augmentations
-num_views = 2
-simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
-    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
-)
+# Use Multi-Crop augmentations https://arxiv.org/html/2403.05726v1#bib.bib7
+num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
+num_views = 2 + num_local_views
+simsimp_transform = {
+32:DINOTransform(global_crop_size=32,
+                 global_crop_scale=(0.14, 1.0),
+                 n_local_views=0,
+                 gaussian_blur=(0, 0, 0),
+                ),
+64:DINOTransform(global_crop_size=64,
+                 global_crop_scale=(0.25, 1.0),
+                 local_crop_size=32,
+                 local_crop_scale=(0.14, 0.25),
+                 gaussian_blur=(0, 0, 0),
+                ),
+96:DINOTransform(global_crop_size=96,
+                 global_crop_scale=(0.25, 1.0),
+                 local_crop_size=48,
+                 local_crop_scale=(0.14, 0.25),
+                ),
+128:DINOTransform(global_crop_size=128,
+                  global_crop_scale=(0.25, 1.0),
+                  local_crop_size=64,
+                  local_crop_scale=(0.08, 0.25),
+                ),
+244:DINOTransform(global_crop_size=224,
+                  global_crop_scale=(0.25, 1.0),
+                  local_crop_scale =(0.08, 0.25),
+                ),
+}[input_size]
+# simsimp_transform = BYOLTransform(
+#     view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
+#     view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
+# )
 
 normalize_transform = torchvision.transforms.Normalize(
     mean=IMAGENET_NORMALIZE["mean"],
@@ -234,13 +264,13 @@ class SimSimPModel(BenchmarkModule):
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         
-        self.ens_size = num_views        
+        self.ens_size = num_views                
         self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
-        self.projection_head = nn.Sequential(
+        self.projection_head = nn.Sequential(                
                 nn.Linear(emb_width, upd_width),                
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
@@ -278,14 +308,14 @@ class SimSimPModel(BenchmarkModule):
                 e_ = self.merge_head( g_.detach() )
             e.append( e_ )
         for i in range(self.ens_size):
-            z_ = [e[j] for j in range(self.ens_size) if j != i]
-            z.append( z_[0] )
+            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
+            z.append( z_ )
         return f, p, z, g
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
         sch = self.lr_schedulers()
-        x, _, _ = batch        
+        x, _, _ = batch
         loss_tot_l = 0
 
         f, p, z, g = self.forward( x )
@@ -318,7 +348,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=0.1, #*lr_factor,
+            lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
@@ -424,6 +454,7 @@ for model, results in bench_results.items():
         flush=True,
     )
 print("-" * len(header))
+
 
 
 
