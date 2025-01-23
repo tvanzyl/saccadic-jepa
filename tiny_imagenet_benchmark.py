@@ -125,8 +125,8 @@ simsimp_transform = FastSiamTransform(
 # Use BYOL augmentations
 num_views = 2
 simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=input_size, gaussian_blur=0.0, min_scale=0.14),
-    view_2_transform=BYOLView2Transform(input_size=input_size, gaussian_blur=0.0, min_scale=0.14),
+    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
+    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
 )
 
 # No additional augmentations for the test set
@@ -289,7 +289,7 @@ class SimSimPModel(BenchmarkModule):
             self.parameters(),
             lr=0.2*lr_factor,
             momentum=0.9,            
-            weight_decay=1e-4,
+            weight_decay=5e-5,
         )
         # optim = torch.optim.AdamW(
         #     self.parameters(),
