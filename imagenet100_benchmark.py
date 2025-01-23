@@ -117,14 +117,6 @@ else:
 path_to_train = "/media/tvanzyl/data/imagenet100/train/"
 path_to_test = "/media/tvanzyl/data/imagenet100/val/"
 
-<<<<<<< HEAD
-# Use FastSiam augmentations
-num_views=2
-simsimp_transform = BYOLTransform(
-    view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.08),
-    view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.08),
-)
-=======
 # Use Multi-Crop augmentations https://arxiv.org/html/2403.05726v1#bib.bib7
 num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
 num_views = 2 + num_local_views
@@ -160,7 +152,6 @@ simsimp_transform = {
 #     view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
 #     view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
 # )
->>>>>>> origin/main
 
 # No additional augmentations for the test set
 test_transforms = torchvision.transforms.Compose(
