@@ -239,7 +239,7 @@ class SimSimPModel(BenchmarkModule):
         
         self.ens_size = num_views                
         self.upd_width = upd_width = 512
-        self.prd_width = prd_width = 1024
+        self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
@@ -278,13 +278,13 @@ class SimSimPModel(BenchmarkModule):
             e.append( e_ )
         for i in range(self.ens_size):
             z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
-            z.append( z_[0] )
+            z.append( z_ )
         return f, p, z, g
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
         sch = self.lr_schedulers()
-        x, _, _ = batch        
+        x, _, _ = batch
         loss_tot_l = 0
 
         f, p, z, g = self.forward( x )
@@ -298,7 +298,7 @@ class SimSimPModel(BenchmarkModule):
         self.manual_backward( loss_l )
 
         g_ = g[xi]
-        f_ = f[xi]
+        f_ = f[xi]        
         self.log("f_", std_of_l2_normalized(f_))
         self.log("g_", std_of_l2_normalized(g_))
         self.log("z_", std_of_l2_normalized(z_))

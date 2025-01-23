@@ -566,7 +566,7 @@ class SimSimPModel(BenchmarkModule):
             e.append( e_ )
         for i in range(self.ens_size):
             z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
-            z.append( z_[0] )
+            z.append( z_ )
         return f, p, z, g
 
     def training_step(self, batch, batch_idx):
