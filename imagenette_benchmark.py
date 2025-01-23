@@ -264,17 +264,13 @@ class SimSimPModel(BenchmarkModule):
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         
-        self.ens_size = num_views        
-        self.upd_width = upd_width = 1024
+        self.ens_size = num_views                
         self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
-        self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),                
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
+        self.projection_head = nn.Sequential(                
                 nn.Linear(emb_width, upd_width),                
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
