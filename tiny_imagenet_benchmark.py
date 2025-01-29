@@ -118,10 +118,10 @@ path_to_train = "/media/tvanzyl/data/tiny-imagenet-200/train/"
 path_to_test = "/media/tvanzyl/data/tiny-imagenet-200/val/"
 
 # Use FastSiam augmentations
-num_views=2
-simsimp_transform = FastSiamTransform(
-    num_views=num_views,
-)
+# num_views=2
+# simsimp_transform = FastSiamTransform(
+#     num_views=num_views,
+# )
 
 # Use Multi-Crop augmentations https://arxiv.org/html/2403.05726v1#bib.bib7
 num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
@@ -136,7 +136,7 @@ simsimp_transform = {
                  global_crop_scale=(0.25, 1.0),
                  local_crop_size=32,
                  local_crop_scale=(0.14, 0.25),
-                 gaussian_blur=(0, 0, 0),
+                #  gaussian_blur=(0, 0, 0),
                 ),
 96:DINOTransform(global_crop_size=96,
                  global_crop_scale=(0.25, 1.0),
@@ -239,7 +239,7 @@ class SimSimPModel(BenchmarkModule):
         
         self.ens_size = num_views                
         self.upd_width = upd_width = 512
-        self.prd_width = prd_width = 512
+        self.prd_width = prd_width = 1024
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
@@ -252,13 +252,13 @@ class SimSimPModel(BenchmarkModule):
                 nn.BatchNorm1d(prd_width, affine=False),
             )
         
-        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
+        self.rand_proj_q = nn.Linear(prd_width, emb_width, False)
         self.prediction_head = nn.Sequential(
                 nn.ReLU(inplace=True),
                 self.rand_proj_q,
             )
         
-        self.rand_proj_n = nn.Linear(prd_width, prd_width) 
+        self.rand_proj_n = nn.Linear(prd_width, emb_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data        
         self.merge_head = self.rand_proj_n
 
@@ -273,13 +273,35 @@ class SimSimPModel(BenchmarkModule):
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )
-            e.append( e_ )
+        with torch.no_grad():
+            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1) 
+            e_ = torch.stack([g[j] for j in range(self.ens_size)], dim=1).mean(dim=1)
+            z_ = self.merge_head( e_ )
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
+            # with torch.no_grad():
+            #     e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1) 
+            #     z_ = self.merge_head( e_ )
             z.append( z_ )
         return f, p, z, g
+    
+    # def forward(self, x):
+    #     f, p, g, = [], [], []
+    #     for i in range(self.ens_size):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #         f.append( f_.detach() )
+    #         g_ = self.projection_head( f_ )
+    #         g.append( g_.detach() )
+    #         p_ = self.prediction_head( g_ )
+    #         p.append( p_ )
+    #     with torch.no_grad():
+    #         z0_ = self.merge_head( g[0] )
+    #         z1_ = self.merge_head( g[1] )
+    #         e_ =  torch.stack([g[0], g[1]], dim=1).mean(dim=1)
+    #         z_ = self.merge_head( e_ )
+    #     z = [z1_, z0_]
+    #     for i in range(2, self.ens_size):
+    #         z.append( z_ )
+    #     return f, p, z, g
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
