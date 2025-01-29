@@ -134,7 +134,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 64
+pseudo_batch_size = 512
 batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 128  # scales the learning rate linearly with batch size
@@ -379,14 +379,9 @@ class SimSimPModel(BenchmarkModule):
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-        with torch.no_grad():
-            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)            
-            # z1_ = self.merge_head( g[1] )
-            # z.append( z1_)
-            # z0_ = self.merge_head( g[0] )
-            # z.append( z0_)
-            e_ = torch.stack([g[0], g[1]], dim=1).mean(dim=1)
-            z_ = self.merge_head( e_ )
+            with torch.no_grad():
+                e_ = self.merge_head( g_.detach() )
+            e.append( e_ )
         for i in range(self.ens_size):
             z.append( z_ )
 
@@ -435,7 +430,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=6e-2, #*lr_factor,
+            lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )
