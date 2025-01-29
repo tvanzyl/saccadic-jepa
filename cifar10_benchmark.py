@@ -112,7 +112,7 @@ rng = np.random.default_rng()
 torch.set_float32_matmul_precision('high')
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 num_workers = 8
 knn_k = 200
 knn_t = 0.1
@@ -134,7 +134,7 @@ gather_distributed = False
 
 # benchmark
 n_runs = 1  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 512
+pseudo_batch_size = 128
 batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 128  # scales the learning rate linearly with batch size
@@ -211,7 +211,7 @@ simsimp_transform = {
                  global_crop_scale=(0.25, 1.0),
                  local_crop_size=32,
                  local_crop_scale=(0.14, 0.25),
-                 gaussian_blur=(0, 0, 0),
+                #  gaussian_blur=(0, 0, 0),
                 ),
 96:DINOTransform(global_crop_size=96,
                  global_crop_scale=(0.25, 1.0),
@@ -532,9 +532,9 @@ class SimSimPModel(BenchmarkModule):
                         )    
             
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),                
@@ -561,12 +561,12 @@ class SimSimPModel(BenchmarkModule):
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )
-            e.append( e_ )
+        with torch.no_grad():
+            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
+            e_ = torch.stack([g[j] for j in range(self.ens_size)], dim=1).mean(dim=1)
+            z_ = self.merge_head( e_ )
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
-            z.append( z_[0] )
+            z.append( z_ )
         return f, p, z, g
 
     def training_step(self, batch, batch_idx):
@@ -605,7 +605,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=6e-2, #*lr_factor,
+            lr=6e-2*lr_factor,
             momentum=0.9,
             weight_decay=5e-4,
         )

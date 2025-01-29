@@ -63,6 +63,7 @@ import copy
 import os
 import sys
 import time
+import math
 
 import numpy as np
 import pytorch_lightning as pl
@@ -159,29 +160,30 @@ num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
 num_views = 2 + num_local_views
 simsimp_transform = {
 32:DINOTransform(global_crop_size=32,
-                 global_crop_scale=(0.14, 1.0),
+                 global_crop_scale=(0.2, 1.0),
                  n_local_views=0,
                  gaussian_blur=(0, 0, 0),
                 ),
 64:DINOTransform(global_crop_size=64,
-                 global_crop_scale=(0.25, 1.0),
+                 global_crop_scale=(0.2, 1.0),
                  local_crop_size=32,
-                 local_crop_scale=(0.14, 0.25),
-                 gaussian_blur=(0, 0, 0),
+                 local_crop_scale=(0.05, 0.2),
+                #  gaussian_blur=(1.0, 0.1, 0.0),
                 ),
 96:DINOTransform(global_crop_size=96,
-                 global_crop_scale=(0.25, 1.0),
+                 global_crop_scale=(0.2, 1.0),
                  local_crop_size=48,
-                 local_crop_scale=(0.14, 0.25),
+                 local_crop_scale=(0.05, 0.2),
+                #  gaussian_blur=(1.0, 0.1, 0.0),
                 ),
 128:DINOTransform(global_crop_size=128,
-                  global_crop_scale=(0.25, 1.0),
+                  global_crop_scale=(0.2, 1.0),
                   local_crop_size=64,
-                  local_crop_scale=(0.08, 0.25),
+                  local_crop_scale=(0.05, 0.2),
                 ),
 244:DINOTransform(global_crop_size=224,
-                  global_crop_scale=(0.25, 1.0),
-                  local_crop_scale =(0.08, 0.25),
+                  global_crop_scale=(0.2, 1.0),
+                  local_crop_scale =(0.05, 0.14),
                 ),
 }[input_size]
 # simsimp_transform = BYOLTransform(
@@ -265,15 +267,15 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views                
-        self.upd_width = upd_width = 1024
+        self.upd_width = upd_width = 512
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         self.projection_head = nn.Sequential(                
-                nn.Linear(emb_width, upd_width),                
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
+                # nn.Linear(emb_width, upd_width),                
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
@@ -291,26 +293,58 @@ class SimSimPModel(BenchmarkModule):
         self.rand_proj_n = nn.Linear(prd_width, prd_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        self.merge_head = self.rand_proj_n
+        self.merge_head = self.rand_proj_n        
+        
+        # self.factor = self.merge_head.bias/max_epochs
+        # self.bias = self.merge_head.bias.clone()
 
         self.criterion = NegativeCosineSimilarity()
 
+    # def forward(self, x):
+    #     p, g, e, z = [], [], [], []
+    #     for i in range(self.ens_size):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)            
+    #         g_ = self.projection_head( f_ )
+    #         g.append( g_.detach() )
+    #         p_ = self.prediction_head( g_ )
+    #         p.append( p_ )
+    #     with torch.no_grad():
+    #         # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
+    #         e_ = torch.stack(g, dim=1).mean(dim=1)
+    #         z_ = self.merge_head( e_ )
+    #     for i in range(self.ens_size):
+    #         z.append( z_ )
+    #     return f_.detach(), p, z, g_.detach()
     def forward(self, x):
-        f, p, g, e, z = [], [], [], [], []
-        for i in range(self.ens_size):
+        p, g, e, z = [], [], [], []
+        #Pass Through Each Global Seperate
+        for i in range(2):
             f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            f.append( f_.detach() )
             g_ = self.projection_head( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )
-            e.append( e_ )
+        with torch.no_grad():
+            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
+            z1_ = self.merge_head( g[1] )
+            z0_ = self.merge_head( g[0] )
+            z_ = torch.stack([z0_, z1_], dim=1).mean(dim=1)
+
+        #Pass Through The Locals Together
+        if self.ens_size > 2:
+            x__ = torch.cat( x[2:] )
+            f__ = self.backbone( x__ ).flatten(start_dim=1)
+            g__ = self.projection_head( f__ )
+            p__ = self.prediction_head( g__ )
+            p.extend( p__.chunk(self.ens_size-2) )
+        # with torch.no_grad():
+            # e_ = torch.stack([g[0], g[1]], dim=1).mean(dim=1)
+            # z_ = self.merge_head( e_ )
+            
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
             z.append( z_ )
-        return f, p, z, g
+
+        return f_.detach(), p, z, g_.detach()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -318,7 +352,7 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch
         loss_tot_l = 0
 
-        f, p, z, g = self.forward( x )
+        f_, p, z, g_ = self.forward( x )
         
         loss_l = 0
         for xi in range(self.ens_size):
@@ -328,8 +362,6 @@ class SimSimPModel(BenchmarkModule):
         loss_tot_l = loss_l.detach()
         self.manual_backward( loss_l )
 
-        g_ = g[xi]
-        f_ = f[xi]
         self.log("f_", std_of_l2_normalized(f_))
         self.log("g_", std_of_l2_normalized(g_))
         self.log("z_", std_of_l2_normalized(z_))
@@ -348,9 +380,9 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=6e-2*lr_factor,
+            lr=6e-2*lr_factor*2.5,
             momentum=0.9,
-            weight_decay=5e-4,
+            weight_decay=1e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim] , [scheduler]

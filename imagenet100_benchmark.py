@@ -45,11 +45,6 @@ from lightly.loss import (
 from lightly.models import modules, utils
 from lightly.models.modules import heads
 from lightly.transforms import (
-    SimCLRTransform,
-    FastSiamTransform,
-    BYOLTransform,
-    BYOLView1Transform,
-    BYOLView2Transform,    
     DINOTransform,
 )
 from lightly.transforms.utils import IMAGENET_NORMALIZE
@@ -142,7 +137,7 @@ simsimp_transform = {
                   local_crop_size=64,
                   local_crop_scale=(0.08, 0.25),
                 ),
-244:DINOTransform(global_crop_size=224,
+224:DINOTransform(global_crop_size=224,
                   global_crop_scale=(0.25, 1.0),
                   local_crop_scale =(0.08, 0.25),
                 ),
@@ -232,48 +227,47 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 512
-        self.prd_width = prd_width = 2048
+        self.upd_width = upd_width = 1024
+        self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
             )
         
-        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
+        self.rand_proj_q = nn.Linear(prd_width, emb_width, False)
         self.prediction_head = nn.Sequential(
                 nn.ReLU(inplace=True),
                 self.rand_proj_q,
             )
         
-        self.rand_proj_n = nn.Linear(prd_width, prd_width) 
+        self.rand_proj_n = nn.Linear(prd_width, emb_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data        
         self.merge_head = self.rand_proj_n
 
         self.criterion = NegativeCosineSimilarity()
 
     def forward(self, x):
-        f, p, g, e, z = [], [], [], [], []
+        p, g, e, z = [], [], [], []
         for i in range(self.ens_size):
-            f_ = self.backbone( x[i] ).flatten(start_dim=1)
-            f.append( f_.detach() )
+            f_ = self.backbone( x[i] ).flatten(start_dim=1)            
             g_ = self.projection_head( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-            with torch.no_grad():
-                e_ = self.merge_head( g_.detach() )
-            e.append( e_ )
+        with torch.no_grad():
+            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
+            e_ = torch.stack(g, dim=1).mean(dim=1)
+            z_ = self.merge_head( e_ )
         for i in range(self.ens_size):
-            z_ = torch.stack([e[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
-            z.append( z_[0] )
-        return f, p, z, g
+            z.append( z_ )
+        return f_.detach(), p, z, g_.detach()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -281,18 +275,16 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch        
         loss_tot_l = 0
 
-        f, p, z, g = self.forward( x )
+        f_, p, z, g_ = self.forward( x )
         
         loss_l = 0
         for xi in range(self.ens_size):
             p_ = p[xi]
-            z_ = z[xi]            
+            z_ = z[xi]
             loss_l += self.criterion( p_, z_ ) / self.ens_size
         loss_tot_l = loss_l.detach()
         self.manual_backward( loss_l )
 
-        g_ = g[xi]
-        f_ = f[xi]
         self.log("f_", std_of_l2_normalized(f_))
         self.log("g_", std_of_l2_normalized(g_))
         self.log("z_", std_of_l2_normalized(z_))
@@ -311,7 +303,7 @@ class SimSimPModel(BenchmarkModule):
     def configure_optimizers(self):
         optim = torch.optim.SGD(
             self.parameters(),
-            lr=0.2*lr_factor, #larger (Nette 0.06)
+            lr=0.15*lr_factor, #larger (Nette 0.06)
             momentum=0.9,
             weight_decay=1e-4, #smaller larger is more decay (Nette 5e-4)
         )
