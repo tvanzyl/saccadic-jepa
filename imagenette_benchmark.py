@@ -162,19 +162,19 @@ simsimp_transform = {
 32:DINOTransform(global_crop_size=32,
                  global_crop_scale=(0.2, 1.0),
                  n_local_views=0,
-                 gaussian_blur=(0, 0, 0),
+                 gaussian_blur=(0.0, 0.0, 0.0),
                 ),
 64:DINOTransform(global_crop_size=64,
                  global_crop_scale=(0.2, 1.0),
                  local_crop_size=32,
                  local_crop_scale=(0.05, 0.2),
-                #  gaussian_blur=(1.0, 0.1, 0.0),
+                 gaussian_blur=(1.0, 0.1, 0.0),
                 ),
 96:DINOTransform(global_crop_size=96,
                  global_crop_scale=(0.2, 1.0),
                  local_crop_size=48,
                  local_crop_scale=(0.05, 0.2),
-                #  gaussian_blur=(1.0, 0.1, 0.0),
+                 gaussian_blur=(1.0, 0.1, 0.0),
                 ),
 128:DINOTransform(global_crop_size=128,
                   global_crop_scale=(0.2, 1.0),
@@ -294,9 +294,6 @@ class SimSimPModel(BenchmarkModule):
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
         self.merge_head = self.rand_proj_n        
-        
-        # self.factor = self.merge_head.bias/max_epochs
-        # self.bias = self.merge_head.bias.clone()
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -315,6 +312,7 @@ class SimSimPModel(BenchmarkModule):
     #     for i in range(self.ens_size):
     #         z.append( z_ )
     #     return f_.detach(), p, z, g_.detach()
+
     def forward(self, x):
         p, g, e, z = [], [], [], []
         #Pass Through Each Global Seperate
@@ -324,27 +322,26 @@ class SimSimPModel(BenchmarkModule):
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-        with torch.no_grad():
-            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
-            z1_ = self.merge_head( g[1] )
-            z0_ = self.merge_head( g[0] )
-            z_ = torch.stack([z0_, z1_], dim=1).mean(dim=1)
 
         #Pass Through The Locals Together
         if self.ens_size > 2:
             x__ = torch.cat( x[2:] )
             f__ = self.backbone( x__ ).flatten(start_dim=1)
             g__ = self.projection_head( f__ )
-            p__ = self.prediction_head( g__ )
+            p__ = self.prediction_head( g__ )           
             p.extend( p__.chunk(self.ens_size-2) )
-        # with torch.no_grad():
-            # e_ = torch.stack([g[0], g[1]], dim=1).mean(dim=1)
-            # z_ = self.merge_head( e_ )
-            
-        for i in range(self.ens_size):
-            z.append( z_ )
+        
+        # Create The Teacher Weighted Equal To Globals and Locals
+        with torch.no_grad():   
+            e_ = torch.stack(g, dim=1).mean(dim=1)
+            zg_ = self.merge_head( e_ )
+            e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
+            zl_ = self.merge_head( e__ )
+            z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
+        # for i in range(self.ens_size):
+        #     z.append( z_ )
 
-        return f_.detach(), p, z, g_.detach()
+        return f_.detach(), p, z_, g_.detach()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -352,12 +349,12 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch
         loss_tot_l = 0
 
-        f_, p, z, g_ = self.forward( x )
+        f_, p, z_, g_ = self.forward( x )
         
         loss_l = 0
         for xi in range(self.ens_size):
             p_ = p[xi]
-            z_ = z[xi]
+            # z_ = z[xi]
             loss_l += self.criterion( p_, z_ ) / self.ens_size
         loss_tot_l = loss_l.detach()
         self.manual_backward( loss_l )
@@ -370,7 +367,9 @@ class SimSimPModel(BenchmarkModule):
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()            
+            sch.step()     
+            # Stop Exploding Weights In Shared Head
+            F.normalize(self.merge_head.weight.data, out=self.merge_head.weight.data)
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
@@ -378,11 +377,14 @@ class SimSimPModel(BenchmarkModule):
         self.log("pred_l", loss_tot_l,   prog_bar=True)
 
     def configure_optimizers(self):
-        optim = torch.optim.SGD(
-            self.parameters(),
+        optim = torch.optim.SGD([
+                {'params': self.backbone.parameters(), 'weight_decay': 1e-4},
+                {'params': self.projection_head.parameters()},
+                {'params': self.prediction_head.parameters()},                
+            ],            
             lr=6e-2*lr_factor*2.5,
             momentum=0.9,
-            weight_decay=1e-4,
+            weight_decay=0.0,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim] , [scheduler]
