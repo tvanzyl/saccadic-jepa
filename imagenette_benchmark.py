@@ -78,15 +78,6 @@ from lightly.loss import (
     NegativeCosineSimilarity,
 )
 
-from lightly.transforms import (
-    SimCLRTransform,
-    FastSiamTransform,
-    BYOLTransform,
-    BYOLView1Transform,
-    BYOLView2Transform,
-    DINOTransform,
-    
-)
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils import scheduler
 from lightly.utils.benchmarking import BenchmarkModule
@@ -94,7 +85,7 @@ from lightly.utils.lars import LARS
 from lightly.models._momentum import _do_momentum_update
 from lightly.utils.debug import std_of_l2_normalized
 
-from SimplRSiam import L2NormalizationLayer
+from SimplRSiam import L2NormalizationLayer, SIMSIMPTRansform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
@@ -158,38 +149,7 @@ path_to_test = "/media/tvanzyl/data/imagenette2-160/val/"
 # Use Multi-Crop augmentations https://arxiv.org/html/2403.05726v1#bib.bib7
 num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
 num_views = 2 + num_local_views
-simsimp_transform = {
-32:DINOTransform(global_crop_size=32,
-                 global_crop_scale=(0.2, 1.0),
-                 n_local_views=0,
-                 gaussian_blur=(0.0, 0.0, 0.0),
-                ),
-64:DINOTransform(global_crop_size=64,
-                 global_crop_scale=(0.2, 1.0),
-                 local_crop_size=32,
-                 local_crop_scale=(0.05, 0.2),
-                 gaussian_blur=(1.0, 0.1, 0.0),
-                ),
-96:DINOTransform(global_crop_size=96,
-                 global_crop_scale=(0.2, 1.0),
-                 local_crop_size=48,
-                 local_crop_scale=(0.05, 0.2),
-                 gaussian_blur=(1.0, 0.1, 0.0),
-                ),
-128:DINOTransform(global_crop_size=128,
-                  global_crop_scale=(0.2, 1.0),
-                  local_crop_size=64,
-                  local_crop_scale=(0.05, 0.2),
-                ),
-244:DINOTransform(global_crop_size=224,
-                  global_crop_scale=(0.2, 1.0),
-                  local_crop_scale =(0.05, 0.14),
-                ),
-}[input_size]
-# simsimp_transform = BYOLTransform(
-#     view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
-#     view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
-# )
+simsimp_transform = SIMSIMPTRansform[input_size]
 
 normalize_transform = torchvision.transforms.Normalize(
     mean=IMAGENET_NORMALIZE["mean"],
@@ -297,51 +257,51 @@ class SimSimPModel(BenchmarkModule):
 
         self.criterion = NegativeCosineSimilarity()
 
-    # def forward(self, x):
-    #     p, g, e, z = [], [], [], []
-    #     for i in range(self.ens_size):
-    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)            
-    #         g_ = self.projection_head( f_ )
-    #         g.append( g_.detach() )
-    #         p_ = self.prediction_head( g_ )
-    #         p.append( p_ )
-    #     with torch.no_grad():
-    #         # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
-    #         e_ = torch.stack(g, dim=1).mean(dim=1)
-    #         z_ = self.merge_head( e_ )
-    #     for i in range(self.ens_size):
-    #         z.append( z_ )
-    #     return f_.detach(), p, z, g_.detach()
-
     def forward(self, x):
         p, g, e, z = [], [], [], []
-        #Pass Through Each Global Seperate
-        for i in range(2):
-            f_ = self.backbone( x[i] ).flatten(start_dim=1)
+        for i in range(self.ens_size):
+            f_ = self.backbone( x[i] ).flatten(start_dim=1)            
             g_ = self.projection_head( f_ )
             g.append( g_.detach() )
             p_ = self.prediction_head( g_ )
             p.append( p_ )
-
-        #Pass Through The Locals Together
-        if self.ens_size > 2:
-            x__ = torch.cat( x[2:] )
-            f__ = self.backbone( x__ ).flatten(start_dim=1)
-            g__ = self.projection_head( f__ )
-            p__ = self.prediction_head( g__ )           
-            p.extend( p__.chunk(self.ens_size-2) )
-        
-        # Create The Teacher Weighted Equal To Globals and Locals
-        with torch.no_grad():   
+        with torch.no_grad():
+            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
             e_ = torch.stack(g, dim=1).mean(dim=1)
-            zg_ = self.merge_head( e_ )
-            e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
-            zl_ = self.merge_head( e__ )
-            z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
+            z_ = self.merge_head( e_ )
         # for i in range(self.ens_size):
         #     z.append( z_ )
-
         return f_.detach(), p, z_, g_.detach()
+
+    # def forward(self, x):
+    #     p, g, e, z = [], [], [], []
+    #     #Pass Through Each Global Seperate
+    #     for i in range(2):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)
+    #         g_ = self.projection_head( f_ )
+    #         g.append( g_.detach() )
+    #         p_ = self.prediction_head( g_ )
+    #         p.append( p_ )
+
+    #     #Pass Through The Locals Together
+    #     if self.ens_size > 2:
+    #         x__ = torch.cat( x[2:] )
+    #         f__ = self.backbone( x__ ).flatten(start_dim=1)
+    #         g__ = self.projection_head( f__ )
+    #         p__ = self.prediction_head( g__ )           
+    #         p.extend( p__.chunk(self.ens_size-2) )
+        
+    #     # Create The Teacher Weighted Equal To Globals and Locals
+    #     with torch.no_grad():   
+    #         e_ = torch.stack(g, dim=1).mean(dim=1)
+    #         zg_ = self.merge_head( e_ )
+    #         e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
+    #         zl_ = self.merge_head( e__ )
+    #         z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
+    #     # for i in range(self.ens_size):
+    #     #     z.append( z_ )
+
+    #     return f_.detach(), p, z_, g_.detach()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -378,13 +338,13 @@ class SimSimPModel(BenchmarkModule):
 
     def configure_optimizers(self):
         optim = torch.optim.SGD([
-                {'params': self.backbone.parameters(), 'weight_decay': 1e-4},
+                {'params': self.backbone.parameters()},
                 {'params': self.projection_head.parameters()},
-                {'params': self.prediction_head.parameters()},                
-            ],            
+                {'params': self.prediction_head.parameters(), 'weight_decay': 0.1},
+            ],
             lr=6e-2*lr_factor*2.5,
             momentum=0.9,
-            weight_decay=0.0,
+            weight_decay=5e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim] , [scheduler]
