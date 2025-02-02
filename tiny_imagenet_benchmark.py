@@ -4,26 +4,6 @@ Benchmark Results
 
 Updated: 13.02.2023
 
-------------------------------------------------------------------------------------------
-| Model         | Batch Size | Epochs |  KNN Test Accuracy |       Time | Peak GPU Usage |
-------------------------------------------------------------------------------------------
-| BarlowTwins   |        256 |    200 |              0. | 1319.3 Min |     11.3 GByte |
-| BYOL          |        256 |    200 |              0. | 1315.4 Min |     12.9 GByte |
-| DINO          |        256 |    200 |              0. | 1868.5 Min |     17.4 GByte |
-| FastSiam      |        256 |    200 |              0. | 1856.2 Min |     22.0 GByte |
-| Moco          |        256 |    200 |              0. | 1314.2 Min |     13.1 GByte |
-| NNCLR         |        256 |    200 |              0. | 1198.6 Min |     11.8 GByte |
-| SimCLR        |        256 |    200 |              0. | 1207.7 Min |     11.3 GByte |
-| SimSiam       |        256 |    200 |              0. | 1175.0 Min |     11.1 GByte |
-| SwaV          |        256 |    200 |              0. | 1642.8 Min |     16.9 GByte |
-------------------------------------------------------------------------------------------
-
-Note that this benchmark also supports a multi-GPU setup. If you run it on
-a system with multiple GPUs make sure that you kill all the processes when
-killing the application. Due to the way we setup this benchmark the distributed
-processes might continue the benchmark if one of the nodes is killed.
-If you know how to fix this don't hesitate to create an issue or PR :)
-Code has been tested on a A6000 GPU with 48GBytes of memory.
 """
 import copy
 import os
@@ -44,14 +24,7 @@ from lightly.loss import (
 )
 from lightly.models import modules, utils
 from lightly.models.modules import heads
-from lightly.transforms import (
-    SimCLRTransform,
-    FastSiamTransform,
-    BYOLTransform,
-    BYOLView1Transform,
-    BYOLView2Transform,    
-    DINOTransform,
-)
+
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils.benchmarking import BenchmarkModule
 from lightly.utils.lars import LARS
@@ -212,19 +185,50 @@ class SimSimPModel(BenchmarkModule):
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
+                nn.ReLU(),
             )
         
-        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
+        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)        
         self.prediction_head = nn.Sequential(
-                nn.ReLU(inplace=True),
+                # nn.ReLU(),
                 self.rand_proj_q,
-            )
-        
+            )        
         self.rand_proj_n = nn.Linear(prd_width, prd_width) 
-        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data        
+        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         self.merge_head = self.rand_proj_n
 
         self.criterion = NegativeCosineSimilarity()
+
+    # def forward(self, x):
+    #     p, g, e, z = [], [], [], []
+    #     for i in range(self.ens_size):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)            
+    #         g_ = self.projection_head( f_ )
+    #         g.append( g_.detach() )
+    #         p_ = self.prediction_head( g_ )
+    #         p.append( p_ )
+    #     with torch.no_grad():
+    #         e_ = torch.stack(g, dim=1).mean(dim=1)
+    #         z_ = self.merge_head( e_ )
+    #     for i in range(self.ens_size):
+    #         z.append( z_ )
+    #     return f_.detach(), p, z, g_.detach()
+
+    # def forward(self, x):
+    #     p, g, e, z = [], [], [], []
+    #     for i in range(self.ens_size):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)            
+    #         g_ = self.projection_head( f_ )
+    #         g.append( g_.detach() )
+    #         p_ = self.prediction_head( g_ )
+    #         p.append( p_ )
+    #     with torch.no_grad():
+    #         for i in range(self.ens_size):
+    #             e_ = torch.stack([g[j] for j in range(self.ens_size) if j!=i], dim=1).mean(dim=1)
+    #             z_ = self.merge_head( e_ )
+    #             z.append( z_ )
+        
+    #     return f_.detach(), p, z, g_.detach()
 
     def forward(self, x):
         p, g, e, z = [], [], [], []
@@ -245,16 +249,19 @@ class SimSimPModel(BenchmarkModule):
             p.extend( p__.chunk(self.ens_size-2) )
         
         # Create The Teacher Weighted Equal To Globals and Locals
-        with torch.no_grad():
+        with torch.no_grad():            
+            # z0_ = self.merge_head( g[0] )
+            # z1_ = self.merge_head( g[1] )
             e_ = torch.stack(g, dim=1).mean(dim=1)
             zg_ = self.merge_head( e_ )
             e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
             zl_ = self.merge_head( e__ )
             z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
-        # for i in range(self.ens_size):
-        #     z.append( z_ )
+        # z.extend([z1_,z0_])
+        for i in range(self.ens_size):
+            z.append( z_ )
 
-        return f_.detach(), p, z_, g_.detach()
+        return f_.detach(), p, z, g_.detach()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -262,12 +269,12 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch
         loss_tot_l = 0
 
-        f_, p, z_, g_ = self.forward( x )
+        f_, p, z, g_ = self.forward( x )
         
         loss_l = 0
         for xi in range(self.ens_size):
             p_ = p[xi]
-            # z_ = z[xi]
+            z_ = z[xi]
             loss_l += self.criterion( p_, z_ ) / self.ens_size
         loss_tot_l = loss_l.detach()
         self.manual_backward( loss_l )
@@ -276,13 +283,15 @@ class SimSimPModel(BenchmarkModule):
         self.log("g_", std_of_l2_normalized(g_))
         self.log("z_", std_of_l2_normalized(z_))
         self.log("p_", std_of_l2_normalized(p_))
+        self.log("||W||", self.rand_proj_q.weight.abs().mean())
+        self.log("||V||", self.merge_head.weight.abs().mean())
 
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()     
+            sch.step()
             # Stop Exploding Weights In Shared Head
-            F.normalize(self.merge_head.weight.data, out=self.merge_head.weight.data)
+            # F.normalize(self.rand_proj_n.weight.data, out=self.rand_proj_n.weight.data)
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
@@ -293,9 +302,9 @@ class SimSimPModel(BenchmarkModule):
         optim = torch.optim.SGD([
                 {'params': self.backbone.parameters()},
                 {'params': self.projection_head.parameters()},
-                {'params': self.prediction_head.parameters(), 'weight_decay': 0.0},
+                {'params': self.prediction_head.parameters()},
             ],            
-            lr=0.2*lr_factor,
+            lr=0.1*lr_factor,
             momentum=0.9,
             weight_decay=1e-4,
         )

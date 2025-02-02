@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from lightly.transforms import (    
-    DINOTransform,
+    DINOTransform
     
 )
 
@@ -15,25 +15,24 @@ SIMSIMPTRansform = {
                  gaussian_blur=(0.0, 0.0, 0.0),
                 ),
 64:DINOTransform(global_crop_size=64,
-                 global_crop_scale=(0.2, 1.0),
+                 global_crop_scale=(0.4, 1.0),
                  local_crop_size=32,
-                 local_crop_scale=(0.05, 0.2),
-                 gaussian_blur=(1.0, 0.1, 0.0),
+                 local_crop_scale=(0.08, 0.4),
+                 gaussian_blur=(0.0, 0.0, 0.0),
                 ),
 96:DINOTransform(global_crop_size=96,
-                 global_crop_scale=(0.2, 1.0),
+                 global_crop_scale=(0.4, 1.0),
                  local_crop_size=48,
-                 local_crop_scale=(0.05, 0.2),
-                 gaussian_blur=(1.0, 0.1, 0.0),
+                 local_crop_scale=(0.08, 0.4),
                 ),
 128:DINOTransform(global_crop_size=128,
                   global_crop_scale=(0.2, 1.0),
                   local_crop_size=64,
-                  local_crop_scale=(0.05, 0.2),
+                  local_crop_scale=(0.08, 0.2),
                 ),
 244:DINOTransform(global_crop_size=224,
-                  global_crop_scale=(0.2, 1.0),
-                  local_crop_scale =(0.05, 0.14),
+                  global_crop_scale=(0.2,  1.0),
+                  local_crop_scale =(0.08, 0.2),
                 ),
 }
 
