@@ -239,21 +239,20 @@ class SimSimPModel(BenchmarkModule):
                 nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
+                # nn.ReLU(),
             )
         
-        # self.rand_proj_p = nn.Linear(prd_width, prd_width//2, False)
         self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
         # nn.init.eye_(self.rand_proj_q.weight)
-        self.prediction_head = nn.Sequential(
-                # self.rand_proj_p,
-                nn.ReLU(inplace=True),                
+        self.prediction_head = nn.Sequential(           
+                nn.ReLU(),
                 self.rand_proj_q,
             )
         
         self.rand_proj_n = nn.Linear(prd_width, prd_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        self.merge_head = self.rand_proj_n        
+        self.merge_head = self.rand_proj_n
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -266,12 +265,11 @@ class SimSimPModel(BenchmarkModule):
             p_ = self.prediction_head( g_ )
             p.append( p_ )
         with torch.no_grad():
-            # e_ = torch.stack([g[j] for j in range(self.ens_size) if j != i], dim=1).mean(dim=1)
             e_ = torch.stack(g, dim=1).mean(dim=1)
             z_ = self.merge_head( e_ )
-        # for i in range(self.ens_size):
-        #     z.append( z_ )
-        return f_.detach(), p, z_, g_.detach()
+        for i in range(self.ens_size):
+            z.append( z_ )
+        return f_.detach(), p, z, g_.detach()
 
     # def forward(self, x):
     #     p, g, e, z = [], [], [], []
@@ -298,10 +296,15 @@ class SimSimPModel(BenchmarkModule):
     #         e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
     #         zl_ = self.merge_head( e__ )
     #         z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
-    #     # for i in range(self.ens_size):
-    #     #     z.append( z_ )
+    #     for i in range(self.ens_size):
+    #         z.append( z_ )
+    #     # with torch.no_grad():
+    #     #     g.extend(g__.detach().chunk(self.ens_size-2))
+    #     #     for i in range(self.ens_size):
+    #     #         z_ = self.merge_head( g[i] )
+    #     #         z.append( z_ )
 
-    #     return f_.detach(), p, z_, g_.detach()
+    #     return f_.detach(), p, z, g_.detach()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()                
@@ -309,12 +312,12 @@ class SimSimPModel(BenchmarkModule):
         x, _, _ = batch
         loss_tot_l = 0
 
-        f_, p, z_, g_ = self.forward( x )
+        f_, p, z, g_ = self.forward( x )
         
         loss_l = 0
         for xi in range(self.ens_size):
             p_ = p[xi]
-            # z_ = z[xi]
+            z_ = z[xi]
             loss_l += self.criterion( p_, z_ ) / self.ens_size
         loss_tot_l = loss_l.detach()
         self.manual_backward( loss_l )
@@ -327,9 +330,7 @@ class SimSimPModel(BenchmarkModule):
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()     
-            # Stop Exploding Weights In Shared Head
-            F.normalize(self.merge_head.weight.data, out=self.merge_head.weight.data)
+            sch.step()            
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
             opt.step()
             opt.zero_grad()
@@ -340,11 +341,11 @@ class SimSimPModel(BenchmarkModule):
         optim = torch.optim.SGD([
                 {'params': self.backbone.parameters()},
                 {'params': self.projection_head.parameters()},
-                {'params': self.prediction_head.parameters(), 'weight_decay': 0.1},
+                {'params': self.prediction_head.parameters()},
             ],
             lr=6e-2*lr_factor*2.5,
             momentum=0.9,
-            weight_decay=5e-4,
+            weight_decay=1e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim] , [scheduler]
