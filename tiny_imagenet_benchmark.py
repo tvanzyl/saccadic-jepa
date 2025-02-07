@@ -65,7 +65,7 @@ sync_batchnorm = False
 gather_distributed = False
 
 # benchmark
-n_runs = 1  # optional, increase to create multiple runs and report mean + std
+n_runs = 4  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
 batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -175,15 +175,15 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 512
-        self.prd_width = prd_width = 2048
+        self.upd_width = upd_width = 1536
+        self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
                 nn.Linear(upd_width, prd_width),                
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
@@ -196,10 +196,10 @@ class SimSimPModel(BenchmarkModule):
                 self.rand_proj_q,
             )        
         self.rand_proj_n = nn.Linear(prd_width, emb_width) 
-        # self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
+        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))
-        self.rand_proj_n.bias.data[:] = 0.2
+        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))
+        # self.rand_proj_n.bias.data[:] = 0.2
         self.merge_head =  nn.Sequential(
                 # self.rand_proj_q,
                 self.rand_proj_n,
@@ -331,7 +331,7 @@ for BenchmarkModel in models:
     runs = []
     model_name = BenchmarkModel.__name__.replace("Model", "")
     for seed in range(n_runs):
-        pl.seed_everything(seed+3)
+        pl.seed_everything(seed)
         dataset_train_ssl = create_dataset_train_ssl(BenchmarkModel)
         dataloader_train_ssl, dataloader_train_kNN, dataloader_test = get_data_loaders(
             batch_size=batch_size, dataset_train_ssl=dataset_train_ssl

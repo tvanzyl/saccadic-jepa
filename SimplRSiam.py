@@ -30,7 +30,7 @@ SIMSIMPTRansform = {
                   local_crop_size=64,
                   local_crop_scale=(0.08, 0.2),
                 ),
-244:DINOTransform(global_crop_size=224,
+224:DINOTransform(global_crop_size=224,
                   global_crop_scale=(0.2,  1.0),
                   local_crop_scale =(0.08, 0.2),
                 ),
