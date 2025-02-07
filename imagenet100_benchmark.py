@@ -54,7 +54,7 @@ from lightly.utils.scheduler import CosineWarmupScheduler
 from lightly.utils.debug import std_of_l2_normalized
 from lightly.models._momentum import _do_momentum_update
 
-from SimplRSiam import L2NormalizationLayer
+from SimplRSiam import L2NormalizationLayer, SIMSIMPTRansform
 
 logs_root_dir = os.path.join(os.getcwd(), "benchmark_logs")
 
@@ -64,8 +64,8 @@ torch.set_float32_matmul_precision('high')
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 200
-knn_k = 20
+max_epochs = 400
+knn_k = 5
 knn_t = 0.1
 classes = 100
 input_size = 224
@@ -115,39 +115,7 @@ path_to_test = "/media/tvanzyl/data/imagenet100/val/"
 # Use Multi-Crop augmentations https://arxiv.org/html/2403.05726v1#bib.bib7
 num_local_views = {32:0,64:6,96:6,128:6,224:6}[input_size]
 num_views = 2 + num_local_views
-simsimp_transform = {
-32:DINOTransform(global_crop_size=32,
-                 global_crop_scale=(0.2, 1.0),
-                 n_local_views=0,
-                 gaussian_blur=(0.0, 0.0, 0.0),
-                ),
-64:DINOTransform(global_crop_size=64,
-                 global_crop_scale=(0.2, 1.0),
-                 local_crop_size=32,
-                 local_crop_scale=(0.05, 0.2),
-                 gaussian_blur=(1.0, 0.1, 0.0),
-                ),
-96:DINOTransform(global_crop_size=96,
-                 global_crop_scale=(0.2, 1.0),
-                 local_crop_size=48,
-                 local_crop_scale=(0.05, 0.2),
-                 gaussian_blur=(1.0, 0.1, 0.0),
-                ),
-128:DINOTransform(global_crop_size=128,
-                  global_crop_scale=(0.2, 1.0),
-                  local_crop_size=64,
-                  local_crop_scale=(0.05, 0.2),
-                ),
-224:DINOTransform(global_crop_size=224,
-                  global_crop_scale=(0.2, 1.0),
-                  local_crop_scale =(0.05, 0.2),
-                ),
-}[input_size]
-# num_views=2
-# simsimp_transform = BYOLTransform(
-#     view_1_transform=BYOLView1Transform(input_size=input_size, min_scale=0.14),
-#     view_2_transform=BYOLView2Transform(input_size=input_size, min_scale=0.14),
-# )
+simsimp_transform = SIMSIMPTRansform[input_size]
 
 # No additional augmentations for the test set
 test_transforms = torchvision.transforms.Compose(
@@ -228,29 +196,35 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 512
+        self.upd_width = upd_width = 1536
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
-                nn.Linear(upd_width, prd_width),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, prd_width),                
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
+                nn.LeakyReLU(),
             )
         
-        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
+        self.rand_proj_q = nn.Linear(prd_width, emb_width, False)        
         self.prediction_head = nn.Sequential(
-                nn.ReLU(inplace=True),
+                # nn.ReLU(),
                 self.rand_proj_q,
-            )
-        
-        self.rand_proj_n = nn.Linear(prd_width, prd_width) 
-        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data        
-        self.merge_head = self.rand_proj_n
+            )        
+        self.rand_proj_n = nn.Linear(prd_width, emb_width) 
+        self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
+        # nn.init.eye_(self.rand_proj_n.weight)
+        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))
+        # self.rand_proj_n.bias.data[:] = 0.2
+        self.merge_head =  nn.Sequential(
+                # self.rand_proj_q,
+                self.rand_proj_n,
+            )        
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -273,29 +247,32 @@ class SimSimPModel(BenchmarkModule):
             p.extend( p__.chunk(self.ens_size-2) )
         
         # Create The Teacher Weighted Equal To Globals and Locals
-        with torch.no_grad():
+        with torch.no_grad():            
+            # z0_ = self.merge_head( g[0] )
+            # z1_ = self.merge_head( g[1] )
             e_ = torch.stack(g, dim=1).mean(dim=1)
             zg_ = self.merge_head( e_ )
             e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
             zl_ = self.merge_head( e__ )
             z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
-        # for i in range(self.ens_size):
-        #     z.append( z_ )
+        z.extend([z_,z_])
+        for i in range(self.ens_size-2):
+            z.append( zg_ )
 
-        return f_.detach(), p, z_, g_.detach()
+        return f_.detach(), p, z, g_.detach()
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()                
+        opt = self.optimizers()
         sch = self.lr_schedulers()
         x, _, _ = batch
         loss_tot_l = 0
 
-        f_, p, z_, g_ = self.forward( x )
+        f_, p, z, g_ = self.forward( x )
         
         loss_l = 0
         for xi in range(self.ens_size):
             p_ = p[xi]
-            # z_ = z[xi]
+            z_ = z[xi]
             loss_l += self.criterion( p_, z_ ) / self.ens_size
         loss_tot_l = loss_l.detach()
         self.manual_backward( loss_l )
@@ -304,14 +281,16 @@ class SimSimPModel(BenchmarkModule):
         self.log("g_", std_of_l2_normalized(g_))
         self.log("z_", std_of_l2_normalized(z_))
         self.log("p_", std_of_l2_normalized(p_))
+        self.log("||W||", self.rand_proj_q.weight.abs().mean())
+        #self.log("||V||", self.merge_head.weight.abs().mean())
 
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()     
-            # Stop Exploding Weights In Shared Head
-            F.normalize(self.merge_head.weight.data, out=self.merge_head.weight.data)
+            sch.step()
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
+            # momentum = cosine_schedule(self.current_epoch, max_epochs, 0.996, 1)
+            # _do_momentum_update(self.rand_proj_n.weight, self.rand_proj_q.weight, momentum)
             opt.step()
             opt.zero_grad()
         
@@ -319,13 +298,13 @@ class SimSimPModel(BenchmarkModule):
 
     def configure_optimizers(self):
         optim = torch.optim.SGD([
-                {'params': self.backbone.parameters(), 'weight_decay': 1e-4},
-                {'params': self.projection_head.parameters(), 'weight_decay': 1e-4},
-                {'params': self.prediction_head.parameters()},                
+                {'params': self.backbone.parameters()},
+                {'params': self.projection_head.parameters()},
+                {'params': self.prediction_head.parameters()},
             ],            
-            lr=0.15*lr_factor,
+            lr=0.2*lr_factor,
             momentum=0.9,
-            weight_decay=0.0,
+            weight_decay=1e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, max_epochs)
         return [optim] , [scheduler]
