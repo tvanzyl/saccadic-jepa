@@ -176,16 +176,11 @@ class SimSimPModel(BenchmarkModule):
         
         self.ens_size = num_views        
         self.upd_width = upd_width = 1536
-        self.prd_width = prd_width = 512
-        self.upd_width = upd_width = 1536
-        self.prd_width = prd_width = 512
+        self.prd_width = prd_width = 512        
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
-        self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
+        self.projection_head = nn.Sequential(               
                 nn.Linear(emb_width, upd_width),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
@@ -204,7 +199,7 @@ class SimSimPModel(BenchmarkModule):
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
         # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))                        
-        self.rand_proj_n.bias.data[:] = 0.2
+        # self.rand_proj_n.bias.data[:] = 0.2
         self.merge_head =  nn.Sequential(
                 # self.rand_proj_q,
                 self.rand_proj_n,
