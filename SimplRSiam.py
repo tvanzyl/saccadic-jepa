@@ -15,9 +15,9 @@ SIMSIMPTRansform = {
                  gaussian_blur=(0.0, 0.0, 0.0),
                 ),
 64:DINOTransform(global_crop_size=64,
-                 global_crop_scale=(0.4, 1.0),
+                 global_crop_scale=(0.2, 1.0),
                  local_crop_size=32,
-                 local_crop_scale=(0.08, 0.4),
+                 local_crop_scale=(0.08, 0.2),
                  gaussian_blur=(0.0, 0.0, 0.0),
                 ),
 96:DINOTransform(global_crop_size=96,
@@ -45,3 +45,7 @@ class L2NormalizationLayer(nn.Module):
     def forward(self, x):
         return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
+
+# import torchvision
+# torchvision.datasets.STL10(root="/data/stl10", download=True, split='train+unlabeled')
+# torchvision.datasets.STL10(root="/data/stl10", split='test')
