@@ -203,11 +203,7 @@ class SimSimPModel(BenchmarkModule):
         self.rand_proj_n = nn.Linear(prd_width, emb_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))
-        # self.rand_proj_n.bias.data[:] = 0.2
-        # self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
-        nn.init.eye_(self.rand_proj_n.weight)
-        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))
+        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))                        
         self.rand_proj_n.bias.data[:] = 0.2
         self.merge_head =  nn.Sequential(
                 # self.rand_proj_q,
