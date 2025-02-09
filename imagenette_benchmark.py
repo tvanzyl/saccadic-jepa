@@ -98,7 +98,7 @@ torch.set_float32_matmul_precision('high')
 num_workers = 12
 
 # set max_epochs to 800 for long run (takes around 10h on a single V100)
-max_epochs = 800
+max_epochs = 200
 knn_k = 200
 knn_t = 0.1
 classes = 10
@@ -119,7 +119,7 @@ sync_batchnorm = False
 gather_distributed = False
 
 # benchmark
-n_runs = 1  # optional, increase to create multiple runs and report mean + std
+n_runs = 4  # optional, increase to create multiple runs and report mean + std
 pseudo_batch_size = 256
 batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
@@ -226,33 +226,35 @@ class SimSimPModel(BenchmarkModule):
         resnet = torchvision.models.resnet18()
         emb_width = list(resnet.children())[-1].in_features
         
-        self.ens_size = num_views                
-        self.upd_width = upd_width = 512
-        self.prd_width = prd_width = 512
+        self.ens_size = num_views        
+        self.upd_width = upd_width = 1024
+        self.prd_width = prd_width = 512        
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
-        self.projection_head = nn.Sequential(                
-                # nn.Linear(emb_width, upd_width),                
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(inplace=True),
-                nn.Linear(upd_width, prd_width),
+        self.projection_head = nn.Sequential(               
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, prd_width),                
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(prd_width, affine=False),
-                # nn.ReLU(),
+                nn.LeakyReLU(),
             )
         
-        self.rand_proj_q = nn.Linear(prd_width, prd_width, False)
-        # nn.init.eye_(self.rand_proj_q.weight)
-        self.prediction_head = nn.Sequential(           
-                nn.ReLU(),
+        self.rand_proj_q = nn.Linear(prd_width, emb_width, False)        
+        self.prediction_head = nn.Sequential(
                 self.rand_proj_q,
-            )
-        
-        self.rand_proj_n = nn.Linear(prd_width, prd_width) 
+            )        
+        self.rand_proj_n = nn.Linear(prd_width, emb_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        self.merge_head = self.rand_proj_n
+        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))                        
+        # self.rand_proj_n.bias.data[:] = 0.2
+        self.merge_head =  nn.Sequential(
+                # self.rand_proj_q,
+                self.rand_proj_n,
+            )        
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -273,6 +275,22 @@ class SimSimPModel(BenchmarkModule):
 
     # def forward(self, x):
     #     p, g, e, z = [], [], [], []
+    #     for i in range(self.ens_size):
+    #         f_ = self.backbone( x[i] ).flatten(start_dim=1)            
+    #         g_ = self.projection_head( f_ )
+    #         g.append( g_.detach() )
+    #         p_ = self.prediction_head( g_ )
+    #         p.append( p_ )
+    #     with torch.no_grad():
+    #         for i in range(self.ens_size):
+    #             e_ = torch.stack([g[j] for j in range(self.ens_size) if j!=i], dim=1).mean(dim=1)
+    #             z_ = self.merge_head( e_ )
+    #             z.append( z_ )
+        
+    #     return f_.detach(), p, z, g_.detach()
+
+    # def forward(self, x):
+    #     p, g, e, z = [], [], [], []
     #     #Pass Through Each Global Seperate
     #     for i in range(2):
     #         f_ = self.backbone( x[i] ).flatten(start_dim=1)
@@ -286,28 +304,26 @@ class SimSimPModel(BenchmarkModule):
     #         x__ = torch.cat( x[2:] )
     #         f__ = self.backbone( x__ ).flatten(start_dim=1)
     #         g__ = self.projection_head( f__ )
-    #         p__ = self.prediction_head( g__ )           
+    #         p__ = self.prediction_head( g__ )
     #         p.extend( p__.chunk(self.ens_size-2) )
         
     #     # Create The Teacher Weighted Equal To Globals and Locals
-    #     with torch.no_grad():   
+    #     with torch.no_grad():            
+    #         # z0_ = self.merge_head( g[0] )
+    #         # z1_ = self.merge_head( g[1] )
     #         e_ = torch.stack(g, dim=1).mean(dim=1)
     #         zg_ = self.merge_head( e_ )
     #         e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
     #         zl_ = self.merge_head( e__ )
     #         z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
-    #     for i in range(self.ens_size):
-    #         z.append( z_ )
-    #     # with torch.no_grad():
-    #     #     g.extend(g__.detach().chunk(self.ens_size-2))
-    #     #     for i in range(self.ens_size):
-    #     #         z_ = self.merge_head( g[i] )
-    #     #         z.append( z_ )
+    #     z.extend([z_,z_])
+    #     for i in range(self.ens_size-2):
+    #         z.append( zg_ )
 
     #     return f_.detach(), p, z, g_.detach()
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()                
+        opt = self.optimizers()
         sch = self.lr_schedulers()
         x, _, _ = batch
         loss_tot_l = 0
@@ -326,12 +342,16 @@ class SimSimPModel(BenchmarkModule):
         self.log("g_", std_of_l2_normalized(g_))
         self.log("z_", std_of_l2_normalized(z_))
         self.log("p_", std_of_l2_normalized(p_))
+        self.log("||W||", self.rand_proj_q.weight.abs().mean())
+        #self.log("||V||", self.merge_head.weight.abs().mean())
 
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()            
+            sch.step()
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
+            # momentum = cosine_schedule(self.current_epoch, max_epochs, 0.996, 1)
+            # _do_momentum_update(self.rand_proj_n.weight, self.rand_proj_q.weight, momentum)
             opt.step()
             opt.zero_grad()
         
@@ -342,8 +362,8 @@ class SimSimPModel(BenchmarkModule):
                 {'params': self.backbone.parameters()},
                 {'params': self.projection_head.parameters()},
                 {'params': self.prediction_head.parameters()},
-            ],
-            lr=6e-2*lr_factor*2.5,
+            ],            
+            lr=0.15*lr_factor,
             momentum=0.9,
             weight_decay=1e-4,
         )
