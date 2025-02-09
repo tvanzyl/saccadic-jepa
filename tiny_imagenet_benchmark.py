@@ -175,7 +175,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 1536
+        self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512        
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
@@ -192,7 +192,7 @@ class SimSimPModel(BenchmarkModule):
         
         self.rand_proj_q = nn.Linear(prd_width, emb_width, False)        
         self.prediction_head = nn.Sequential(
-                # nn.ReLU(),
+                # nn.LeakyReLU(),
                 self.rand_proj_q,
             )        
         self.rand_proj_n = nn.Linear(prd_width, emb_width) 
