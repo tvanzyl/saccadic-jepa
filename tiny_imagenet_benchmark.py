@@ -180,7 +180,7 @@ class SimSimPModel(BenchmarkModule):
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
-        self.projection_head = nn.Sequential(               
+        self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
@@ -192,7 +192,7 @@ class SimSimPModel(BenchmarkModule):
         
         self.rand_proj_q = nn.Linear(prd_width, emb_width, False)        
         self.prediction_head = nn.Sequential(
-                # nn.ReLU(),
+                # nn.LeakyReLU(),
                 self.rand_proj_q,
             )        
         self.rand_proj_n = nn.Linear(prd_width, emb_width) 
