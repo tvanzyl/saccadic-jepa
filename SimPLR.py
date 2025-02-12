@@ -30,9 +30,10 @@ class SimPLR(LightningModule):
         resnet.fc = Identity()  # Ignore classification head
         self.backbone = resnet
         
-        self.upd_width = upd_width = 1024
-        self.prd_width = prd_width = 512 
-        self.emb_width = emb_width = 1024
+        self.emb_width = emb_width = 2048
+        self.upd_width = upd_width = 2048
+        self.prd_width = prd_width = 2048   
+        self.ens_size = 8
 
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width),
@@ -126,7 +127,7 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backward, self.projection_head, self.prediction_head]
+            [self.backbone, self.projection_head, self.prediction_head]
         )
         optimizer = SGD(
             [
@@ -166,6 +167,6 @@ class SimPLR(LightningModule):
             gradient_clip_val=3.0,
             gradient_clip_algorithm="norm",
         )
-        self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
+        # self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
 
 transform = DINOTransform(global_crop_scale=(0.2,  1.0),local_crop_scale =(0.08, 0.2))

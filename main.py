@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Sequence, Union
 
-import byol
 import SimPLR
 import finetune_eval
 import knn_eval
@@ -25,11 +24,11 @@ from lightly.utils.benchmarking import MetricCallback
 from lightly.utils.dist import print_rank_zero
 
 parser = ArgumentParser("ImageNet ResNet50 Benchmarks")
-parser.add_argument("--train-dir", type=Path, default="/datasets/imagenet/train")
-parser.add_argument("--val-dir", type=Path, default="/datasets/imagenet/val")
+parser.add_argument("--train-dir", type=Path, default="/media/tvanzyl/data1/imagenet/train")
+parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data1/imagenet/val")
 parser.add_argument("--log-dir", type=Path, default="benchmark_logs")
-parser.add_argument("--batch-size-per-device", type=int, default=128)
-parser.add_argument("--epochs", type=int, default=100)
+parser.add_argument("--batch-size-per-device", type=int, default=64)
+parser.add_argument("--epochs", type=int, default=1)
 parser.add_argument("--num-workers", type=int, default=8)
 parser.add_argument("--accelerator", type=str, default="gpu")
 parser.add_argument("--devices", type=int, default=1)
@@ -43,7 +42,7 @@ parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
 
 METHODS = {
-    "dino": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "SimPLR": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
 }
 
 
