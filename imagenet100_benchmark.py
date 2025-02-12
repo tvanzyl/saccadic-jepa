@@ -196,7 +196,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 1536
+        self.upd_width = upd_width = 2048
         self.prd_width = prd_width = 512
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
@@ -247,9 +247,7 @@ class SimSimPModel(BenchmarkModule):
             p.extend( p__.chunk(self.ens_size-2) )
         
         # Create The Teacher Weighted Equal To Globals and Locals
-        with torch.no_grad():            
-            # z0_ = self.merge_head( g[0] )
-            # z1_ = self.merge_head( g[1] )
+        with torch.no_grad():
             e_ = torch.stack(g, dim=1).mean(dim=1)
             zg_ = self.merge_head( e_ )
             e__ = g__.detach().view(-1,batch_size,self.prd_width).mean(dim=0)
