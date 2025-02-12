@@ -65,8 +65,8 @@ sync_batchnorm = False
 gather_distributed = False
 
 # benchmark
-n_runs = 4  # optional, increase to create multiple runs and report mean + std
-pseudo_batch_size = 256
+n_runs = 1  # optional, increase to create multiple runs and report mean + std
+pseudo_batch_size = 1024
 batch_size = pseudo_batch_size
 accumulate_grad_batches = pseudo_batch_size // batch_size
 lr_factor = pseudo_batch_size / 256  # scales the learning rate linearly with batch size
@@ -175,7 +175,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 1536
+        self.upd_width = upd_width = 1024
         self.prd_width = prd_width = 512        
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
@@ -198,7 +198,7 @@ class SimSimPModel(BenchmarkModule):
         self.rand_proj_n = nn.Linear(prd_width, emb_width) 
         self.rand_proj_n.weight.data = self.rand_proj_q.weight.data
         # nn.init.eye_(self.rand_proj_n.weight)
-        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))                        
+        # nn.init.orthogonal_(self.rand_proj_n.weight, gain=nn.init.calculate_gain('relu'))
         # self.rand_proj_n.bias.data[:] = 0.2
         self.merge_head =  nn.Sequential(
                 # self.rand_proj_q,
