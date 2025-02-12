@@ -12,10 +12,7 @@ from torchvision.models import resnet50
 
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import (
-    activate_requires_grad,
-    deactivate_requires_grad,
     get_weight_decay_parameters,
-    update_momentum,
 )
 
 from lightly.transforms import DINOTransform
@@ -129,7 +126,7 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.student_backbone, self.student_projection_head]
+            [self.backward, self.projection_head, self.prediction_head]
         )
         optimizer = SGD(
             [
@@ -138,12 +135,7 @@ class SimPLR(LightningModule):
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
-                },
-                {
-                    "name": "online_classifier",
-                    "params": self.online_classifier.parameters(),
-                    "weight_decay": 0.0,
-                },
+                },                
             ],
             lr=0.03 * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
