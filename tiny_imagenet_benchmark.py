@@ -297,9 +297,9 @@ class SimSimPModel(BenchmarkModule):
         if self.trainer.is_last_batch:
             opt.step()
             opt.zero_grad()
-            sch.step()
+            sch.step() 
         elif (batch_idx + 1) % accumulate_grad_batches == 0:
-            # momentum = cosine_schedule(self.current_epoch, max_epochs, 0.996, 1)
+            # momentum = cosine_schedule(self.current_epoch, max_epochs, 0.9, 1)
             # _do_momentum_update(self.rand_proj_n.weight, self.rand_proj_q.weight, momentum)
             opt.step()
             opt.zero_grad()

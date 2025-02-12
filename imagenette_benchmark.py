@@ -269,8 +269,11 @@ class SimSimPModel(BenchmarkModule):
         with torch.no_grad():
             e_ = torch.stack(g, dim=1).mean(dim=1)
             z_ = self.merge_head( e_ )
-        for i in range(self.ens_size):
-            z.append( z_ )
+            e__ = torch.stack(g[:2], dim=1).mean(dim=1)
+            z__ = self.merge_head( e__ )
+        z.extend( [z_, z_] )
+        for i in range(2,self.ens_size):
+            z.append( z__ )
         return f_.detach(), p, z, g_.detach()
 
     # def forward(self, x):
