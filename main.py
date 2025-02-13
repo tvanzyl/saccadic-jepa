@@ -24,10 +24,10 @@ from lightly.utils.benchmarking import MetricCallback
 from lightly.utils.dist import print_rank_zero
 
 parser = ArgumentParser("ImageNet ResNet50 Benchmarks")
-parser.add_argument("--train-dir", type=Path, default="/media/tvanzyl/data1/imagenet/train")
-parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data1/imagenet/val")
+parser.add_argument("--train-dir", type=Path, default="/media/tvanzyl/data/imagenet/train")
+parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data/imagenet/val")
 parser.add_argument("--log-dir", type=Path, default="benchmark_logs")
-parser.add_argument("--batch-size-per-device", type=int, default=64)
+parser.add_argument("--batch-size-per-device", type=int, default=256)
 parser.add_argument("--epochs", type=int, default=1)
 parser.add_argument("--num-workers", type=int, default=8)
 parser.add_argument("--accelerator", type=str, default="gpu")
@@ -44,7 +44,6 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 METHODS = {
     "SimPLR": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
 }
-
 
 def main(
     train_dir: Path,

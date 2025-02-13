@@ -136,7 +136,12 @@ class SimPLR(LightningModule):
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
-                },                
+                },     
+                {
+                    "name": "online_classifier",
+                    "params": self.online_classifier.parameters(),
+                    "weight_decay": 0.0,
+                },
             ],
             lr=0.03 * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
@@ -145,28 +150,24 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                warmup_epochs=int(
-                    self.trainer.estimated_stepping_batches
-                    / self.trainer.max_epochs
-                    * 10
-                ),
+                warmup_epochs=0,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
         }
         return [optimizer], [scheduler]
 
-    def configure_gradient_clipping(
-        self,
-        optimizer: Optimizer,
-        gradient_clip_val: Union[int, float, None] = None,
-        gradient_clip_algorithm: Union[str, None] = None,
-    ) -> None:
-        self.clip_gradients(
-            optimizer=optimizer,
-            gradient_clip_val=3.0,
-            gradient_clip_algorithm="norm",
-        )
+    # def configure_gradient_clipping(
+    #     self,
+    #     optimizer: Optimizer,
+    #     gradient_clip_val: Union[int, float, None] = None,
+    #     gradient_clip_algorithm: Union[str, None] = None,
+    # ) -> None:
+    #     self.clip_gradients(
+    #         optimizer=optimizer,
+    #         gradient_clip_val=3.0,
+    #         gradient_clip_algorithm="norm",
+    #     )
         # self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
 
 transform = DINOTransform(global_crop_scale=(0.2,  1.0),local_crop_scale =(0.08, 0.2))
