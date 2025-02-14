@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.nn import Identity
 from torch.optim import SGD
 from torch.optim.optimizer import Optimizer
-from torchvision.models import resnet50
+from torchvision.models import resnet50, resnet18
 
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import (
@@ -21,19 +21,25 @@ from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from SimplRSiam import L2NormalizationLayer
 
 class SimPLR(LightningModule):
-    def __init__(self, batch_size_per_device: int, num_classes: int) -> None:
+    def __init__(self, batch_size_per_device: int, num_classes: int, resnetsize:int = 50) -> None:
         super().__init__()
         self.save_hyperparameters()
         self.batch_size_per_device = batch_size_per_device
 
-        resnet = resnet50()
-        resnet.fc = Identity()  # Ignore classification head
-        self.backbone = resnet
+        if resnetsize == 18:
+            resnet = resnet18()
+        else:
+            resnet = resnet50()       
         
-        self.emb_width = emb_width = 2048
+        emb_width = resnet.fc.in_features
+        resnet.fc = Identity()  # Ignore classification head       
+        
+        self.emb_width = emb_width
         self.upd_width = upd_width = 2048
-        self.prd_width = prd_width = 2048   
+        self.prd_width = prd_width = emb_width
         self.ens_size = 8
+
+        self.backbone = resnet
 
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width),
@@ -49,7 +55,7 @@ class SimPLR(LightningModule):
         self.merge_head.weight.data = self.prediction_head.weight.data
         self.criterion = NegativeCosineSimilarity()
 
-        self.online_classifier = OnlineLinearClassifier(num_classes=num_classes)
+        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
@@ -111,7 +117,7 @@ class SimPLR(LightningModule):
         )
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
-        return loss
+        return loss + cls_loss
 
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int

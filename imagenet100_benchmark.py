@@ -196,7 +196,7 @@ class SimSimPModel(BenchmarkModule):
         emb_width = list(resnet.children())[-1].in_features
         
         self.ens_size = num_views        
-        self.upd_width = upd_width = 512
+        self.upd_width = upd_width = 2048
         self.prd_width = prd_width = 2048
 
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])

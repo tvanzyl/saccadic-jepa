@@ -28,10 +28,11 @@ parser.add_argument("--train-dir", type=Path, default="/media/tvanzyl/data/image
 parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data/imagenet/val")
 parser.add_argument("--log-dir", type=Path, default="benchmark_logs")
 parser.add_argument("--batch-size-per-device", type=int, default=256)
-parser.add_argument("--epochs", type=int, default=1)
+parser.add_argument("--epochs", type=int, default=100)
 parser.add_argument("--num-workers", type=int, default=8)
 parser.add_argument("--accelerator", type=str, default="gpu")
 parser.add_argument("--devices", type=int, default=1)
+parser.add_argument("--resnetsize", type=int, default=50)
 parser.add_argument("--precision", type=str, default="16-mixed")
 parser.add_argument("--ckpt-path", type=Path, default=None)
 parser.add_argument("--compile-model", action="store_true")
@@ -40,6 +41,7 @@ parser.add_argument("--num-classes", type=int, default=1000)
 parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
+
 
 METHODS = {
     "SimPLR": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
@@ -54,6 +56,7 @@ def main(
     num_workers: int,
     accelerator: str,
     devices: int,
+    resnetsize: int,
     precision: str,
     compile_model: bool,
     methods: Union[Sequence[str], None],
@@ -61,7 +64,7 @@ def main(
     skip_knn_eval: bool,
     skip_linear_eval: bool,
     skip_finetune_eval: bool,
-    ckpt_path: Union[Path, None],
+    ckpt_path: Union[Path, None],    
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -72,7 +75,7 @@ def main(
             log_dir / method / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         ).resolve()
         model = METHODS[method]["model"](
-            batch_size_per_device=batch_size_per_device, num_classes=num_classes
+            batch_size_per_device=batch_size_per_device, num_classes=num_classes, resnetsize=resnetsize
         )
 
         if compile_model and hasattr(torch, "compile"):
