@@ -75,7 +75,7 @@ class SimPLR(LightningModule):
             p_ = self.prediction_head( g_ )
             p.append( p_ )
 
-        with torch.no_grad():            
+        with torch.no_grad():
             e_ = torch.stack(g, dim=1).mean(dim=1)
             zg_ = self.merge_head( e_ )
 
@@ -100,7 +100,7 @@ class SimPLR(LightningModule):
         
         for i in range(self.ens_size-2):
             z.append( zg_ )
-                    
+
         return f_.detach(), p, z
 
     def training_step(
@@ -136,8 +136,8 @@ class SimPLR(LightningModule):
 
         opt.step()
         opt.zero_grad()
-        if self.trainer.is_last_batch:            
-            sch.step()
+        sch.step()
+        # if self.trainer.is_last_batch:        
 
         return loss_t
 
@@ -178,7 +178,11 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                warmup_epochs=0,
+                warmup_epochs=int(
+                    self.trainer.estimated_stepping_batches
+                    / self.trainer.max_epochs
+                    * 10
+                ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
@@ -198,4 +202,4 @@ class SimPLR(LightningModule):
     #     )
         # self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
 
-transform = DINOTransform(global_crop_scale=(0.2,  1.0),local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
+transform = DINOTransform(global_crop_scale=(0.2, 1.0),local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
