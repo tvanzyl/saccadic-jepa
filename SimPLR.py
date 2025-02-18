@@ -23,8 +23,9 @@ from SimplRSiam import L2NormalizationLayer
 n_local_views = 6
 
 class SimPLR(LightningModule):
-    def __init__(self, batch_size_per_device: int, num_classes: int, resnetsize:int = 50) -> None:
-        super().__init__()        
+    def __init__(self, batch_size_per_device: int, num_classes: int, resnetsize:int = 50, upd_width:int = 2048, n_local_views:int=n_local_views) -> None:
+        super().__init__()
+        self.automatic_optimization = False
         self.save_hyperparameters()
         self.batch_size_per_device = batch_size_per_device
 
@@ -186,7 +187,7 @@ class SimPLR(LightningModule):
                     "weight_decay": 0.0,
                 },
             ],
-            lr=0.15 * self.batch_size_per_device * self.trainer.world_size / 256,
+            lr=0.03 * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
             weight_decay=1e-4,
         )
