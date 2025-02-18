@@ -24,7 +24,7 @@ def linear_eval(
     accelerator: str,
     devices: int,
     precision: str,
-    num_classes: int,
+    num_classes: int,    
 ) -> Dict[str, float]:
     """Runs a linear evaluation on the given model.
 
@@ -43,6 +43,7 @@ def linear_eval(
         - [0]: SimCLR, 2020, https://arxiv.org/abs/2002.05709
     """
     print_rank_zero("Running linear evaluation...")
+    feature_dim = model.emb_width
 
     # Setup training data.
     train_transform = T.Compose(
@@ -100,7 +101,7 @@ def linear_eval(
     classifier = LinearClassifier(
         model=model,
         batch_size_per_device=batch_size_per_device,
-        feature_dim=2048,
+        feature_dim=feature_dim,
         num_classes=num_classes,
         freeze_model=True,
     )

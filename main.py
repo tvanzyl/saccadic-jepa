@@ -41,7 +41,7 @@ parser.add_argument("--num-classes", type=int, default=1000)
 parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
-
+parser.add_argument("--knn_k", default=200)
 
 METHODS = {
     "SimPLR": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
@@ -64,7 +64,8 @@ def main(
     skip_knn_eval: bool,
     skip_linear_eval: bool,
     skip_finetune_eval: bool,
-    ckpt_path: Union[Path, None],    
+    ckpt_path: Union[Path, None],
+    knn_k: int,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -116,6 +117,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
+                knn_k=knn_k,
             )
 
         if skip_linear_eval:
@@ -131,7 +133,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision=precision                
             )
 
         if skip_finetune_eval:
