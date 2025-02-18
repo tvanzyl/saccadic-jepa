@@ -26,8 +26,8 @@ class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int, 
                  num_classes: int, 
                  resnetsize:int = 50, 
-                 upd_width:int = 2048, 
-                 n_local_views:int=n_local_views,
+                 upd_width:int = 2048,
+                 n_local_views:int = n_local_views,
                  lr:float = 0.15) -> None:
         super().__init__()        
         self.save_hyperparameters()
@@ -76,14 +76,16 @@ class SimPLR(LightningModule):
         g = [self.projection_head( f_ ) for f_ in f]
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
-            e = [self.merge_head( g_.detach() ) for g_ in g]
-            zgl_ = torch.stack(e, dim=1).mean(dim=1)
-            z = [zgl_, zgl_]
-            if self.ens_size>2:
-                zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
-                for i in range(self.ens_size-2):
-                    z.append( zg_ )
-            # zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
+            # e = [self.merge_head( g_.detach() ) for g_ in g]
+            # zgl_ = torch.stack(e, dim=1).mean(dim=1)
+            # z = [zgl_, zgl_]
+            # if self.ens_size>2:
+            #     zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
+            #     for i in range(self.ens_size-2):
+            #         z.append( zg_ )
+            e = [self.merge_head( g_.detach() ) for g_ in g[:2]]
+            zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
+            z = [zg_ for _ in range(self.ens_size)]
             # if self.ens_size>2:
             #     zl_ = torch.stack(e[2:], dim=1).mean(dim=1)
             #     zgl_ = 0.5*(zg_+zl_)
@@ -91,7 +93,7 @@ class SimPLR(LightningModule):
             #     for i in range(self.ens_size-2):
             #         z.append( zg_ )
             # else:
-            #     z = [zg_, zg_]            
+            #     z = [zg_, zg_]
         return f0_, p, z
 
     # def forward_student(self, x: Tensor) -> Tensor:
@@ -224,5 +226,8 @@ class SimPLR(LightningModule):
     #     )
         # self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
 
-transform = DINOTransform(global_crop_scale=(0.2, 1.0), local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
+# transform = DINOTransform(global_crop_scale=(0.2, 1.0), local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
 
+# For ResNet50 we adjust crop scales as recommended by the authors:
+# https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
+transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
