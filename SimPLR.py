@@ -177,10 +177,9 @@ class SimPLR(LightningModule):
     #         gradient_clip_val=3.0,
     #         gradient_clip_algorithm="norm",
     #     )
-        # self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
-
-# transform = DINOTransform(global_crop_scale=(0.2, 1.0), local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
+    #     self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
 
 # For ResNet50 we adjust crop scales as recommended by the authors:
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
 transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
+# transform = DINOTransform(global_crop_scale=(0.2, 1.0), local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
