@@ -76,66 +76,18 @@ class SimPLR(LightningModule):
         g = [self.projection_head( f_ ) for f_ in f]
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
-            # e = [self.merge_head( g_.detach() ) for g_ in g]
-            # zgl_ = torch.stack(e, dim=1).mean(dim=1)
-            # z = [zgl_, zgl_]
-            # if self.ens_size>2:
-            #     zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
-            #     for i in range(self.ens_size-2):
-            #         z.append( zg_ )
-            e = [self.merge_head( g_.detach() ) for g_ in g[:2]]
+            e = [self.merge_head( g_.detach() ) for g_ in g]
             zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
-            z = [zg_ for _ in range(self.ens_size)]
-            # if self.ens_size>2:
-            #     zl_ = torch.stack(e[2:], dim=1).mean(dim=1)
-            #     zgl_ = 0.5*(zg_+zl_)
-            #     z = [zgl_, zgl_]
-            #     for i in range(self.ens_size-2):
-            #         z.append( zg_ )
-            # else:
-            #     z = [zg_, zg_]
+            # z = [zg_ for _ in range(self.ens_size)]
+            if self.ens_size>2:
+                zl_ = torch.stack(e[2:], dim=1).mean(dim=1)
+                zgl_ = 0.5*(zg_+zl_)
+                z = [zgl_, zgl_]
+                for i in range(self.ens_size-2):
+                    z.append( zg_ )
+            else:
+                z = [zg_, zg_]
         return f0_, p, z
-
-    # def forward_student(self, x: Tensor) -> Tensor:
-    #     p, g, z = [], [], []
-    #     #Pass Through Each Global Seperate backwards cause we want the first one for online linear        
-    #     f0_ = self.backbone( x[0] ).flatten(start_dim=1)
-    #     f1_ = self.backbone( x[1] ).flatten(start_dim=1)
-
-    #     g0_ = self.projection_head( f0_ )
-    #     g1_ = self.projection_head( f1_ )
-    #     g = [g0_.detach(), g1_.detach()]
-    #     with torch.no_grad():
-    #         e_ = torch.stack(g, dim=1).mean(dim=1)
-    #         zg_ = self.merge_head( e_ )
-        
-    #     p0_ = self.prediction_head( g0_ )
-    #     p1_ = self.prediction_head( g1_ )
-    #     p = [p0_, p1_]
-
-    #     #Pass Through The Locals Together
-    #     if self.ens_size > 2:
-    #         x__ = torch.cat( x[2:] )
-    #         f__ = self.backbone( x__ ).flatten(start_dim=1)
-    #         g__ = self.projection_head( f__ )
-    #         p__ = self.prediction_head( g__ )
-    #         p.extend( p__.chunk(self.ens_size-2) )
-        
-    #         # Create The Teacher Weighted Equal To Globals and Locals
-    #         with torch.no_grad():
-    #             e__ = g__.detach().view(-1,self.batch_size_per_device,self.prd_width).mean(dim=0)
-    #             zl_ = self.merge_head( e__ )        
-    #             z_ = torch.stack([zg_, zl_], dim=1).mean(dim=1)
-    #             z.extend([z_,z_])
-    #     else:
-    #         # Create The Teacher Weighted Equal To Globals and Locals
-    #         with torch.no_grad():
-    #             z.extend([zg_,zg_])
-        
-    #     for i in range(self.ens_size-2):
-    #         z.append( zg_ )
-
-    #     return f0_.detach(), p, z
 
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
@@ -202,11 +154,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                warmup_epochs=int(
-                    self.trainer.estimated_stepping_batches
-                    / self.trainer.max_epochs
-                    * 10
-                ),
+                warmup_epochs=0,
+                # int(
+                #     self.trainer.estimated_stepping_batches
+                #     / self.trainer.max_epochs
+                #     * 10
+                # ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
