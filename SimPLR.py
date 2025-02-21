@@ -28,9 +28,14 @@ class SimPLR(LightningModule):
                  resnetsize:int = 50, 
                  upd_width:int = 2048,
                  n_local_views:int = n_local_views,
-                 lr:float = 0.15) -> None:
+                 lr:float = 0.20) -> None:
         super().__init__()        
-        self.save_hyperparameters()
+        self.save_hyperparameters('batch_size_per_device',
+                                  'num_classes', 
+                                  'resnetsize',
+                                  'upd_width',
+                                  'n_local_views',
+                                  'lr' )
 
         self.lr = lr        
         self.batch_size_per_device = batch_size_per_device
@@ -46,22 +51,22 @@ class SimPLR(LightningModule):
         resnet.fc = Identity()  # Ignore classification head
         
         upd_width = 2048
-        prd_width = emb_width
+        prd_width = 512
         self.ens_size = 2 + n_local_views        
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),
-                nn.BatchNorm1d(upd_width),
+                nn.Linear(emb_width, emb_width),
+                nn.BatchNorm1d(emb_width),
                 nn.ReLU(inplace=True),
-                nn.Linear(upd_width, prd_width),                
+                nn.Linear(emb_width, upd_width),
                 L2NormalizationLayer(),
-                nn.BatchNorm1d(prd_width, affine=False),
+                nn.BatchNorm1d(upd_width, affine=False),
                 nn.LeakyReLU(),
             )        
-        self.prediction_head = nn.Linear(prd_width, prd_width, False)
-        self.merge_head = nn.Linear(prd_width, prd_width)
+        self.prediction_head = nn.Linear(upd_width, prd_width, False)
+        self.merge_head = nn.Linear(upd_width, prd_width)
         self.merge_head.weight.data = self.prediction_head.weight.data
         self.criterion = NegativeCosineSimilarity()
 
@@ -76,14 +81,14 @@ class SimPLR(LightningModule):
         g = [self.projection_head( f_ ) for f_ in f]
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
-            e = [self.merge_head( g_.detach() ) for g_ in g]
-            zg_ = torch.stack(e[:2], dim=1).mean(dim=1)
-            # z = [zg_ for _ in range(self.ens_size)]
+            gg_ = self.projection_head( torch.stack(f[:2], dim=1).detach().mean(dim=1) )
+            zg_ = self.merge_head( gg_ )
             if self.ens_size>2:
-                zl_ = torch.stack(e[2:], dim=1).mean(dim=1)
+                gl_ = self.projection_head( torch.stack(f[2:], dim=1).detach().mean(dim=1) )
+                zl_ = self.merge_head( gl_ )
                 zgl_ = 0.5*(zg_+zl_)
                 z = [zgl_, zgl_]
-                for i in range(self.ens_size-2):
+                for _ in range(self.ens_size-2):
                     z.append( zg_ )
             else:
                 z = [zg_, zg_]
@@ -181,5 +186,5 @@ class SimPLR(LightningModule):
 
 # For ResNet50 we adjust crop scales as recommended by the authors:
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
-transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
-# transform = DINOTransform(global_crop_scale=(0.2, 1.0), local_crop_scale =(0.08, 0.2), n_local_views=n_local_views)
+# transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
+transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.2), n_local_views=n_local_views)
