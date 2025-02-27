@@ -28,7 +28,7 @@ class SimPLR(LightningModule):
                  resnetsize:int = 50, 
                  upd_width:int = 2048,
                  n_local_views:int = n_local_views,
-                 lr:float = 0.20) -> None:
+                 lr:float = 0.15) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 
@@ -57,16 +57,16 @@ class SimPLR(LightningModule):
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, emb_width),
-                nn.BatchNorm1d(emb_width),
-                nn.ReLU(inplace=True),
                 nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(inplace=True),
+                nn.Linear(upd_width, prd_width),
                 L2NormalizationLayer(),
-                nn.BatchNorm1d(upd_width, affine=False),
+                nn.BatchNorm1d(prd_width, affine=False),
                 nn.LeakyReLU(),
             )        
-        self.prediction_head = nn.Linear(upd_width, prd_width, False)
-        self.merge_head = nn.Linear(upd_width, prd_width)
+        self.prediction_head = nn.Linear(prd_width, prd_width, False)
+        self.merge_head = nn.Linear(prd_width, prd_width)
         self.merge_head.weight.data = self.prediction_head.weight.data
         self.criterion = NegativeCosineSimilarity()
 
@@ -80,11 +80,14 @@ class SimPLR(LightningModule):
         f0_ = f[0].detach()
         g = [self.projection_head( f_ ) for f_ in f]
         p = [self.prediction_head( g_ ) for g_ in g]
-        with torch.no_grad():
-            gg_ = self.projection_head( torch.stack(f[:2], dim=1).detach().mean(dim=1) )
+        with torch.no_grad():            
+            # gg_ = self.projection_head( torch.stack(f[:2], dim=1).detach().mean(dim=1) )
+            gg_ = torch.stack([g_.detach() for g_ in g[:2]], dim=1).mean(dim=1)
             zg_ = self.merge_head( gg_ )
             if self.ens_size>2:
-                gl_ = self.projection_head( torch.stack(f[2:], dim=1).detach().mean(dim=1) )
+                # gl_ = torch.stack( torch.chunk( self.projection_head( torch.cat(f[2:]).detach() ), self.ens_size-2), dim=1).mean(dim=1)
+                # gl_ = self.projection_head( torch.stack(f[2:], dim=1).detach().mean(dim=1) )
+                gl_ = torch.stack([g_.detach() for g_ in g[2:]], dim=1).mean(dim=1)
                 zl_ = self.merge_head( gl_ )
                 zgl_ = 0.5*(zg_+zl_)
                 z = [zgl_, zgl_]
@@ -136,11 +139,12 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone, self.projection_head, self.prediction_head]
+            [self.backbone, self.prediction_head]
         )
         optimizer = SGD(
             [
                 {"name": "simplr", "params": params},
+                {"name": "proj", "params": self.projection_head.parameters()},
                 {
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,

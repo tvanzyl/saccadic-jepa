@@ -41,7 +41,7 @@ parser.add_argument("--num-classes", type=int, default=1000)
 parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
-parser.add_argument("--knn_k", default=200)
+parser.add_argument("--knn_k", type=int, default=200)
 
 METHODS = {
     "SimPLR": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
