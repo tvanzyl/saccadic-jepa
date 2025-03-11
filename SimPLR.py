@@ -103,7 +103,7 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, _ = batch
         
-        f_, p, z = self.forward_student_opt( x )
+        f_, p, z = self.forward_student( x )
         
         loss = 0
         for xi in range(self.ens_size):
