@@ -3,6 +3,7 @@ from typing import List, Tuple, Union
 
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from pytorch_lightning import LightningModule
 from torch import Tensor
 from torch.nn import Identity
@@ -28,7 +29,7 @@ class L2NormalizationLayer(nn.Module):
         self.eps = eps
 
     def forward(self, x: Tensor) -> Tensor:    
-        return nn.normalize(x, p=2, dim=self.dim, eps=self.eps)
+        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
 
 class SimPLR(LightningModule):
@@ -64,7 +65,7 @@ class SimPLR(LightningModule):
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, affine=False),
+                nn.Linear(emb_width, upd_width),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, emb_width),
@@ -81,25 +82,6 @@ class SimPLR(LightningModule):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
-
-    def forward_student_opt(self, x: Tensor) -> Tensor:
-        fg = self.backbone( torch.cat( x[:2] ) ).flatten(start_dim=1)
-        f0_ = fg[self.batch_size_per_device].detach()
-        gg = self.projection_head( fg )
-        pg = self.prediction_head( gg )
-        p = torch.chunk( pg, self.ens_size )
-        if self.ens_size > 2:
-            fl = self.backbone( torch.cat( x[2:] ) ).flatten(start_dim=1)
-            gl = self.projection_head( fl )
-            pl = self.prediction_head( gl )
-            p.append( pl )
-        with torch.no_grad():
-            zg0_, zg1_ = torch.chunk( self.merge_head( gg ), 2)
-            z = [zg1_, zg0_]
-            if self.ens_size>2:
-                zg_ = 0.5*(zg0_+zg1_)
-                z.append( zg_ )
-        return f0_, p, z
 
     def forward_student(self, x: Tensor) -> Tensor:
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
@@ -177,7 +159,7 @@ class SimPLR(LightningModule):
             ],
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
-            weight_decay=1e-4,
+            weight_decay=5e-5,
         )
         scheduler = {
             "scheduler": CosineWarmupScheduler(
