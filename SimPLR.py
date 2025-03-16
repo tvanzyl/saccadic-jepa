@@ -20,10 +20,10 @@ from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
-n_local_views = 0
+n_local_views = 6
 
 class L2NormalizationLayer(nn.Module):
-    def __init__(self, dim=1, eps=1e-12):
+    def __init__(self, dim:int=1, eps:float=1e-12):
         super(L2NormalizationLayer, self).__init__()
         self.dim = dim
         self.eps = eps
@@ -106,10 +106,10 @@ class SimPLR(LightningModule):
         f_, p, z = self.forward_student( x )
         
         loss = 0
-        for xi in range(len(p)):
+        for xi in range(self.ens_size):
             p_ = p[xi]
             z_ = z[xi]
-            loss += self.criterion( p_, z_ ) / len(p)
+            loss += self.criterion( p_, z_ ) / self.ens_size
         
         self.log_dict(
             {"train_loss": loss},
