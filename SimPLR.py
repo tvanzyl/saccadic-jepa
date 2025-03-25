@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from pytorch_lightning import LightningModule
 from torch import Tensor
 from torch.nn import Identity
-from torch.optim import SGD
+from torch.optim import SGD, AdamW
 from torch.optim.optimizer import Optimizer
 from torchvision.models import resnet50, resnet34, resnet18
 
@@ -21,6 +21,17 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
 n_local_views = 6
+
+class L2CenterNormLayer(nn.Module):
+    def __init__(self, eps:float=1e-12):
+        super(L2CenterNormLayer, self).__init__()
+        self.eps = eps
+
+    def forward(self, x: Tensor) -> Tensor:
+        n = x #F.normalize(x, p=2, dim=1, eps=self.eps)
+        c = n - n.mean(dim=0, keepdim=True)
+        # c = F.normalize(c, p=2, dim=1, eps=self.eps)
+        return c #/(n.std(dim=0)+self.eps)
 
 class L2NormalizationLayer(nn.Module):
     def __init__(self, dim:int=1, eps:float=1e-12):
@@ -69,11 +80,12 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, emb_width),
-                L2NormalizationLayer(),
-                nn.BatchNorm1d(emb_width, affine=False),
+                # L2NormalizationLayer(),
+                # nn.BatchNorm1d(emb_width, affine=False),
+                L2CenterNormLayer(),
                 nn.LeakyReLU(),
             )        
-        self.prediction_head = nn.Linear(emb_width, prd_width, False)
+        self.prediction_head = nn.Linear(emb_width, prd_width, False)        
         self.merge_head = nn.Linear(emb_width, prd_width)
         self.merge_head.weight.data = self.prediction_head.weight.data
         self.criterion = NegativeCosineSimilarity()
@@ -140,12 +152,23 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone, self.prediction_head]
+            [self.backbone]
         )
-        optimizer = SGD(
+        #DIET AdamW 0.001/0.05, warmup 10
+        # optimizer = AdamW(
+        optimizer = SGD(        
             [
                 {"name": "simplr", "params": params},
-                {"name": "proj", "params": self.projection_head.parameters()},
+                {
+                    "name": "proj", 
+                    "params": self.projection_head.parameters(),
+                    "weight_decay": 0.0,
+                },
+                {
+                    "name": "pred", 
+                    "params": self.prediction_head.parameters(),
+                    "weight_decay": 0.0,
+                },
                 {
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
@@ -156,7 +179,7 @@ class SimPLR(LightningModule):
                     "params": self.online_classifier.parameters(),
                     "weight_decay": 0.0,
                 },
-            ],
+            ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
             weight_decay=1e-4,
@@ -165,7 +188,7 @@ class SimPLR(LightningModule):
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
                 warmup_epochs=0,
-                # int(
+                # warmup_epochs=int(
                 #     self.trainer.estimated_stepping_batches
                 #     / self.trainer.max_epochs
                 #     * 10
