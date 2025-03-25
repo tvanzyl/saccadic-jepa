@@ -27,11 +27,9 @@ class L2CenterNormLayer(nn.Module):
         super(L2CenterNormLayer, self).__init__()
         self.eps = eps
 
-    def forward(self, x: Tensor) -> Tensor:
-        n = x #F.normalize(x, p=2, dim=1, eps=self.eps)
-        c = n - n.mean(dim=0, keepdim=True)
-        # c = F.normalize(c, p=2, dim=1, eps=self.eps)
-        return c #/(n.std(dim=0)+self.eps)
+    def forward(self, x: Tensor) -> Tensor:        
+        c = x - x.mean(dim=0, keepdim=True)        
+        return c
 
 class L2NormalizationLayer(nn.Module):
     def __init__(self, dim:int=1, eps:float=1e-12):
