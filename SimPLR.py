@@ -28,7 +28,7 @@ class L2CenterNormLayer(nn.Module):
         self.eps = eps
 
     def forward(self, x: Tensor) -> Tensor:        
-        c = x - x.mean(dim=0, keepdim=True)        
+        c = x - x.mean(dim=0, keepdim=True)
         return c
 
 class L2NormalizationLayer(nn.Module):
@@ -44,13 +44,13 @@ class L2NormalizationLayer(nn.Module):
 class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int, 
                  num_classes: int, 
-                 resnetsize:int = 50,                 
+                 resnetsize:int = 50,
                  n_local_views:int = n_local_views,
                  lr:float = 0.15) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
-                                  'num_classes', 
-                                  'resnetsize',                                 
+                                  'num_classes',
+                                  'resnetsize',
                                   'n_local_views',
                                   'lr' )
 
@@ -62,30 +62,36 @@ class SimPLR(LightningModule):
         elif resnetsize == 34:
             resnet = resnet34()
         else:
-            resnet = resnet50()       
+            resnet = resnet50()
         
         self.emb_width = emb_width = resnet.fc.in_features
         resnet.fc = Identity()  # Ignore classification head
         
         upd_width = 2048
         prd_width = 256
-        self.ens_size = 2 + n_local_views        
+        self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
+                L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
-                nn.Linear(upd_width, emb_width),
-                # L2NormalizationLayer(),
-                # nn.BatchNorm1d(emb_width, affine=False),
-                L2CenterNormLayer(),
+                nn.Linear(upd_width, emb_width, True),
+                L2NormalizationLayer(),
+                nn.BatchNorm1d(emb_width, affine=False),
                 nn.LeakyReLU(),
             )        
-        self.prediction_head = nn.Linear(emb_width, prd_width, False)        
-        self.merge_head = nn.Linear(emb_width, prd_width)
-        self.merge_head.weight.data = self.prediction_head.weight.data
+        self.prediction_head = nn.Sequential(
+            nn.Linear(emb_width, prd_width, False),
+            # nn.LeakyReLU()
+        )
+        self.merge_head = nn.Sequential(
+            nn.Linear(emb_width, prd_width),
+            # nn.LeakyReLU()
+        )
+        self.merge_head[0].weight.data = self.prediction_head[0].weight.data.clone()
         self.criterion = NegativeCosineSimilarity()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
@@ -98,7 +104,7 @@ class SimPLR(LightningModule):
         f0_ = f[0].detach()
         g = [self.projection_head( f_ ) for f_ in f]
         p = [self.prediction_head( g_ ) for g_ in g]
-        with torch.no_grad():            
+        with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
             zg1_ = self.merge_head( g[1] )
             z = [zg1_, zg0_]
@@ -160,12 +166,12 @@ class SimPLR(LightningModule):
                 {
                     "name": "proj", 
                     "params": self.projection_head.parameters(),
-                    "weight_decay": 0.0,
+                    # "weight_decay": 0.0,
                 },
                 {
                     "name": "pred", 
                     "params": self.prediction_head.parameters(),
-                    "weight_decay": 0.0,
+                    # "weight_decay": 0.0,
                 },
                 {
                     "name": "simplr_no_weight_decay",
@@ -185,12 +191,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                warmup_epochs=0,
-                # warmup_epochs=int(
-                #     self.trainer.estimated_stepping_batches
-                #     / self.trainer.max_epochs
-                #     * 10
-                # ),
+                # warmup_epochs=0,
+                warmup_epochs=int(
+                    self.trainer.estimated_stepping_batches
+                    / self.trainer.max_epochs
+                    * 10
+                ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
