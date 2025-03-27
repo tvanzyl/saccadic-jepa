@@ -46,7 +46,7 @@ class SimPLR(LightningModule):
                  num_classes: int, 
                  resnetsize:int = 50,
                  n_local_views:int = n_local_views,
-                 lr:float = 0.15) -> None:
+                 lr:float = 0.1) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',

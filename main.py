@@ -44,7 +44,11 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn_k", type=int, default=200)
 
 METHODS = {
-    "SimPLR": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "Cifar10": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "Tiny": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "Nette": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "Im100": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "Im1k": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
 }
 
 def main(
