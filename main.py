@@ -77,7 +77,7 @@ def main(
 
     for method in method_names:
         method_dir = (
-            log_dir / method / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_dir / method / datetime.now().strftime("%m-%d_%H-%M")
         ).resolve()
         model = METHODS[method]["model"](
             batch_size_per_device=batch_size_per_device, num_classes=num_classes, resnetsize=resnetsize
