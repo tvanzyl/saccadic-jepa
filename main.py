@@ -41,7 +41,7 @@ parser.add_argument("--num-classes", type=int, default=1000)
 parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
-parser.add_argument("--knn_k", type=int, default=200)
+parser.add_argument("--knn_k", type=int, nargs="+")
 
 METHODS = {
     "Cifar10": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
@@ -69,11 +69,13 @@ def main(
     skip_linear_eval: bool,
     skip_finetune_eval: bool,
     ckpt_path: Union[Path, None],
-    knn_k: int,
+    knn_k: Union[Sequence[int], int],
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
     method_names = methods or METHODS.keys()
+    knn_k = knn_k or [1, 2, 5, 10, 20, 50, 100, 200]
+    knn_k = knn_k if isinstance(knn_k,list) else [knn_k]
 
     for method in method_names:
         method_dir = (
