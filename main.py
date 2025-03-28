@@ -44,11 +44,12 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn_k", type=int, nargs="+")
 
 METHODS = {
-    "Cifar10": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
-    "Tiny": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
-    "Nette": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
-    "Im100": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
-    "Im1k": {"model": SimPLR.SimPLR, "transform": SimPLR.transform},
+    "Cifar10": {"model": SimPLR.SimPLR, "transform": SimPLR.transforms["Cifar10"]},
+    "Cifar100": {"model": SimPLR.SimPLR, "transform": SimPLR.transforms["Cifar100"]},
+    "Tiny": {"model": SimPLR.SimPLR, "transform": SimPLR.transforms["Tiny"]},
+    "Nette": {"model": SimPLR.SimPLR, "transform": SimPLR.transform["Nette"]},
+    "Im100": {"model": SimPLR.SimPLR, "transform": SimPLR.transform["Im100"]},
+    "Im1k": {"model": SimPLR.SimPLR, "transform": SimPLR.transform["Im1k"]},
 }
 
 def main(
@@ -274,3 +275,4 @@ def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
 if __name__ == "__main__":
     args = parser.parse_args()
     main(**vars(args))
+

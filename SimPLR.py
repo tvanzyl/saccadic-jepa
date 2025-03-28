@@ -220,3 +220,26 @@ class SimPLR(LightningModule):
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
 # transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
 transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.2), n_local_views=n_local_views)
+transforms = {
+"Cifar10": DINOTransform(global_crop_size=32, 
+                         global_crop_scale=(0.2, 1.0),
+                         n_local_views=0,
+                         gaussian_blur=(0.0, 0.0, 0.0)),
+"Cifar100":DINOTransform(global_crop_size=32, 
+                         global_crop_scale=(0.2, 1.0),
+                         n_local_views=0,
+                         gaussian_blur=(0.0, 0.0, 0.0)),
+"Tiny":    DINOTransform(global_crop_scale=(0.2, 1), 
+                         n_local_views=n_local_views,
+                         local_crop_scale=(0.05, 0.2)),
+"Nette":   DINOTransform(global_crop_scale=(0.2, 1), 
+                         n_local_views=n_local_views,
+                         local_crop_scale=(0.05, 0.2)),
+"Im100":   DINOTransform(global_crop_scale=(0.2, 1), 
+                         n_local_views=n_local_views,
+                         local_crop_scale=(0.05, 0.2)),
+"Im1k":    DINOTransform(global_crop_scale=(0.2, 1), 
+                         n_local_views=n_local_views,
+                         local_crop_scale=(0.05, 0.2)),
+}
+
