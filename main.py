@@ -46,14 +46,30 @@ parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
 
 METHODS = {
-    "Cifar10":  {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Cifar10"],  "transform": SimPLR.transforms["Cifar10"], "n_local_views":0},
-    "Cifar100": {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Cifar100"], "transform": SimPLR.transforms["Cifar100"],"n_local_views":0},
-    "Tiny":     {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Tiny"],     "transform": SimPLR.transforms["Tiny"],    "n_local_views":6},
-    "Nette":    {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Nette"],    "transform": SimPLR.transforms["Nette"],   "n_local_views":6},
-    "Im100":    {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im100"],    "transform": SimPLR.transforms["Im100"],   "n_local_views":6},
-    "Im1k":     {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im1k"],     "transform": SimPLR.transforms["Im1k"],    "n_local_views":6},
-    "Im100-2":  {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im100-2"],  "transform": SimPLR.transforms["Im100-2"], "n_local_views":0},
-    "Im1k-2":   {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im1k-2"],   "transform": SimPLR.transforms["Im1k-2"],  "n_local_views":0},
+    "Cifar10":  {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "val_transform": SimPLR.val_transforms["Cifar10"],  
+                 "transform": SimPLR.transforms["Cifar10"], },
+    "Cifar100": {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "val_transform": SimPLR.val_transforms["Cifar100"], 
+                 "transform": SimPLR.transforms["Cifar100"],},
+    "Tiny":     {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "val_transform": SimPLR.val_transforms["Tiny"],     
+                 "transform": SimPLR.transforms["Tiny"],    },
+    "Nette":    {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "val_transform": SimPLR.val_transforms["Nette"],    
+                 "transform": SimPLR.transforms["Nette"],   },
+    "Im100":    {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "val_transform": SimPLR.val_transforms["Im100"],    
+                 "transform": SimPLR.transforms["Im100"],   },
+    "Im1k":     {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "val_transform": SimPLR.val_transforms["Im1k"],     
+                 "transform": SimPLR.transforms["Im1k"],    },
+    "Im100-2":  {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "val_transform": SimPLR.val_transforms["Im100-2"],  
+                 "transform": SimPLR.transforms["Im100-2"], },
+    "Im1k-2":   {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "val_transform": SimPLR.val_transforms["Im1k-2"],   
+                 "transform": SimPLR.transforms["Im1k-2"],  },
 }
 
 def main(

@@ -48,7 +48,7 @@ class SimPLR(LightningModule):
                  resnetsize:int = 50,
                  n_local_views:int = 6,
                  lr:float = 0.1,
-                 decay=1e-4,) -> None:
+                 decay:float=1e-4) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -168,12 +168,10 @@ class SimPLR(LightningModule):
                 {
                     "name": "proj", 
                     "params": self.projection_head.parameters(),
-                    # "weight_decay": 0.0,
                 },
                 {
                     "name": "pred", 
                     "params": self.prediction_head.parameters(),
-                    # "weight_decay": 0.0,
                 },
                 {
                     "name": "simplr_no_weight_decay",
@@ -231,17 +229,15 @@ transforms = {
                          global_crop_scale=(0.2, 1.0),
                          n_local_views=0,
                          gaussian_blur=(0.0, 0.0, 0.0)),
-"Tiny":    DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=6,
+"Tiny":    DINOTransform(global_crop_size=64,
+                         global_crop_scale=(0.2, 1), 
+                         local_crop_size=32,
                          local_crop_scale=(0.05, 0.2)),
-"Nette":   DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=6,
+"Nette":   DINOTransform(global_crop_scale=(0.2, 1),                          
                          local_crop_scale=(0.05, 0.2)),
-"Im100":   DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=6,
+"Im100":   DINOTransform(global_crop_scale=(0.2, 1),                          
                          local_crop_scale=(0.05, 0.2)),
-"Im1k":    DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=6,
+"Im1k":    DINOTransform(global_crop_scale=(0.2, 1),                          
                          local_crop_scale=(0.05, 0.2)),
 "Im100-2": DINOTransform(global_crop_scale=(0.2, 1), 
                          n_local_views=2,
@@ -273,7 +269,12 @@ val_transforms = {
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
                 ]
             ),
-"Tiny":    val_transform,
+"Tiny":    T.Compose(
+                [                    
+                    T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ]
+            ),
 "Nette":   val_transform,
 "Im100":   val_transform,
 "Im1k":    val_transform,
