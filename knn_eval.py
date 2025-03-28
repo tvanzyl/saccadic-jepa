@@ -66,6 +66,7 @@ def knn_eval(
         num_workers=num_workers,
     )
 
+    metrics_dict: dict[str, float] = dict()
     for k in knn_k:
         classifier = KNNClassifier(
             model=model,
@@ -92,8 +93,7 @@ def knn_eval(
             model=classifier,
             train_dataloaders=train_dataloader,
             val_dataloaders=val_dataloader,
-        )
-        metrics_dict: dict[str, float] = dict()
+        )        
         for metric in ["val_top1", "val_top5"]:
             print(f"knn-{k} {metric}: {max(metric_callback.val_metrics[metric])}")
             metrics_dict[metric+f"@{k}"] = max(metric_callback.val_metrics[metric])
