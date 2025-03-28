@@ -263,7 +263,7 @@ def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
     separator = f"|:{'-' * (eval_name_max_len)}:|:{'-' * (metric_name_max_len)}:|:{'-' * (value_max_len)}:|"
 
     lines = [header, separator] + [
-        f"| {eval_name.ljust(eval_name_max_len)} | {metric_name.ljust(metric_name_max_len)} | {f'{metric_value:.2f}'.ljust(value_max_len)} |"
+        f"| {eval_name.ljust(eval_name_max_len)} | {metric_name.ljust(metric_name_max_len)} | {f'{metric_value:.3f}'.ljust(value_max_len)} |"
         for eval_name, metric_dict in metrics.items()
         for metric_name, metric_value in metric_dict.items()
     ]
