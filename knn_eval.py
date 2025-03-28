@@ -25,6 +25,7 @@ def knn_eval(
     devices: int,
     num_classes: int,
     knn_k: Union[Sequence[int], int],
+    transform
 ) -> Dict[str, float]:
     """Runs KNN evaluation on the given model.
 
@@ -40,14 +41,14 @@ def knn_eval(
     print_rank_zero("Running KNN evaluation...")
 
     # Setup training data.
-    transform = T.Compose(
-        [
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-        ]
-    )
+    # transform = T.Compose(
+    #     [
+    #         T.Resize(256),
+    #         T.CenterCrop(224),
+    #         T.ToTensor(),
+    #         T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+    #     ]
+    # )
     train_dataset = LightlyDataset(input_dir=str(train_dir), transform=transform)
     train_dataloader = DataLoader(
         train_dataset,

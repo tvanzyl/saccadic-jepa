@@ -42,14 +42,18 @@ parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn_k", type=int, nargs="+")
+parser.add_argument("--lr", type=float, default=0.15)
+parser.add_argument("--decay", type=float, default=1e-4)
 
 METHODS = {
-    "Cifar10": {"model": SimPLR.SimPLR, "transform": SimPLR.transforms["Cifar10"]},
-    "Cifar100": {"model": SimPLR.SimPLR, "transform": SimPLR.transforms["Cifar100"]},
-    "Tiny": {"model": SimPLR.SimPLR, "transform": SimPLR.transforms["Tiny"]},
-    "Nette": {"model": SimPLR.SimPLR, "transform": SimPLR.transform["Nette"]},
-    "Im100": {"model": SimPLR.SimPLR, "transform": SimPLR.transform["Im100"]},
-    "Im1k": {"model": SimPLR.SimPLR, "transform": SimPLR.transform["Im1k"]},
+    "Cifar10":  {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Cifar10"],  "transform": SimPLR.transforms["Cifar10"], "n_local_views":0},
+    "Cifar100": {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Cifar100"], "transform": SimPLR.transforms["Cifar100"],"n_local_views":0},
+    "Tiny":     {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Tiny"],     "transform": SimPLR.transforms["Tiny"],    "n_local_views":6},
+    "Nette":    {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Nette"],    "transform": SimPLR.transforms["Nette"],   "n_local_views":6},
+    "Im100":    {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im100"],    "transform": SimPLR.transforms["Im100"],   "n_local_views":6},
+    "Im1k":     {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im1k"],     "transform": SimPLR.transforms["Im1k"],    "n_local_views":6},
+    "Im100-2":  {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im100-2"],  "transform": SimPLR.transforms["Im100-2"], "n_local_views":0},
+    "Im1k-2":   {"model": SimPLR.SimPLR, "val_transform": SimPLR.val_transforms["Im1k-2"],   "transform": SimPLR.transforms["Im1k-2"],  "n_local_views":0},
 }
 
 def main(
@@ -71,6 +75,8 @@ def main(
     skip_finetune_eval: bool,
     ckpt_path: Union[Path, None],
     knn_k: Union[Sequence[int], int],
+    lr: float,
+    decay: float,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -83,7 +89,12 @@ def main(
             log_dir / method / datetime.now().strftime("%m-%d_%H-%M")
         ).resolve()
         model = METHODS[method]["model"](
-            batch_size_per_device=batch_size_per_device, num_classes=num_classes, resnetsize=resnetsize
+            batch_size_per_device=batch_size_per_device, 
+            num_classes=num_classes, 
+            resnetsize=resnetsize,
+            n_local_views=METHODS[method]["n_local_views"],
+            lr=lr,
+            decay=decay
         )
 
         if compile_model and hasattr(torch, "compile"):
@@ -125,6 +136,7 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 knn_k=knn_k,
+                transform=METHODS[method]["val_transform"]
             )
 
         if skip_linear_eval:
@@ -193,14 +205,15 @@ def pretrain(
     )
 
     # Setup validation data.
-    val_transform = T.Compose(
-        [
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-        ]
-    )
+    val_transform = METHODS[method]["val_transform"]
+    # val_transform = T.Compose(
+    #     [
+    #         T.Resize(256),
+    #         T.CenterCrop(224),
+    #         T.ToTensor(),
+    #         T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+    #     ]
+    # )
     val_dataset = LightlyDataset(input_dir=str(val_dir), transform=val_transform)
     val_dataloader = DataLoader(
         val_dataset,

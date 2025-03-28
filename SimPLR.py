@@ -9,7 +9,10 @@ from torch import Tensor
 from torch.nn import Identity
 from torch.optim import SGD, AdamW
 from torch.optim.optimizer import Optimizer
+from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34, resnet18
+
+from lightly.transforms.utils import IMAGENET_NORMALIZE
 
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import (
@@ -19,8 +22,6 @@ from lightly.models.utils import (
 from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
-
-n_local_views = 6
 
 class L2CenterNormLayer(nn.Module):
     def __init__(self, eps:float=1e-12):
@@ -45,8 +46,9 @@ class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int, 
                  num_classes: int, 
                  resnetsize:int = 50,
-                 n_local_views:int = n_local_views,
-                 lr:float = 0.1) -> None:
+                 n_local_views:int = 6,
+                 lr:float = 0.1,
+                 decay=1e-4,) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -54,7 +56,8 @@ class SimPLR(LightningModule):
                                   'n_local_views',
                                   'lr' )
 
-        self.lr = lr        
+        self.lr = lr
+        self.decay = decay
         self.batch_size_per_device = batch_size_per_device
 
         if resnetsize == 18:
@@ -74,8 +77,7 @@ class SimPLR(LightningModule):
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),
-                L2NormalizationLayer(),
+                nn.Linear(emb_width, upd_width, False),                
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(inplace=True),
                 nn.Linear(upd_width, emb_width, True),
@@ -186,7 +188,7 @@ class SimPLR(LightningModule):
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
-            weight_decay=1e-4,
+            weight_decay=self.decay,
         )
         scheduler = {
             "scheduler": CosineWarmupScheduler(
@@ -219,7 +221,7 @@ class SimPLR(LightningModule):
 # For ResNet50 we adjust crop scales as recommended by the authors:
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
 # transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
-transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.2), n_local_views=n_local_views)
+# transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.2), n_local_views=n_local_views)
 transforms = {
 "Cifar10": DINOTransform(global_crop_size=32, 
                          global_crop_scale=(0.2, 1.0),
@@ -230,16 +232,51 @@ transforms = {
                          n_local_views=0,
                          gaussian_blur=(0.0, 0.0, 0.0)),
 "Tiny":    DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=n_local_views,
+                         n_local_views=6,
                          local_crop_scale=(0.05, 0.2)),
 "Nette":   DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=n_local_views,
+                         n_local_views=6,
                          local_crop_scale=(0.05, 0.2)),
 "Im100":   DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=n_local_views,
+                         n_local_views=6,
                          local_crop_scale=(0.05, 0.2)),
 "Im1k":    DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=n_local_views,
+                         n_local_views=6,
+                         local_crop_scale=(0.05, 0.2)),
+"Im100-2": DINOTransform(global_crop_scale=(0.2, 1), 
+                         n_local_views=2,
+                         local_crop_scale=(0.05, 0.2)),
+"Im1k-2":  DINOTransform(global_crop_scale=(0.2, 1), 
+                         n_local_views=2,
                          local_crop_scale=(0.05, 0.2)),
 }
 
+val_transform = T.Compose(
+        [
+            T.Resize(256),
+            T.CenterCrop(224),
+            T.ToTensor(),
+            T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+        ]
+    )
+
+val_transforms = {
+"Cifar10": T.Compose(
+                [                    
+                    T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ]
+            ),
+"Cifar100":T.Compose(
+                [                    
+                    T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ]
+            ),
+"Tiny":    val_transform,
+"Nette":   val_transform,
+"Im100":   val_transform,
+"Im1k":    val_transform,
+"Im100-2": val_transform,
+"Im1k-2":  val_transform,
+}
