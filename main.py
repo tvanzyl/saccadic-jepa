@@ -255,7 +255,7 @@ def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
     value_max_len = max(
         len(metric_value)
         for metric_dict in metrics.values()
-        for metric_value in list(f"{value:.2f}" for value in metric_dict.values())
+        for metric_value in list(f"{value:.3f}" for value in metric_dict.values())
         + [VALUE_COLUMN_NAME]
     )
 
