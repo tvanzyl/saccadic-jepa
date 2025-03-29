@@ -46,10 +46,10 @@ parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
 
 METHODS = {
-    "Cifar10":  {"model": SimPLR.SimPLR, "n_local_views":0,
+    "Cifar10":  {"model": SimPLR.SimPLR, "n_local_views":6,
                  "val_transform": SimPLR.val_transforms["Cifar10"],  
                  "transform": SimPLR.transforms["Cifar10"], },
-    "Cifar100": {"model": SimPLR.SimPLR, "n_local_views":0,
+    "Cifar100": {"model": SimPLR.SimPLR, "n_local_views":6,
                  "val_transform": SimPLR.val_transforms["Cifar100"], 
                  "transform": SimPLR.transforms["Cifar100"],},
     "Tiny":     {"model": SimPLR.SimPLR, "n_local_views":6,
@@ -135,7 +135,7 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 precision=precision,
-                ckpt_path=ckpt_path,
+                ckpt_path=ckpt_path,                
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
         if skip_knn_eval:
