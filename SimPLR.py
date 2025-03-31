@@ -77,14 +77,15 @@ class SimPLR(LightningModule):
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),                
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(inplace=True),
-                nn.Linear(upd_width, emb_width, True),
+                nn.utils.weight_norm(nn.Linear(emb_width, upd_width)),
+                # nn.BatchNorm1d(upd_width),
+                nn.GELU(),
+                # nn.Linear(upd_width, upd_width, True),
                 L2NormalizationLayer(),
+                nn.utils.weight_norm(nn.Linear(upd_width, emb_width)),
                 nn.BatchNorm1d(emb_width, affine=False),
-                nn.LeakyReLU(),
-            )        
+                nn.GELU(),
+            )                
         self.prediction_head = nn.Sequential(
             nn.Linear(emb_width, prd_width, False),
             # nn.LeakyReLU()
@@ -158,7 +159,7 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone]
+            [self.backbone] #, self.projection_head, self.prediction_head]
         )
         #DIET AdamW 0.001/0.05, warmup 10
         # optimizer = AdamW(
