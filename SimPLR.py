@@ -70,19 +70,18 @@ class SimPLR(LightningModule):
         self.emb_width = emb_width = resnet.fc.in_features
         resnet.fc = Identity()  # Ignore classification head
         
-        upd_width = 2048
+        upd_width = emb_width*2
         prd_width = 256
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
-
+        
         self.projection_head = nn.Sequential(
-                nn.utils.weight_norm(nn.Linear(emb_width, upd_width)),
-                # nn.BatchNorm1d(upd_width),
+                nn.Linear(emb_width, upd_width),
+                nn.BatchNorm1d(upd_width),
                 nn.GELU(),
-                # nn.Linear(upd_width, upd_width, True),
                 L2NormalizationLayer(),
-                nn.utils.weight_norm(nn.Linear(upd_width, emb_width)),
+                nn.utils.weight_norm(nn.Linear(upd_width, emb_width)), # nn.Linear(upd_width, emb_width),
                 nn.BatchNorm1d(emb_width, affine=False),
                 nn.GELU(),
             )                
@@ -93,8 +92,10 @@ class SimPLR(LightningModule):
         self.merge_head = nn.Sequential(
             nn.Linear(emb_width, prd_width),
             # nn.LeakyReLU()
-        )
+        )        
+        
         self.merge_head[0].weight.data = self.prediction_head[0].weight.data.clone()
+        
         self.criterion = NegativeCosineSimilarity()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
@@ -159,7 +160,7 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone] #, self.projection_head, self.prediction_head]
+            [self.backbone ]#, self.projection_head]
         )
         #DIET AdamW 0.001/0.05, warmup 10
         # optimizer = AdamW(
@@ -168,7 +169,7 @@ class SimPLR(LightningModule):
                 {"name": "simplr", "params": params},
                 {
                     "name": "proj", 
-                    "params": self.projection_head.parameters(),
+                    "params": self.projection_head.parameters(),                    
                 },
                 {
                     "name": "pred", 
@@ -194,7 +195,7 @@ class SimPLR(LightningModule):
                 optimizer=optimizer,
                 # warmup_epochs=0,
                 warmup_epochs=int(
-                    self.trainer.estimated_stepping_batches
+                      self.trainer.estimated_stepping_batches
                     / self.trainer.max_epochs
                     * 10
                 ),
@@ -251,3 +252,4 @@ val_transforms = {
 "Im100-2": val_transform,
 "Im1k-2":  val_transform,
 }
+
