@@ -79,14 +79,14 @@ class SimPLR(LightningModule):
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
-                nn.ReLU(),                
+                nn.ReLU(),
                 nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(emb_width, affine=False),
                 nn.ReLU(),
             )                
         self.prediction_head = nn.Linear(emb_width, prd_width, False)
-        self.merge_head = nn.Linear(emb_width, prd_width)        
+        self.merge_head = nn.Linear(emb_width, prd_width)
         self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
