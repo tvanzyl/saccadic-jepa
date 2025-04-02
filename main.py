@@ -53,8 +53,11 @@ METHODS = {
                  "val_transform": SimPLR.val_transforms["Cifar100"], 
                  "transform": SimPLR.transforms["Cifar100"],},
     "Tiny":     {"model": SimPLR.SimPLR, "n_local_views":6,
-                 "val_transform": SimPLR.val_transforms["Tiny"],     
+                 "val_transform": SimPLR.val_transforms["Tiny"],
                  "transform": SimPLR.transforms["Tiny"],    },
+    "Tiny-64":  {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "val_transform": SimPLR.val_transforms["Tiny-64"],
+                 "transform": SimPLR.transforms["Tiny-64"], },
     "Nette":    {"model": SimPLR.SimPLR, "n_local_views":6,
                  "val_transform": SimPLR.val_transforms["Nette"],    
                  "transform": SimPLR.transforms["Nette"],   },
@@ -222,14 +225,7 @@ def pretrain(
 
     # Setup validation data.
     val_transform = METHODS[method]["val_transform"]
-    # val_transform = T.Compose(
-    #     [
-    #         T.Resize(256),
-    #         T.CenterCrop(224),
-    #         T.ToTensor(),
-    #         T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-    #     ]
-    # )
+
     val_dataset = LightlyDataset(input_dir=str(val_dir), transform=val_transform)
     val_dataloader = DataLoader(
         val_dataset,

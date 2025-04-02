@@ -77,24 +77,17 @@ class SimPLR(LightningModule):
         self.backbone = resnet
         
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),
+                nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
-                nn.GELU(),
+                nn.ReLU(),                
+                nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
-                nn.utils.weight_norm(nn.Linear(upd_width, emb_width)), # nn.Linear(upd_width, emb_width),
                 nn.BatchNorm1d(emb_width, affine=False),
-                nn.GELU(),
+                nn.ReLU(),
             )                
-        self.prediction_head = nn.Sequential(
-            nn.Linear(emb_width, prd_width, False),
-            # nn.LeakyReLU()
-        )
-        self.merge_head = nn.Sequential(
-            nn.Linear(emb_width, prd_width),
-            # nn.LeakyReLU()
-        )        
-        
-        self.merge_head[0].weight.data = self.prediction_head[0].weight.data.clone()
+        self.prediction_head = nn.Linear(emb_width, prd_width, False)
+        self.merge_head = nn.Linear(emb_width, prd_width)        
+        self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
 
@@ -160,21 +153,15 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone ]#, self.projection_head]
+            [self.backbone, self.projection_head, self.prediction_head]
         )
-        #DIET AdamW 0.001/0.05, warmup 10
-        # optimizer = AdamW(
         optimizer = SGD(        
             [
                 {"name": "simplr", "params": params},
-                {
-                    "name": "proj", 
-                    "params": self.projection_head.parameters(),                    
-                },
-                {
-                    "name": "pred", 
-                    "params": self.prediction_head.parameters(),
-                },
+                # {
+                #     "name": "proj", 
+                #     "params": self.projection_head.parameters(),
+                # },
                 {
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
@@ -182,7 +169,7 @@ class SimPLR(LightningModule):
                 },     
                 {
                     "name": "online_classifier",
-                    "params": self.online_classifier.parameters(),
+                    "params": self.online_classifier.parameters(),                    
                     "weight_decay": 0.0,
                 },
             ],            
@@ -193,30 +180,17 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                # warmup_epochs=0,
-                warmup_epochs=int(
-                      self.trainer.estimated_stepping_batches
-                    / self.trainer.max_epochs
-                    * 10
-                ),
+                warmup_epochs=0,
+                # warmup_epochs=int(
+                #       self.trainer.estimated_stepping_batches
+                #     / self.trainer.max_epochs
+                #     * 10
+                # ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
         }
         return [optimizer], [scheduler]
-
-    # def configure_gradient_clipping(
-    #     self,
-    #     optimizer: Optimizer,
-    #     gradient_clip_val: Union[int, float, None] = None,
-    #     gradient_clip_algorithm: Union[str, None] = None,
-    # ) -> None:
-    #     self.clip_gradients(
-    #         optimizer=optimizer,
-    #         gradient_clip_val=3.0,
-    #         gradient_clip_algorithm="norm",
-    #     )
-    #     self.student_projection_head.cancel_last_layer_gradients(self.current_epoch)
 
 # For ResNet50 we adjust crop scales as recommended by the authors:
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
@@ -225,6 +199,11 @@ transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.
 transforms = {
 "Cifar10": transform,
 "Cifar100":transform,
+"Tiny-64": DINOTransform(global_crop_size=64,
+                         global_crop_scale=(0.3, 1.0),
+                         local_crop_size=32,
+                         local_crop_scale=(0.08, 0.3),
+                         gaussian_blur=(0.0, 0.0, 0.0)),
 "Tiny":    transform,
 "Nette":   transform,
 "Im100":   transform,
@@ -237,6 +216,11 @@ transforms = {
                          local_crop_scale=(0.05, 0.2)),
 }
 
+val_identity  = T.Compose([
+                    T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ])
+
 val_transform = T.Compose([
                     T.Resize(256), T.CenterCrop(224), T.ToTensor(),
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
@@ -245,6 +229,7 @@ val_transform = T.Compose([
 val_transforms = {
 "Cifar10": val_transform,
 "Cifar100":val_transform,
+"Tiny-64": val_identity,
 "Tiny":    val_transform,
 "Nette":   val_transform,
 "Im100":   val_transform,
