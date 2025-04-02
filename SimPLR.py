@@ -75,7 +75,7 @@ class SimPLR(LightningModule):
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
-        
+
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
@@ -209,10 +209,10 @@ transforms = {
 "Im100":   transform,
 "Im1k":    transform,
 "Im100-2": DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=2,
+                         n_local_views=0,
                          local_crop_scale=(0.05, 0.2)),
 "Im1k-2":  DINOTransform(global_crop_scale=(0.2, 1), 
-                         n_local_views=2,
+                         n_local_views=0,
                          local_crop_scale=(0.05, 0.2)),
 }
 
