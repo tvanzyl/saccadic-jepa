@@ -79,14 +79,14 @@ class SimPLR(LightningModule):
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
-                nn.ReLU(),                
+                nn.ReLU(),
                 nn.Linear(upd_width, emb_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(emb_width, affine=False),
                 nn.ReLU(),
             )                
         self.prediction_head = nn.Linear(emb_width, prd_width, False)
-        self.merge_head = nn.Linear(emb_width, prd_width)        
+        self.merge_head = nn.Linear(emb_width, prd_width)
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
@@ -171,6 +171,7 @@ class SimPLR(LightningModule):
                     "name": "online_classifier",
                     "params": self.online_classifier.parameters(),                    
                     "weight_decay": 0.0,
+                    "lr": 0.1
                 },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
