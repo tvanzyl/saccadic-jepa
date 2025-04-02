@@ -87,6 +87,7 @@ class SimPLR(LightningModule):
             )                
         self.prediction_head = nn.Linear(emb_width, prd_width, False)
         self.merge_head = nn.Linear(emb_width, prd_width)        
+        self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
@@ -171,6 +172,7 @@ class SimPLR(LightningModule):
                     "name": "online_classifier",
                     "params": self.online_classifier.parameters(),                    
                     "weight_decay": 0.0,
+                    "lr":0.1
                 },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
@@ -200,12 +202,15 @@ transforms = {
 "Cifar10": transform,
 "Cifar100":transform,
 "Tiny-64": DINOTransform(global_crop_size=64,
-                         global_crop_scale=(0.3, 1.0),
+                         global_crop_scale=(0.2, 1.0),
                          local_crop_size=32,
-                         local_crop_scale=(0.08, 0.3),
+                         local_crop_scale=(0.05, 0.2),
                          gaussian_blur=(0.0, 0.0, 0.0)),
 "Tiny":    transform,
-"Nette":   transform,
+"Nette":   DINOTransform(global_crop_size=128,
+                         global_crop_scale=(0.2, 1.0),
+                         local_crop_size=64,
+                         local_crop_scale=(0.05, 0.2)),
 "Im100":   transform,
 "Im1k":    transform,
 "Im100-2": DINOTransform(global_crop_scale=(0.2, 1), 
@@ -231,7 +236,12 @@ val_transforms = {
 "Cifar100":val_transform,
 "Tiny-64": val_identity,
 "Tiny":    val_transform,
-"Nette":   val_transform,
+"Nette":   T.Compose([
+                T.Resize(128),
+                T.CenterCrop(128),
+                T.ToTensor(),
+                T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+           ]),
 "Im100":   val_transform,
 "Im1k":    val_transform,
 "Im100-2": val_transform,
