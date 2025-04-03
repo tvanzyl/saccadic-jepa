@@ -14,6 +14,7 @@ from torchvision.models import resnet50, resnet34, resnet18
 
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 
+from lightly.models import ResNetGenerator
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import (
     get_weight_decay_parameters,
@@ -42,33 +43,45 @@ class L2NormalizationLayer(nn.Module):
         return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
 
+def backbones(name):
+    if name in ["resnetjie-9","resnetjie-18"]: 
+        resnet = ResNetGenerator({"resnetjie-9":"resnet-9","resnetjie-18":"resnet-18"}[name])
+        emb_width = resnet.linear.in_features        
+        resnet = nn.Sequential(
+            *list(resnet.children())[:-1], nn.AdaptiveAvgPool2d(1)
+        )        
+    elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
+        resnet = {"resnet-18":resnet18, 
+                  "resnet-34":resnet34, 
+                  "resnet-50":resnet50}[name]()        
+        emb_width = resnet.fc.in_features
+        resnet.fc = Identity()
+    else:
+        raise NotImplemented("Backbone Not Supported")
+
+    return resnet, emb_width
+
+
 class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int, 
                  num_classes: int, 
-                 resnetsize:int = 50,
+                 backbone:str = "resnet-50",
                  n_local_views:int = 6,
                  lr:float = 0.15,
                  decay:float=1e-4) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
-                                  'resnetsize',
+                                  'backbone',
                                   'n_local_views',
-                                  'lr' )
+                                  'lr',
+                                  'decay')
 
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
 
-        if resnetsize == 18:
-            resnet = resnet18()
-        elif resnetsize == 34:
-            resnet = resnet34()
-        else:
-            resnet = resnet50()
-        
-        self.emb_width = emb_width = resnet.fc.in_features
-        resnet.fc = Identity()  # Ignore classification head
+        resnet, emb_width = backbones(backbone)
         
         upd_width = emb_width*2
         prd_width = 256
@@ -201,11 +214,10 @@ transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.
 transforms = {
 "Cifar10": transform,
 "Cifar100":transform,
-"Tiny-64": DINOTransform(global_crop_size=64,
+"Tiny-64": DINOTransform(global_crop_size=128,
                          global_crop_scale=(0.2, 1.0),
-                         local_crop_size=32,
-                         local_crop_scale=(0.05, 0.2),
-                         gaussian_blur=(0.0, 0.0, 0.0)),
+                         local_crop_size=64,
+                         local_crop_scale=(0.05, 0.2)),
 "Tiny":    transform,
 "Nette":   DINOTransform(global_crop_size=128,
                          global_crop_scale=(0.2, 1.0),
@@ -234,12 +246,13 @@ val_transform = T.Compose([
 val_transforms = {
 "Cifar10": val_transform,
 "Cifar100":val_transform,
-"Tiny-64": val_identity,
+"Tiny-64": T.Compose([
+                T.Resize(128),T.ToTensor(),
+                T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+           ]),
 "Tiny":    val_transform,
 "Nette":   T.Compose([
-                T.Resize(128),
-                T.CenterCrop(128),
-                T.ToTensor(),
+                T.Resize(128),T.CenterCrop(128),T.ToTensor(),
                 T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
            ]),
 "Im100":   val_transform,

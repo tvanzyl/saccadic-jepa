@@ -32,7 +32,7 @@ parser.add_argument("--epochs", type=int, default=100)
 parser.add_argument("--num-workers", type=int, default=8)
 parser.add_argument("--accelerator", type=str, default="gpu")
 parser.add_argument("--devices", type=int, default=1)
-parser.add_argument("--resnetsize", type=int, default=50)
+parser.add_argument("--backbone", type=str, default="resnet-50")
 parser.add_argument("--precision", type=str, default="16-mixed")
 parser.add_argument("--ckpt-path", type=Path, default=None)
 parser.add_argument("--compile-model", action="store_true")
@@ -84,7 +84,7 @@ def main(
     num_workers: int,
     accelerator: str,
     devices: int,
-    resnetsize: int,
+    backbone: str,
     precision: str,
     compile_model: bool,
     methods: Union[Sequence[str], None],
@@ -110,7 +110,7 @@ def main(
         model = METHODS[method]["model"](
             batch_size_per_device=batch_size_per_device, 
             num_classes=num_classes, 
-            resnetsize=resnetsize,
+            backbone=backbone,
             n_local_views=METHODS[method]["n_local_views"],
             lr=lr,
             decay=decay
