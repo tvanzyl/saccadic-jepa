@@ -82,24 +82,34 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device
 
         resnet, emb_width = backbones(backbone)
-        
-        upd_width = emb_width*2
-        prd_width = 256
+
+        #johnson_lindenstrauss_min_dim
+        #n_samples=1000, eps=0.15,0.2, width=2728,1594  -- 2048=0.17
+        #n_samples=200,  eps=0.15,0.2, width=2093,1222  -- 1024=0.22, 2048=0.15
+        #n_samples=100,  eps=0.15,0.2, width=1819,1062  -- 1024=0.20
+        #n_samples=10,   eps=0.15,0.2, width=909, 531   --  512=0.20
+        prd_width ={1000:2048,
+                    200:1024,
+                    100:1024,
+                    10:512,
+                    }[num_classes]        
+        # prd_width = 512
+        upd_width = prd_width*2
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, emb_width),
-                L2NormalizationLayer(),
-                nn.BatchNorm1d(emb_width, affine=False),
+                nn.Linear(emb_width, upd_width),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(),
+                # nn.Linear(upd_width, emb_width),
+                # L2NormalizationLayer(),
+                nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(),
             )                
-        self.prediction_head = nn.Linear(emb_width, prd_width, False)
-        self.merge_head = nn.Linear(emb_width, prd_width)
+        self.prediction_head = nn.Linear(upd_width, prd_width, False)
+        self.merge_head = nn.Linear(upd_width, prd_width)
         self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
