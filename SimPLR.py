@@ -82,6 +82,7 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device
 
         resnet, emb_width = backbones(backbone)
+        self.emb_width  = emb_width # Used by eval classes
 
         #johnson_lindenstrauss_min_dim
         #n_samples=1000, eps=0.15,0.2, width=2728,1594  -- 2048=0.17
@@ -92,8 +93,8 @@ class SimPLR(LightningModule):
                     200:1024,
                     100:1024,
                     10:512,
-                    }[num_classes]        
-        # prd_width = 512
+                    }[num_classes]
+        # prd_width = 256
         upd_width = prd_width*2
         self.ens_size = 2 + n_local_views
 
@@ -104,7 +105,7 @@ class SimPLR(LightningModule):
                 # nn.BatchNorm1d(upd_width),
                 # nn.ReLU(),
                 # nn.Linear(upd_width, emb_width),
-                # L2NormalizationLayer(),
+                L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(),
             )                

@@ -73,7 +73,7 @@ def knn_eval(
             max_epochs=1,
             accelerator=accelerator,
             devices=devices,
-            logger=TensorBoardLogger(save_dir=str(log_dir), name="knn_eval", version=k),
+            logger=False, #TensorBoardLogger(save_dir=str(log_dir), name="knn_eval", version=k),
             callbacks=[
                 DeviceStatsMonitor(),
                 metric_callback,
