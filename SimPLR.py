@@ -104,7 +104,7 @@ class SimPLR(LightningModule):
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(),
-            )                
+            )               
         self.prediction_head = nn.Linear(upd_width, prd_width, False)
         self.merge_head = nn.Linear(upd_width, prd_width)
         # self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
@@ -172,10 +172,9 @@ class SimPLR(LightningModule):
         return cls_loss
 
     def configure_optimizers(self):
-        # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone, self.prediction_head, ]#self.projection_head, ]
-        )
+                    [self.backbone, self.prediction_head, ]#self.projection_head, ]
+                )
         optimizer = SGD(        
             [
                 {"name": "simplr", "params": params},
@@ -198,7 +197,7 @@ class SimPLR(LightningModule):
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
             weight_decay=self.decay,
-        )        
+        )         
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
