@@ -94,24 +94,24 @@ class SimPLR(LightningModule):
                     100:1024,
                     10:512,
                     }[num_classes]
-        # prd_width = 256
+        prd_width = 512
         upd_width = prd_width*2
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(),
-                # nn.Linear(upd_width, emb_width),
+                nn.Linear(emb_width, emb_width*2, False),
+                nn.BatchNorm1d(emb_width*2),
+                nn.ReLU(),
+                nn.Linear(emb_width*2, upd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.ReLU(),
-            )                
+            )               
         self.prediction_head = nn.Linear(upd_width, prd_width, False)
         self.merge_head = nn.Linear(upd_width, prd_width)
-        self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
+        # self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
@@ -176,17 +176,16 @@ class SimPLR(LightningModule):
         return cls_loss
 
     def configure_optimizers(self):
-        # Don't use weight decay for batch norm, bias parameters to improve performance.
         params, params_no_weight_decay = get_weight_decay_parameters(
-            [self.backbone, self.projection_head, self.prediction_head]
-        )
+                    [self.backbone, self.prediction_head, ]#self.projection_head, ]
+                )
         optimizer = SGD(        
             [
                 {"name": "simplr", "params": params},
-                # {
-                #     "name": "proj", 
-                #     "params": self.projection_head.parameters(),
-                # },
+                {
+                    "name": "proj", 
+                    "params": self.projection_head.parameters(),
+                },
                 {
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
@@ -202,7 +201,7 @@ class SimPLR(LightningModule):
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
             weight_decay=self.decay,
-        )        
+        )         
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
