@@ -75,7 +75,7 @@ def knn_eval(
             devices=devices,
             logger=False, #TensorBoardLogger(save_dir=str(log_dir), name="knn_eval", version=k),
             callbacks=[
-                DeviceStatsMonitor(),
+                # DeviceStatsMonitor(),
                 metric_callback,
             ],
             strategy="ddp_find_unused_parameters_true",
