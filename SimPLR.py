@@ -93,7 +93,6 @@ class SimPLR(LightningModule):
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
-
         
         prd_width ={1000:2048,
                     200:1024,
