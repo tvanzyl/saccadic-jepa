@@ -243,10 +243,10 @@ transforms = {
                          local_crop_scale=(0.05, 0.2)),
 "Im100":   transform,
 "Im1k":    transform,
-"Im100-2": DINOTransform(global_crop_scale=(0.2, 1), 
+"Im100-2": DINOTransform(global_crop_scale=(0.2, 1),
                          n_local_views=0,
                          local_crop_scale=(0.05, 0.2)),
-"Im1k-2":  DINOTransform(global_crop_scale=(0.2, 1), 
+"Im1k-2":  DINOTransform(global_crop_scale=(0.2, 1),
                          n_local_views=0,
                          local_crop_scale=(0.05, 0.2)),
 }
