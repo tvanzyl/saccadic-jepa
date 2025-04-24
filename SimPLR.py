@@ -24,6 +24,16 @@ from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
+class AbsoluteLayer(nn.Module):
+    def __init__(self, eps:float=1e-12):
+        super(AbsoluteLayer, self).__init__()
+        self.eps = eps
+        self.k = 10
+
+    def forward(self, x):
+        return torch.sqrt(torch.square(x)+self.eps)
+        #2*nn.Sigmoid(self.k*x)-1
+
 class L2CenterNormLayer(nn.Module):
     def __init__(self, eps:float=1e-12):
         super(L2CenterNormLayer, self).__init__()
@@ -90,20 +100,23 @@ class SimPLR(LightningModule):
                     100:1024,
                     10:512,
                     }[num_classes]
-        prd_width = 1024
-        upd_width = prd_width*2
+        prd_width = 256
+        upd_width = 4096
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, emb_width*2, False),
-                nn.BatchNorm1d(emb_width*2),
+                # nn.Linear(emb_width, emb_width*2, False),
+                # nn.BatchNorm1d(emb_width*2),
+                # nn.ReLU(),
+                nn.Linear(emb_width, upd_width, False),
+                nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
-                nn.Linear(emb_width*2, upd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
-                nn.ReLU(),
+                AbsoluteLayer(),
+                # nn.ReLU(),
             )               
         self.prediction_head = nn.Linear(upd_width, prd_width, False)
         self.merge_head = nn.Linear(upd_width, prd_width)
@@ -173,7 +186,7 @@ class SimPLR(LightningModule):
 
     def configure_optimizers(self):
         params, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.prediction_head, ]#self.projection_head, ]
+                    [self.backbone, self.prediction_head,]# self.projection_head, ]
                 )
         optimizer = SGD(        
             [
@@ -201,12 +214,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                # warmup_epochs=0,
-                warmup_epochs=int(
-                      self.trainer.estimated_stepping_batches
-                    / self.trainer.max_epochs
-                    * 10
-                ),
+                warmup_epochs=0,
+                # warmup_epochs=int(
+                #       self.trainer.estimated_stepping_batches
+                #     / self.trainer.max_epochs
+                #     * 10
+                # ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
