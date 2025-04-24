@@ -31,8 +31,8 @@ class AbsoluteLayer(nn.Module):
         self.k = 10
 
     def forward(self, x):
-        return torch.sqrt(torch.square(x)+self.eps)
-        #2*nn.Sigmoid(self.k*x)-1
+        # return torch.sqrt(torch.square(x)+self.eps)
+        return 2*F.Sigmoid(self.k*x)-1
 
 class L2CenterNormLayer(nn.Module):
     def __init__(self, eps:float=1e-12):
