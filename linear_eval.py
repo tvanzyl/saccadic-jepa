@@ -24,7 +24,9 @@ def linear_eval(
     accelerator: str,
     devices: int,
     precision: str,
-    num_classes: int,    
+    num_classes: int, 
+    train_transform,
+    val_transform
 ) -> Dict[str, float]:
     """Runs a linear evaluation on the given model.
 
@@ -46,14 +48,6 @@ def linear_eval(
     feature_dim = model.emb_width
 
     # Setup training data.
-    train_transform = T.Compose(
-        [
-            T.RandomResizedCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-        ]
-    )
     train_dataset = LightlyDataset(input_dir=str(train_dir), transform=train_transform)
     train_dataloader = DataLoader(
         train_dataset,
@@ -65,14 +59,7 @@ def linear_eval(
     )
 
     # Setup validation data.
-    val_transform = T.Compose(
-        [
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-        ]
-    )
+    
     val_dataset = LightlyDataset(input_dir=str(val_dir), transform=val_transform)
     val_dataloader = DataLoader(
         val_dataset,
@@ -81,7 +68,6 @@ def linear_eval(
         num_workers=num_workers,
         persistent_workers=False,
     )
-
     # Train linear classifier.
     metric_callback = MetricCallback()
     trainer = Trainer(

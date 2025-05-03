@@ -24,6 +24,15 @@ from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
+class BiasLayer(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        bias_value = torch.randn((1))
+        self.bias_layer = torch.nn.Parameter(bias_value)
+    
+    def forward(self, x):
+        return x + self.bias_layer
+
 class AbsoluteLayer(nn.Module):
     def __init__(self, eps:float=1e-12):
         super(AbsoluteLayer, self).__init__()
@@ -32,7 +41,8 @@ class AbsoluteLayer(nn.Module):
 
     def forward(self, x):
         # return torch.sqrt(torch.square(x)+self.eps)
-        return 2*F.sigmoid(self.k*x)-1
+        # return 2*F.sigmoid(self.k*x)-1
+        return torch.square(x)
 
 class L2CenterNormLayer(nn.Module):
     def __init__(self, eps:float=1e-12):
@@ -93,30 +103,30 @@ class SimPLR(LightningModule):
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
-        
-        prd_width ={1000:2048,
-                    200:1024,
-                    100:1024,
-                    10:512,
-                    }[num_classes]
+
         prd_width = 256
-        upd_width = 4096
+        upd_width = 2048
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                # nn.Linear(emb_width, emb_width*2, False),
-                # nn.BatchNorm1d(emb_width*2),
-                # nn.ReLU(),
                 nn.Linear(emb_width, upd_width, False),
+                L2NormalizationLayer(), #Added for symetry :)
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
+                nn.Linear(upd_width, upd_width),
                 L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
-                AbsoluteLayer(),
-                # nn.ReLU(),
-            )               
+                nn.LeakyReLU()
+            )
+        #Use Batchnorm none-affine for centering
+        # self.buttress = nn.Identity()
+        # self.buttress =  nn.Sequential(
+        #         L2NormalizationLayer(),
+        #         nn.BatchNorm1d(upd_width, affine=False),                
+        #         nn.LeakyReLU()
+        # )
         self.prediction_head = nn.Linear(upd_width, prd_width, False)
         self.merge_head = nn.Linear(upd_width, prd_width)
         # self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
@@ -133,6 +143,11 @@ class SimPLR(LightningModule):
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
         f0_ = f[0].detach()
         g = [self.projection_head( f_ ) for f_ in f]
+        # Filthy hack to abuse the Batchnorm running stats        
+        # [self.buttress( b_ ) for b_ in b]
+        # self.buttress.eval()
+        # g = [self.buttress( b_ ) for b_ in b]
+        # self.buttress.train()
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
@@ -228,31 +243,46 @@ class SimPLR(LightningModule):
 # For ResNet50 we adjust crop scales as recommended by the authors:
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
 # transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
-transform = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.2))
+transform   = DINOTransform(global_crop_scale=(0.2, 1), local_crop_scale=(0.05, 0.2))
+transform32 = DINOTransform(global_crop_size=32,
+                    global_crop_scale=(0.2, 1.0),
+                    n_local_views=0,
+                    gaussian_blur=(0.0, 0.0, 0.0),
+                )
+transform64 = DINOTransform(global_crop_size=64,
+                    global_crop_scale=(0.3, 1.0),
+                    local_crop_size=32,
+                    local_crop_scale=(0.08, 0.3),
+                    gaussian_blur=(0.0, 0.0, 0.0),
+                )
+transform96 = DINOTransform(global_crop_size=96,
+                    global_crop_scale=(0.4, 1.0),
+                    local_crop_size=48,
+                    local_crop_scale=(0.08, 0.4),
+                ) 
+transform128= DINOTransform(global_crop_size=128,
+                    global_crop_scale=(0.2, 1.0),
+                    local_crop_size=64,
+                    local_crop_scale=(0.05, 0.2)),
+
+
 transforms = {
-"Cifar10": transform,
-"Cifar100":transform,
-"Tiny-64": DINOTransform(global_crop_size=128,
-                         global_crop_scale=(0.2, 1.0),
-                         local_crop_size=64,
-                         local_crop_scale=(0.05, 0.2)),
-"Tiny":    transform,
-"Nette":   DINOTransform(global_crop_size=128,
-                         global_crop_scale=(0.2, 1.0),
-                         local_crop_size=64,
-                         local_crop_scale=(0.05, 0.2)),
+"Cifar10": transform32,
+"Cifar100":transform32,
+"Tiny":    transform64,
+"Tiny-128":transform128,
+"Tiny-224":transform,
+"Nette":   transform128,
 "Im100":   transform,
 "Im1k":    transform,
-"Im100-2": DINOTransform(global_crop_scale=(0.2, 1),
-                         n_local_views=0,
-                         local_crop_scale=(0.05, 0.2)),
-"Im1k-2":  DINOTransform(global_crop_scale=(0.2, 1),
-                         n_local_views=0,
-                         local_crop_scale=(0.05, 0.2)),
+"Im100-2": DINOTransform(global_crop_scale=(0.05, 1),
+                         n_local_views=0),
+"Im1k-2":  DINOTransform(global_crop_scale=(0.05, 1),
+                         n_local_views=0),
 }
 
-val_identity  = T.Compose([
-                    T.ToTensor(),
+val_identity  = lambda size: T.Compose([
+                    T.Resize(size), T.ToTensor(),
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
                 ])
 
@@ -261,21 +291,18 @@ val_transform = T.Compose([
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
                 ])
 
+
 val_transforms = {
-"Cifar10": val_transform,
-"Cifar100":val_transform,
-"Tiny-64": T.Compose([
-                T.Resize(128),T.ToTensor(),
-                T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-           ]),
-"Tiny":    val_transform,
-"Nette":   T.Compose([
-                T.Resize(128),T.CenterCrop(128),T.ToTensor(),
-                T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-           ]),
+"Cifar10": val_identity(32),
+"Cifar100":val_identity(32),
+"Tiny":    val_identity(64),
+"Tiny-128":val_identity(128),
+"Tiny-224":val_transform,
+"Nette":   val_identity(128),
 "Im100":   val_transform,
 "Im1k":    val_transform,
 "Im100-2": val_transform,
 "Im1k-2":  val_transform,
 }
+
 

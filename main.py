@@ -45,34 +45,55 @@ parser.add_argument("--knn_k", type=int, nargs="+")
 parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
 
+def train_transform(size, scale=(0.08, 1.)):
+    return T.Compose([
+                    T.RandomResizedCrop(size, scale=scale),
+                    T.RandomHorizontalFlip(),
+                    T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ])
+
 METHODS = {
-    "Cifar10":  {"model": SimPLR.SimPLR, "n_local_views":6,
+    "Cifar10":  {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "train_transform": train_transform(32, (0.2, 1.)),
                  "val_transform": SimPLR.val_transforms["Cifar10"],  
-                 "transform": SimPLR.transforms["Cifar10"], },
-    "Cifar100": {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "transform": SimPLR.transforms["Cifar10"],},
+    "Cifar100": {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "train_transform": train_transform(32, (0.2, 1.)),
                  "val_transform": SimPLR.val_transforms["Cifar100"], 
                  "transform": SimPLR.transforms["Cifar100"],},
     "Tiny":     {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "train_transform": train_transform(64, (0.2, 1.)),
                  "val_transform": SimPLR.val_transforms["Tiny"],
-                 "transform": SimPLR.transforms["Tiny"],    },
-    "Tiny-64":  {"model": SimPLR.SimPLR, "n_local_views":6,
-                 "val_transform": SimPLR.val_transforms["Tiny-64"],
-                 "transform": SimPLR.transforms["Tiny-64"], },
+                 "transform": SimPLR.transforms["Tiny"],},
+    "Tiny-128": {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "train_transform": train_transform(128),
+                 "val_transform": SimPLR.val_transforms["Tiny-128"],
+                 "transform": SimPLR.transforms["Tiny-128"],},
+    "Tiny-224": {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "train_transform": train_transform(224),
+                 "val_transform": SimPLR.val_transforms["Tiny-224"],
+                 "transform": SimPLR.transforms["Tiny-224"],},
     "Nette":    {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "train_transform": train_transform(128),
                  "val_transform": SimPLR.val_transforms["Nette"],    
-                 "transform": SimPLR.transforms["Nette"],   },
+                 "transform": SimPLR.transforms["Nette"],},
     "Im100":    {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "train_transform": train_transform(224),
                  "val_transform": SimPLR.val_transforms["Im100"],    
-                 "transform": SimPLR.transforms["Im100"],   },
+                 "transform": SimPLR.transforms["Im100"],},
     "Im1k":     {"model": SimPLR.SimPLR, "n_local_views":6,
+                 "train_transform": train_transform(224),
                  "val_transform": SimPLR.val_transforms["Im1k"],     
-                 "transform": SimPLR.transforms["Im1k"],    },
+                 "transform": SimPLR.transforms["Im1k"],},
     "Im100-2":  {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "train_transform": train_transform(224),
                  "val_transform": SimPLR.val_transforms["Im100-2"],  
-                 "transform": SimPLR.transforms["Im100-2"], },
+                 "transform": SimPLR.transforms["Im100-2"],},
     "Im1k-2":   {"model": SimPLR.SimPLR, "n_local_views":0,
+                 "train_transform": train_transform(224),
                  "val_transform": SimPLR.val_transforms["Im1k-2"],   
-                 "transform": SimPLR.transforms["Im1k-2"],  },
+                 "transform": SimPLR.transforms["Im1k-2"],},
 }
 
 def main(
@@ -160,7 +181,7 @@ def main(
 
         if skip_linear_eval:
             print_rank_zero("Skipping linear eval.")
-        else:
+        else:            
             eval_metrics["linear"] = linear_eval.linear_eval(
                 model=model,
                 num_classes=num_classes,
@@ -171,7 +192,9 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision                
+                precision=precision,
+                train_transform=METHODS[method]["train_transform"],
+                val_transform=METHODS[method]["val_transform"]
             )
 
         if skip_finetune_eval:
@@ -188,6 +211,8 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 precision=precision,
+                train_transform=METHODS[method]["train_transform"],
+                val_transform=METHODS[method]["val_transform"]
             )
 
         if eval_metrics:
@@ -289,7 +314,7 @@ def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
     separator = f"|:{'-' * (eval_name_max_len)}:|:{'-' * (metric_name_max_len)}:|:{'-' * (value_max_len)}:|"
 
     lines = [header, separator] + [
-        f"| {eval_name.ljust(eval_name_max_len)} | {metric_name.ljust(metric_name_max_len)} | {f'{metric_value:.3f}'.ljust(value_max_len)} |"
+        f"| {eval_name.ljust(eval_name_max_len)} | {metric_name.ljust(metric_name_max_len)} | {f'{metric_value:.4f}'.ljust(value_max_len)} |"
         for eval_name, metric_dict in metrics.items()
         for metric_name, metric_value in metric_dict.items()
     ]
