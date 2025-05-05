@@ -24,35 +24,6 @@ from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
-class BiasLayer(torch.nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        bias_value = torch.randn((1))
-        self.bias_layer = torch.nn.Parameter(bias_value)
-    
-    def forward(self, x):
-        return x + self.bias_layer
-
-class AbsoluteLayer(nn.Module):
-    def __init__(self, eps:float=1e-12):
-        super(AbsoluteLayer, self).__init__()
-        self.eps = eps
-        self.k = 10
-
-    def forward(self, x):
-        # return torch.sqrt(torch.square(x)+self.eps)
-        # return 2*F.sigmoid(self.k*x)-1
-        return torch.square(x)
-
-class L2CenterNormLayer(nn.Module):
-    def __init__(self, eps:float=1e-12):
-        super(L2CenterNormLayer, self).__init__()
-        self.eps = eps
-
-    def forward(self, x: Tensor) -> Tensor:        
-        c = x - x.mean(dim=0, keepdim=True)
-        return c
-
 class L2NormalizationLayer(nn.Module):
     def __init__(self, dim:int=1, eps:float=1e-12):
         super(L2NormalizationLayer, self).__init__()
@@ -142,15 +113,16 @@ class SimPLR(LightningModule):
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
         f0_ = f[0].detach()        
         if self.running_stats:
-            b = [self.projection_head( f_ ) for f_ in f]
             # Filthy hack to abuse the Batchnorm running stats
+            b = [self.projection_head( f_ ) for f_ in f]            
             self.buttress[0].training = True
             with torch.no_grad():
                 _ = [self.buttress[1]( b_ ) for b_ in b]
             self.buttress[0].training = False
             g = [self.buttress( b_ ) for b_ in b]
         else:
-            g = [self.projection_head( f_ ) for f_ in f]
+            b = [self.projection_head( f_ ) for f_ in f]
+            g = [self.buttress( b_ ) for b_ in b]
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
