@@ -13,7 +13,7 @@ from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34, resnet18
 
 from lightly.transforms.utils import IMAGENET_NORMALIZE
-
+from lightly.models._momentum import _do_momentum_update
 from lightly.models import ResNetGenerator
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import (
@@ -104,19 +104,19 @@ class SimPLR(LightningModule):
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
 
-        prd_width = 256
-        upd_width = 2048
+        prd_width = emb_width
+        upd_width = emb_width
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
 
         self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),
-                L2NormalizationLayer(), #Added for symetry :)
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, upd_width),
-                L2NormalizationLayer(),
+                # nn.Linear(emb_width, upd_width, False),
+                # L2NormalizationLayer(), #Added for symetry :)
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(),
+                # nn.Linear(emb_width, upd_width),
+                # L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.LeakyReLU()
             )
@@ -127,10 +127,11 @@ class SimPLR(LightningModule):
         #         nn.BatchNorm1d(upd_width, affine=False),                
         #         nn.LeakyReLU()
         # )
-        self.prediction_head = nn.Linear(upd_width, prd_width, False)
-        self.merge_head = nn.Linear(upd_width, prd_width)
-        # self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
+        self.prediction_head = nn.Linear(upd_width, prd_width, False)        
+        self.merge_head = nn.Linear(upd_width, prd_width)      
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
+        #Uncomment this line for identity teacher
+        nn.init.eye_( self.merge_head.weight )
         
         self.criterion = NegativeCosineSimilarity()
 
@@ -184,6 +185,10 @@ class SimPLR(LightningModule):
             (f_, targets), batch_idx
         )        
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
+
+        #Uncomment these two lines for EMA  
+        # momentum = cosine_schedule(self.current_epoch, int(self.trainer.estimated_stepping_batches), 0.996, 1)
+        # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
 
@@ -263,22 +268,32 @@ transform96 = DINOTransform(global_crop_size=96,
 transform128= DINOTransform(global_crop_size=128,
                     global_crop_scale=(0.2, 1.0),
                     local_crop_size=64,
-                    local_crop_scale=(0.05, 0.2)),
-
+                    local_crop_scale=(0.05, 0.2),                    
+                )
 
 transforms = {
-"Cifar10": transform32,
-"Cifar100":transform32,
-"Tiny":    transform64,
-"Tiny-128":transform128,
-"Tiny-224":transform,
-"Nette":   transform128,
-"Im100":   transform,
-"Im1k":    transform,
-"Im100-2": DINOTransform(global_crop_scale=(0.05, 1),
-                         n_local_views=0),
-"Im1k-2":  DINOTransform(global_crop_scale=(0.05, 1),
-                         n_local_views=0),
+"Cifar10":   transform32,
+"Cifar100":  transform32,
+"Tiny":      transform64,
+"Tiny-128-W":DINOTransform(global_crop_size=128,
+                            global_crop_scale=(0.08, 1.0),
+                            n_local_views=0,
+                            cj_prob=0.0,
+                            random_gray_scale=0.0,
+                            solarization_prob=0.0,
+                            gaussian_blur=(0.0, 0.0, 0.0)),
+"Tiny-128":  transform128,
+"Tiny-128-2":DINOTransform(global_crop_size=128,
+                            global_crop_scale=(0.08, 1.0),
+                            n_local_views=0),
+"Tiny-224":  transform,
+"Nette":     transform128,
+"Im100":     transform,
+"Im1k":      transform,
+"Im100-2":   DINOTransform(global_crop_scale=(0.08, 1),
+                            n_local_views=0),
+"Im1k-2":    DINOTransform(global_crop_scale=(0.08, 1),
+                            n_local_views=0),
 }
 
 val_identity  = lambda size: T.Compose([
@@ -293,16 +308,18 @@ val_transform = T.Compose([
 
 
 val_transforms = {
-"Cifar10": val_identity(32),
-"Cifar100":val_identity(32),
-"Tiny":    val_identity(64),
-"Tiny-128":val_identity(128),
-"Tiny-224":val_transform,
-"Nette":   val_identity(128),
-"Im100":   val_transform,
-"Im1k":    val_transform,
-"Im100-2": val_transform,
-"Im1k-2":  val_transform,
+"Cifar10":   val_identity(32),
+"Cifar100":  val_identity(32),
+"Tiny":      val_identity(64),
+"Tiny-128-W":val_identity(128),
+"Tiny-128":  val_identity(128),
+"Tiny-128-2":val_identity(128),
+"Tiny-224":  val_transform,
+"Nette":     val_identity(128),
+"Im100":     val_transform,
+"Im1k":      val_transform,
+"Im100-2":   val_transform,
+"Im1k-2":    val_transform,
 }
 
 
