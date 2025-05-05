@@ -88,7 +88,8 @@ class SimPLR(LightningModule):
                  backbone:str = "resnet-50",
                  n_local_views:int = 6,
                  lr:float = 0.15,
-                 decay:float=1e-4) -> None:
+                 decay:float=1e-4,
+                 running_stats:bool=False) -> None:
         super().__init__()        
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -100,6 +101,7 @@ class SimPLR(LightningModule):
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
+        self.running_stats = running_stats
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
@@ -116,16 +118,13 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
-                L2NormalizationLayer(),
-                nn.BatchNorm1d(upd_width, affine=False),
-                nn.LeakyReLU()
+                L2NormalizationLayer(),                
             )
         #Use Batchnorm none-affine for centering
-        # self.buttress = nn.Identity()
-        # self.buttress =  nn.Sequential(
-        #         nn.BatchNorm1d(upd_width, affine=False),
-        #         nn.LeakyReLU()
-        # )
+        self.buttress =  nn.Sequential(
+                nn.BatchNorm1d(upd_width, affine=False),
+                nn.LeakyReLU()
+        )
         self.prediction_head = nn.Linear(upd_width, prd_width, False)
         self.merge_head = nn.Linear(upd_width, prd_width)
         # self.prediction_head.weight.data /= 3.0 #https://arxiv.org/pdf/2406.16468
@@ -140,13 +139,16 @@ class SimPLR(LightningModule):
 
     def forward_student(self, x: Tensor) -> Tensor:
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
-        f0_ = f[0].detach()
-        g = [self.projection_head( f_ ) for f_ in f]
-        # Filthy hack to abuse the Batchnorm running stats
-        # self.buttress[0].training = True
-        # _ = [self.buttress[0]( b_ ) for b_ in b]
-        # self.buttress[0].training = False
-        # g = [self.buttress( b_ ) for b_ in b]
+        f0_ = f[0].detach()        
+        if self.running_stats:
+            b = [self.projection_head( f_ ) for f_ in f]            
+            # Filthy hack to abuse the Batchnorm running stats
+            self.buttress[0].training = True
+            _ = [self.buttress[0]( b_ ) for b_ in b]
+            self.buttress[0].training = False
+            g = [self.buttress( b_ ) for b_ in b]
+        else:
+            g = [self.projection_head( f_ ) for f_ in f]
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
