@@ -142,10 +142,11 @@ class SimPLR(LightningModule):
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
         f0_ = f[0].detach()        
         if self.running_stats:
-            b = [self.projection_head( f_ ) for f_ in f]            
+            b = [self.projection_head( f_ ) for f_ in f]
             # Filthy hack to abuse the Batchnorm running stats
             self.buttress[0].training = True
-            _ = [self.buttress[1]( b_ ) for b_ in b]
+            with torch.no_grad():
+                _ = [self.buttress[1]( b_ ) for b_ in b]
             self.buttress[0].training = False
             g = [self.buttress( b_ ) for b_ in b]
         else:
@@ -262,20 +263,30 @@ transform64 = DINOTransform(global_crop_size=64,
                     gaussian_blur=(0.0, 0.0, 0.0),
                 )
 transform96 = DINOTransform(global_crop_size=96,
-                    global_crop_scale=(0.4, 1.0),
+                    global_crop_scale=(0.3, 1.0),
                     local_crop_size=48,
-                    local_crop_scale=(0.08, 0.4),
+                    local_crop_scale=(0.08, 0.3),
                 ) 
 transform128= DINOTransform(global_crop_size=128,
                     global_crop_scale=(0.2, 1.0),
                     local_crop_size=64,
                     local_crop_scale=(0.05, 0.2),                    
                 )
+val_identity  = lambda size: T.Compose([
+                    T.Resize(size), T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ])
+val_transform = T.Compose([
+                    T.Resize(256), T.CenterCrop(224), T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ])
+
 
 transforms = {
 "Cifar10":   transform32,
 "Cifar100":  transform32,
 "Tiny":      transform64,
+"STL":       transform96,
 "Tiny-128-W":DINOTransform(global_crop_size=128,
                             global_crop_scale=(0.08, 1.0),
                             n_local_views=0,
@@ -297,21 +308,11 @@ transforms = {
                             n_local_views=0),
 }
 
-val_identity  = lambda size: T.Compose([
-                    T.Resize(size), T.ToTensor(),
-                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-                ])
-
-val_transform = T.Compose([
-                    T.Resize(256), T.CenterCrop(224), T.ToTensor(),
-                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-                ])
-
-
 val_transforms = {
 "Cifar10":   val_identity(32),
 "Cifar100":  val_identity(32),
 "Tiny":      val_identity(64),
+"STL":       val_identity(96),
 "Tiny-128-W":val_identity(128),
 "Tiny-128":  val_identity(128),
 "Tiny-128-2":val_identity(128),
@@ -322,5 +323,6 @@ val_transforms = {
 "Im100-2":   val_transform,
 "Im1k-2":    val_transform,
 }
+
 
 

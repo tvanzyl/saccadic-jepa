@@ -58,8 +58,7 @@ def linear_eval(
         persistent_workers=False,
     )
 
-    # Setup validation data.
-    
+    # Setup validation data.    
     val_dataset = LightlyDataset(input_dir=str(val_dir), transform=val_transform)
     val_dataloader = DataLoader(
         val_dataset,
