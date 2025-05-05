@@ -117,11 +117,11 @@ class SimPLR(LightningModule):
                 L2NormalizationLayer(), #Added for Symmetry and Aesthetics :)
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
-                nn.Linear(upd_width, upd_width),
-                L2NormalizationLayer(),                
+                nn.Linear(upd_width, upd_width),                
             )
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
+                L2NormalizationLayer(),
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.LeakyReLU()
         )
@@ -145,7 +145,7 @@ class SimPLR(LightningModule):
             b = [self.projection_head( f_ ) for f_ in f]            
             # Filthy hack to abuse the Batchnorm running stats
             self.buttress[0].training = True
-            _ = [self.buttress[0]( b_ ) for b_ in b]
+            _ = [self.buttress[1]( b_ ) for b_ in b]
             self.buttress[0].training = False
             g = [self.buttress( b_ ) for b_ in b]
         else:
