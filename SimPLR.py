@@ -112,7 +112,7 @@ class SimPLR(LightningModule):
 
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
-                L2NormalizationLayer(), #Added for symetry :)
+                L2NormalizationLayer(), #Added for Symmetry and Aesthetics :)
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
@@ -123,8 +123,7 @@ class SimPLR(LightningModule):
         #Use Batchnorm none-affine for centering
         # self.buttress = nn.Identity()
         # self.buttress =  nn.Sequential(
-        #         L2NormalizationLayer(),
-        #         nn.BatchNorm1d(upd_width, affine=False),                
+        #         nn.BatchNorm1d(upd_width, affine=False),
         #         nn.LeakyReLU()
         # )
         self.prediction_head = nn.Linear(upd_width, prd_width, False)
@@ -143,11 +142,11 @@ class SimPLR(LightningModule):
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
         f0_ = f[0].detach()
         g = [self.projection_head( f_ ) for f_ in f]
-        # Filthy hack to abuse the Batchnorm running stats        
-        # [self.buttress( b_ ) for b_ in b]
-        # self.buttress.eval()
+        # Filthy hack to abuse the Batchnorm running stats
+        # self.buttress[0].training = True
+        # _ = [self.buttress[0]( b_ ) for b_ in b]
+        # self.buttress[0].training = False
         # g = [self.buttress( b_ ) for b_ in b]
-        # self.buttress.train()
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
