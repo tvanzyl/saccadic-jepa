@@ -85,7 +85,7 @@ class SimPLR(LightningModule):
 
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
-                L2NormalizationLayer(), #Added for Symmetry and Aesthetics :)
+                # L2NormalizationLayer(), #Added for Symmetry and Aesthetics :)
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
@@ -197,7 +197,7 @@ class SimPLR(LightningModule):
                     "lr":0.1
                 },
             ],            
-            lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
+            lr=self.lr * self.batch_size_per_device * self.trainer.world_size, # / 256,
             momentum=0.9,
             weight_decay=self.decay,
         )         
