@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Sequence, Union
 
 import SimPLR
+from SimPLR import train_transform
 import finetune_eval
 import knn_eval
 import linear_eval
@@ -46,14 +47,6 @@ parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
 parser.add_argument("--running_stats", action="store_true")
 
-def train_transform(size, scale=(0.08, 1.)):
-    return T.Compose([
-                    T.RandomResizedCrop(size, scale=scale),
-                    T.RandomHorizontalFlip(),
-                    T.ToTensor(),
-                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
-                ])
-
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": train_transform(32, (0.2, 1.)),
@@ -71,22 +64,24 @@ METHODS = {
                      "train_transform": train_transform(96, (0.2, 1.)),
                      "val_transform": SimPLR.val_transforms["STL"],
                      "transform": SimPLR.transforms["STL"],},
-    "Tiny-128-W":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(128),
-                     "val_transform": SimPLR.val_transforms["Tiny-128-W"],
-                     "transform": SimPLR.transforms["Tiny-128-W"],},
-    "Tiny-128":     {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(128),
-                     "val_transform": SimPLR.val_transforms["Tiny-128"],
-                     "transform": SimPLR.transforms["Tiny-128"],},
-    "Tiny-128-2":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(128),
-                     "val_transform": SimPLR.val_transforms["Tiny-128-2"],
-                     "transform": SimPLR.transforms["Tiny-128-2"],},
-    "Tiny-224":     {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(224),
-                     "val_transform": SimPLR.val_transforms["Tiny-224"],
-                     "transform": SimPLR.transforms["Tiny-224"],},
+
+    "Tiny-64-W":   {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": train_transform(64, (0.2, 1.)),
+                     "val_transform": SimPLR.val_transforms["Tiny-64-W"],
+                     "transform": SimPLR.transforms["Tiny-64-W"],},
+    "Tiny-224-W":   {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": train_transform(224, (0.2, 1.)),
+                     "val_transform": SimPLR.val_transforms["Tiny-224-W"],
+                     "transform": SimPLR.transforms["Tiny-224-W"],},
+    "Tiny-224-M":   {"model": SimPLR.SimPLR, "n_local_views":6,
+                     "train_transform": train_transform(224, (0.2, 1.)),
+                     "val_transform": SimPLR.val_transforms["Tiny-224-M"],
+                     "transform": SimPLR.transforms["Tiny-224-M"],},
+    "Tiny-224-S":   {"model": SimPLR.SimPLR, "n_local_views":6,
+                     "train_transform": train_transform(224, (0.2, 1.)),
+                     "val_transform": SimPLR.val_transforms["Tiny-224-S"],
+                     "transform": SimPLR.transforms["Tiny-224-S"],},
+
     "Nette":        {"model": SimPLR.SimPLR, "n_local_views":6,
                      "train_transform": train_transform(128),
                      "val_transform": SimPLR.val_transforms["Nette"],    

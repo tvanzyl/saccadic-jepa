@@ -77,8 +77,8 @@ class SimPLR(LightningModule):
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
 
-        prd_width = emb_width
-        upd_width = emb_width
+        prd_width = 256
+        upd_width = 2048
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
@@ -88,7 +88,7 @@ class SimPLR(LightningModule):
                 L2NormalizationLayer(), #Added for Symmetry and Aesthetics :)
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
-                nn.Linear(upd_width, upd_width),                
+                nn.Linear(upd_width, upd_width),
             )
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
@@ -100,7 +100,7 @@ class SimPLR(LightningModule):
         self.merge_head = nn.Linear(upd_width, prd_width)      
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         #Uncomment this line for identity teacher
-        nn.init.eye_( self.merge_head.weight )
+        # nn.init.eye_( self.merge_head.weight )
         
         self.criterion = NegativeCosineSimilarity()
 
@@ -161,7 +161,7 @@ class SimPLR(LightningModule):
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         #Uncomment these two lines for EMA  
-        # momentum = cosine_schedule(self.current_epoch, int(self.trainer.estimated_stepping_batches), 0.996, 1)
+        # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
         # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
@@ -244,6 +244,14 @@ transform128= DINOTransform(global_crop_size=128,
                     local_crop_size=64,
                     local_crop_scale=(0.05, 0.2),                    
                 )
+
+def train_transform(size, scale=(0.08, 1.)):
+    return T.Compose([
+                    T.RandomResizedCrop(size, scale=scale),
+                    T.RandomHorizontalFlip(),
+                    T.ToTensor(),
+                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                ])
 val_identity  = lambda size: T.Compose([
                     T.Resize(size), T.ToTensor(),
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
@@ -258,37 +266,45 @@ transforms = {
 "Cifar10":   transform32,
 "Cifar100":  transform32,
 "Tiny":      transform64,
+"Tiny-64-W": DINOTransform(global_crop_size=64,
+                           global_crop_scale=(0.08, 1.0),
+                           n_local_views=0,
+                           cj_prob=0.0,
+                           random_gray_scale=0.0,
+                           solarization_prob=0.0,
+                           gaussian_blur=(0.0, 0.0, 0.0)),
 "STL":       transform96,
-"Tiny-128-W":DINOTransform(global_crop_size=128,
-                            global_crop_scale=(0.08, 1.0),
-                            n_local_views=0,
-                            cj_prob=0.0,
-                            random_gray_scale=0.0,
-                            solarization_prob=0.0,
-                            gaussian_blur=(0.0, 0.0, 0.0)),
-"Tiny-128":  transform128,
-"Tiny-128-2":DINOTransform(global_crop_size=128,
-                            global_crop_scale=(0.08, 1.0),
-                            n_local_views=0),
-"Tiny-224":  transform,
+"Tiny-224-W":DINOTransform(global_crop_scale=(0.08, 1.0),
+                           n_local_views=0,
+                           cj_prob=0.0,
+                           random_gray_scale=0.0,
+                           solarization_prob=0.0,
+                           gaussian_blur=(0.0, 0.0, 0.0)),
+"Tiny-224-M":DINOTransform(global_crop_scale=(0.2, 1.0),
+                           local_crop_scale=(0.05, 0.2),
+                           cj_prob=0.0,
+                           random_gray_scale=0.0,
+                           solarization_prob=0.0,
+                           gaussian_blur=(0.0, 0.0, 0.0)),
+"Tiny-224-S":transform,
 "Nette":     transform128,
 "Im100":     transform,
 "Im1k":      transform,
 "Im100-2":   DINOTransform(global_crop_scale=(0.08, 1),
-                            n_local_views=0),
+                           n_local_views=0),
 "Im1k-2":    DINOTransform(global_crop_scale=(0.08, 1),
-                            n_local_views=0),
+                           n_local_views=0),
 }
 
 val_transforms = {
 "Cifar10":   val_identity(32),
 "Cifar100":  val_identity(32),
 "Tiny":      val_identity(64),
+"Tiny-64-W": val_identity(64),
 "STL":       val_identity(96),
-"Tiny-128-W":val_identity(128),
-"Tiny-128":  val_identity(128),
-"Tiny-128-2":val_identity(128),
-"Tiny-224":  val_transform,
+"Tiny-224-W":val_identity(224),
+"Tiny-224-M":val_identity(224),
+"Tiny-224-S":val_identity(224),
 "Nette":     val_identity(128),
 "Im100":     val_transform,
 "Im1k":      val_transform,
