@@ -42,10 +42,10 @@ parser.add_argument("--num-classes", type=int, default=1000)
 parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
-parser.add_argument("--knn_k", type=int, nargs="+")
+parser.add_argument("--knn-k", type=int, nargs="+")
 parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
-parser.add_argument("--running_stats", action="store_true")
+parser.add_argument("--running-stats", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
