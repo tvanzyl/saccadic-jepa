@@ -36,11 +36,17 @@ class L2NormalizationLayer(nn.Module):
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]: 
-        resnet = ResNetGenerator({"resnetjie-9":"resnet-9","resnetjie-18":"resnet-18"}[name])
-        emb_width = resnet.linear.in_features        
-        resnet = nn.Sequential(
-            *list(resnet.children())[:-1], nn.AdaptiveAvgPool2d(1)
-        )        
+        # resnet = ResNetGenerator({"resnetjie-9":"resnet-9","resnetjie-18":"resnet-18"}[name])
+        # emb_width = resnet.linear.in_features        
+        # resnet = nn.Sequential(
+        #     *list(resnet.children())[:-1], nn.AdaptiveAvgPool2d(1)
+        # )        
+        resnet = {"resnetjie-9" :resnet18, 
+                  "resnetjie-18":resnet18}[name]()
+        emb_width = resnet.fc.in_features
+        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        resnet.maxpool = nn.Sequential()
+        resnet.fc = Identity()
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
@@ -85,7 +91,6 @@ class SimPLR(LightningModule):
 
         self.projection_head = nn.Sequential(
                 nn.Linear(emb_width, upd_width, False),
-                # L2NormalizationLayer(), #Added for Symmetry and Aesthetics :)
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
@@ -158,8 +163,8 @@ class SimPLR(LightningModule):
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         #Uncomment these two lines for EMA  
-        # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-        # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
+        momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+        _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
 
