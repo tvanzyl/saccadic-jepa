@@ -111,19 +111,16 @@ class SimPLR(LightningModule):
 
     def forward_student(self, x: Tensor) -> Tensor:
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
-        f0_ = f[0].detach()        
+        f0_ = f[0].detach()
+        b = [self.projection_head( f_ ) for f_ in f]
+        g = [self.buttress( b_ ) for b_ in b]
+        p = [self.prediction_head( g_ ) for g_ in g]
         if self.running_stats:
             # Filthy hack to abuse the Batchnorm running stats
-            b = [self.projection_head( f_ ) for f_ in f]            
-            self.buttress[0].training = True
+            self.buttress[1].training = False
             with torch.no_grad():
-                _ = [self.buttress[1]( b_ ) for b_ in b]
-            self.buttress[0].training = False
-            g = [self.buttress( b_ ) for b_ in b]
-        else:
-            b = [self.projection_head( f_ ) for f_ in f]
-            g = [self.buttress( b_ ) for b_ in b]
-        p = [self.prediction_head( g_ ) for g_ in g]
+                g = [self.buttress( b_ ) for b_ in b]
+            self.buttress[1].training = True
         with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
             zg1_ = self.merge_head( g[1] )
