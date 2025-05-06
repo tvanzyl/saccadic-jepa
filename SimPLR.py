@@ -89,10 +89,10 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
+                L2NormalizationLayer(),
             )
         #Use Batchnorm none-affine for centering
-        self.buttress =  nn.Sequential(
-                L2NormalizationLayer(),
+        self.buttress =  nn.Sequential(                
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.LeakyReLU()
         )
@@ -117,10 +117,10 @@ class SimPLR(LightningModule):
         p = [self.prediction_head( g_ ) for g_ in g]
         if self.running_stats:
             # Filthy hack to abuse the Batchnorm running stats
-            self.buttress[1].training = False
+            self.buttress[0].training = False
             with torch.no_grad():
                 g = [self.buttress( b_ ) for b_ in b]
-            self.buttress[1].training = True
+            self.buttress[0].training = True
         with torch.no_grad():
             zg0_ = self.merge_head( g[0] )
             zg1_ = self.merge_head( g[1] )
