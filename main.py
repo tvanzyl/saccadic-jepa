@@ -69,6 +69,11 @@ METHODS = {
                      "train_transform": train_transform(64, (0.2, 1.)),
                      "val_transform": SimPLR.val_transforms["Tiny-64-W"],
                      "transform": SimPLR.transforms["Tiny-64-W"],},
+    "Tiny-64-S":   {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": train_transform(64, (0.2, 1.)),
+                     "val_transform": SimPLR.val_transforms["Tiny-64-S"],
+                     "transform": SimPLR.transforms["Tiny-64-S"],},
+
     "Tiny-224-W":   {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": train_transform(224, (0.2, 1.)),
                      "val_transform": SimPLR.val_transforms["Tiny-224-W"],

@@ -163,8 +163,8 @@ class SimPLR(LightningModule):
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         #Uncomment these two lines for EMA  
-        momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-        _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
+        # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+        # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
 
@@ -275,6 +275,10 @@ transforms = {
                            random_gray_scale=0.0,
                            solarization_prob=0.0,
                            gaussian_blur=(0.0, 0.0, 0.0)),
+"Tiny-64-S": DINOTransform(global_crop_size=64,
+                           n_local_views=0,
+                           global_crop_scale=(0.08, 1.0),
+                           gaussian_blur=(0.0, 0.0, 0.0),),
 "STL":       transform96,
 "Tiny-224-W":DINOTransform(global_crop_scale=(0.08, 1.0),
                            n_local_views=0,
@@ -303,6 +307,7 @@ val_transforms = {
 "Cifar100":  val_identity(32),
 "Tiny":      val_identity(64),
 "Tiny-64-W": val_identity(64),
+"Tiny-64-S": val_identity(64),
 "STL":       val_identity(96),
 "Tiny-224-W":val_identity(224),
 "Tiny-224-M":val_identity(224),
