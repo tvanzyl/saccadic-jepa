@@ -97,6 +97,7 @@ class SimPLR(LightningModule):
         self.emb_width  = emb_width # Used by eval classes
 
         prd_width = 256
+        self.prd_width = prd_width
         upd_width = 2048
         self.ens_size = 2 + n_local_views
 
@@ -127,7 +128,7 @@ class SimPLR(LightningModule):
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
 
-    def forward_student(self, x: Tensor) -> Tensor:
+    def forward_student(self, x: Tensor, idx: Tensor) -> Tensor:
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
         f0_ = f[0].detach()
         b = [self.projection_head( f_ ) for f_ in f]
@@ -150,20 +151,36 @@ class SimPLR(LightningModule):
                 zg_ = 0.5*(zg0_+zg1_)
                 for _ in range(self.ens_size-2):
                     z.append( zg_ )
+        
+        #Uncomment for EMA 2.0
+        p.extend([p[0], p[1]])
+        with torch.no_grad():
+            ze_ = self.embedding.weight[idx].clone()
+            z.extend([ze_, ze_])
+            self.embedding.weight[idx] = 0.5*(zg0_+zg1_)
+
         return f0_, p, z
+
+    def on_train_start(self):
+        self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
+                                      self.prd_width, 
+                                      dtype=torch.float16,
+                                      device=self.device)
+        # self.embedding1 = nn.Embedding(len(self.train_dataloader().dataset), self.prd_width)
+
 
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
     ) -> Tensor:
         x, targets, idx = batch
         
-        f_, p, z = self.forward_student( x )
+        f0_, p, z = self.forward_student( x, idx )
         
         loss = 0
-        for xi in range(self.ens_size):
+        for xi in range(len(z)):
             p_ = p[xi]
             z_ = z[xi]
-            loss += self.criterion( p_, z_ ) / self.ens_size
+            loss += self.criterion( p_, z_ ) / len(z)
         
         self.log_dict(
             {"train_loss": loss},
@@ -174,13 +191,13 @@ class SimPLR(LightningModule):
 
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
-            (f_, targets), batch_idx
+            (f0_, targets), batch_idx
         )        
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
-        #Uncomment these two lines for EMA  
-        momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-        _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
+        #Uncomment these two lines for EMA 1.0  
+        # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+        # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
 
