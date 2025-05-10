@@ -24,6 +24,19 @@ from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
+def dataset_with_indices(cls):
+    """
+    Modifies the given Dataset class to return a tuple data, target, index
+    instead of just data, target.
+    """
+    def __getitem__(self, index):
+        data, target, fname = cls.__getitem__(self, index)
+        return data, target, index
+
+    return type(cls.__name__, (cls,), {
+        '__getitem__': __getitem__,
+    })
+
 class L2NormalizationLayer(nn.Module):
     def __init__(self, dim:int=1, eps:float=1e-12):
         super(L2NormalizationLayer, self).__init__()
@@ -94,7 +107,7 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
-                L2NormalizationLayer(),
+                # L2NormalizationLayer(),
             )
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(                
@@ -120,15 +133,18 @@ class SimPLR(LightningModule):
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
         p = [self.prediction_head( g_ ) for g_ in g]
-        if self.running_stats:
-            # Filthy hack to abuse the Batchnorm running stats
-            self.buttress[0].training = False
-            with torch.no_grad():
-                g = [self.buttress( b_ ) for b_ in b]
-            self.buttress[0].training = True
         with torch.no_grad():
-            zg0_ = self.merge_head( g[0] )
-            zg1_ = self.merge_head( g[1] )
+            if self.running_stats:
+                # Filthy hack to abuse the Batchnorm running stats
+                self.buttress[0].training = False
+                g0 = self.buttress( b[0] )
+                g1 = self.buttress( b[1] )
+                self.buttress[0].training = True
+                zg0_ = self.merge_head( g0 )
+                zg1_ = self.merge_head( g1 )
+            else:
+                zg0_ = self.merge_head( g[0] )
+                zg1_ = self.merge_head( g[1] )
             z = [zg1_, zg0_]
             if self.ens_size>2:
                 zg_ = 0.5*(zg0_+zg1_)
@@ -139,7 +155,7 @@ class SimPLR(LightningModule):
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
     ) -> Tensor:
-        x, targets, _ = batch
+        x, targets, idx = batch
         
         f_, p, z = self.forward_student( x )
         
@@ -163,8 +179,8 @@ class SimPLR(LightningModule):
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         #Uncomment these two lines for EMA  
-        # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-        # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
+        momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+        _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
 
@@ -181,15 +197,15 @@ class SimPLR(LightningModule):
 
     def configure_optimizers(self):
         params, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.prediction_head,]# self.projection_head, ]
+                    [self.backbone, self.prediction_head, self.projection_head]
                 )
         optimizer = SGD(        
             [
                 {"name": "simplr", "params": params},
-                {
-                    "name": "proj", 
-                    "params": self.projection_head.parameters(),
-                },
+                # {
+                #     "name": "proj", 
+                #     "params": self.projection_head.parameters(),
+                # },
                 {
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
@@ -209,12 +225,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                warmup_epochs=0,
-                # warmup_epochs=int(
-                #       self.trainer.estimated_stepping_batches
-                #     / self.trainer.max_epochs
-                #     * 10
-                # ),
+                # warmup_epochs=0,
+                warmup_epochs=int(
+                      self.trainer.estimated_stepping_batches
+                    / self.trainer.max_epochs
+                    * 10
+                ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
@@ -280,19 +296,9 @@ transforms = {
                            global_crop_scale=(0.08, 1.0),
                            gaussian_blur=(0.0, 0.0, 0.0),),
 "STL":       transform96,
-"Tiny-224-W":DINOTransform(global_crop_scale=(0.08, 1.0),
+"STL-S":     DINOTransform(global_crop_size=96,
                            n_local_views=0,
-                           cj_prob=0.0,
-                           random_gray_scale=0.0,
-                           solarization_prob=0.0,
-                           gaussian_blur=(0.0, 0.0, 0.0)),
-"Tiny-224-M":DINOTransform(global_crop_scale=(0.2, 1.0),
-                           local_crop_scale=(0.05, 0.2),
-                           cj_prob=0.0,
-                           random_gray_scale=0.0,
-                           solarization_prob=0.0,
-                           gaussian_blur=(0.0, 0.0, 0.0)),
-"Tiny-224-S":transform,
+                           global_crop_scale=(0.3, 1.0),),
 "Nette":     transform128,
 "Im100":     transform,
 "Im1k":      transform,
@@ -306,18 +312,12 @@ val_transforms = {
 "Cifar10":   val_identity(32),
 "Cifar100":  val_identity(32),
 "Tiny":      val_identity(64),
-"Tiny-64-W": val_identity(64),
-"Tiny-64-S": val_identity(64),
 "STL":       val_identity(96),
-"Tiny-224-W":val_identity(224),
-"Tiny-224-M":val_identity(224),
-"Tiny-224-S":val_identity(224),
 "Nette":     val_identity(128),
 "Im100":     val_transform,
 "Im1k":      val_transform,
-"Im100-2":   val_transform,
-"Im1k-2":    val_transform,
 }
+
 
 
 
