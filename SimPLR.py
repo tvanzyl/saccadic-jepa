@@ -298,7 +298,7 @@ transforms = {
 "STL":       transform96,
 "STL-S":     DINOTransform(global_crop_size=96,
                            n_local_views=0,
-                           global_crop_scale=(0.3, 1.0),),
+                           global_crop_scale=(0.08, 1.0),),
 "Nette":     transform128,
 "Im100":     transform,
 "Im1k":      transform,
