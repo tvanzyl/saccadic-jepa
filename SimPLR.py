@@ -108,7 +108,7 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
-                # L2NormalizationLayer(),
+                L2NormalizationLayer(),
             )
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(                
@@ -122,6 +122,11 @@ class SimPLR(LightningModule):
         # nn.init.eye_( self.merge_head.weight )
         
         self.criterion = NegativeCosineSimilarity()
+
+        # self.embedding = nn.Embedding(100000, 
+        #                               self.prd_width, 
+        #                               dtype=torch.float16,
+        #                               device=self.device)
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -157,9 +162,13 @@ class SimPLR(LightningModule):
         with torch.no_grad():
             ze_ = self.embedding.weight[idx].clone()
             z.extend([ze_, ze_])
-            self.embedding.weight[idx] = 0.5*(zg0_+zg1_)
+            _do_momentum_update(self.embedding.weight[idx], 0.5*(zg0_+zg1_), 0.1)
+            # self.embedding.weight[idx] = 0.5*(zg0_+zg1_)
 
         return f0_, p, z
+
+    def on_save_checkpoint(self, checkpoint):        
+        del checkpoint['state_dict']['embedding.weight']
 
     def on_train_start(self):
         self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
@@ -214,15 +223,15 @@ class SimPLR(LightningModule):
 
     def configure_optimizers(self):
         params, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.prediction_head, self.projection_head]
+                    [self.backbone, self.prediction_head, ]# self.projection_head]
                 )
         optimizer = SGD(        
             [
                 {"name": "simplr", "params": params},
-                # {
-                #     "name": "proj", 
-                #     "params": self.projection_head.parameters(),
-                # },
+                {
+                    "name": "proj", 
+                    "params": self.projection_head.parameters(),
+                },
                 {
                     "name": "simplr_no_weight_decay",
                     "params": params_no_weight_decay,
