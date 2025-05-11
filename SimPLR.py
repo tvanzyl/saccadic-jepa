@@ -96,8 +96,7 @@ class SimPLR(LightningModule):
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
 
-        prd_width = 256
-        self.prd_width = prd_width
+        self.prd_width = 256
         upd_width = 2048
         self.ens_size = 2 + n_local_views
 
@@ -115,14 +114,15 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width, affine=False),
                 nn.LeakyReLU()
         )
-        self.prediction_head = nn.Linear(upd_width, prd_width, False)        
-        self.merge_head = nn.Linear(upd_width, prd_width)      
+        self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
+        self.merge_head = nn.Linear(upd_width, self.prd_width)      
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         #Uncomment this line for identity teacher
         # nn.init.eye_( self.merge_head.weight )
         
         self.criterion = NegativeCosineSimilarity()
 
+        #Inc case we need to load model before the bug fix
         # self.embedding = nn.Embedding(100000, 
         #                               self.prd_width, 
         #                               dtype=torch.float16,
