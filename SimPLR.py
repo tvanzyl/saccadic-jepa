@@ -79,19 +79,22 @@ class SimPLR(LightningModule):
                  n_local_views:int = 6,
                  lr:float = 0.15,
                  decay:float=1e-4,
-                 running_stats:bool=False) -> None:
-        super().__init__()        
+                 running_stats:bool=False,
+                 ema_v2:bool=False,
+                 momentum_head:bool=False,) -> None:
+        super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
                                   'backbone',
                                   'n_local_views',
                                   'lr',
                                   'decay')
-
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
         self.running_stats = running_stats
+        self.ema_v2 = ema_v2
+        self.momentum_head = momentum_head
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
@@ -151,6 +154,16 @@ class SimPLR(LightningModule):
             else:
                 zg0_ = self.merge_head( g[0] )
                 zg1_ = self.merge_head( g[1] )
+            if self.ema_v2:
+                zg_ = 0.5*(zg0_+zg1_)
+                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.95, 1.0)
+                # momentum = 0.95
+                m = 1.-momentum #0 means only current, 1 means only previous
+                ze_ = self.embedding.weight[idx].clone()
+                zg0_ = (1.-m)*zg0_ + m*ze_
+                zg1_ = (1.-m)*zg1_ + m*ze_
+                self.embedding.weight[idx] = (1.-m)*(zg0_+zg1_) + m*ze_
+                # _do_momentum_update(self.embedding.weight[idx], zg_, m) 
             z = [zg1_, zg0_]
             if self.ens_size>2:
                 zg_ = 0.5*(zg0_+zg1_)
@@ -158,25 +171,25 @@ class SimPLR(LightningModule):
                     z.append( zg_ )
         
         #Uncomment for EMA 2.0
-        p.extend([p[0], p[1]])
-        with torch.no_grad():
-            ze_ = self.embedding.weight[idx].clone()
-            z.extend([ze_, ze_])
-            _do_momentum_update(self.embedding.weight[idx], 0.5*(zg0_+zg1_), 0.1)
-            # self.embedding.weight[idx] = 0.5*(zg0_+zg1_)
+        # p.extend([p[0], p[1]])
+        # with torch.no_grad():
+        #     ze_ = self.embedding.weight[idx].clone()
+        #     z.extend([ze_, ze_])
+        #     _do_momentum_update(self.embedding.weight[idx], 0.5*(zg0_+zg1_), 0.1)
+            # 
 
         return f0_, p, z
 
-    def on_save_checkpoint(self, checkpoint):        
-        del checkpoint['state_dict']['embedding.weight']
+    def on_save_checkpoint(self, checkpoint):
+        if self.ema_v2:
+            del checkpoint['state_dict']['embedding.weight']
 
     def on_train_start(self):
-        self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
-                                      self.prd_width, 
-                                      dtype=torch.float16,
-                                      device=self.device)
-        # self.embedding1 = nn.Embedding(len(self.train_dataloader().dataset), self.prd_width)
-
+        if self.ema_v2:
+            self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
+                                        self.prd_width, 
+                                        dtype=torch.float16,
+                                        device=self.device)
 
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
@@ -204,9 +217,10 @@ class SimPLR(LightningModule):
         )        
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
-        #Uncomment these two lines for EMA 1.0  
-        # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-        # _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
+        #These lines give us classical EMA v1
+        if self.momentum_head:
+            momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+            _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
         return loss + cls_loss
 
