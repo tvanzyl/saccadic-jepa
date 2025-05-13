@@ -125,7 +125,7 @@ class SimPLR(LightningModule):
         
         self.criterion = NegativeCosineSimilarity()
 
-        #Inc case we need to load model before the bug fix
+        #In case we need to load model before the bug fix
         # self.embedding = nn.Embedding(100000, 
         #                               self.prd_width, 
         #                               dtype=torch.float16,
@@ -156,14 +156,12 @@ class SimPLR(LightningModule):
                 zg1_ = self.merge_head( g[1] )
             if self.ema_v2:
                 zg_ = 0.5*(zg0_+zg1_)
-                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.95, 1.0)
-                # momentum = 0.95
+                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.99, 1.0)
                 m = 1.-momentum #0 means only current, 1 means only previous
                 ze_ = self.embedding.weight[idx].clone()
-                zg0_ = (1.-m)*zg0_ + m*ze_
-                zg1_ = (1.-m)*zg1_ + m*ze_
-                self.embedding.weight[idx] = (1.-m)*(zg0_+zg1_) + m*ze_
-                # _do_momentum_update(self.embedding.weight[idx], zg_, m) 
+                zg0_ = .5*zg0_ + .5*ze_
+                zg1_ = .5*zg1_ + .5*ze_
+                self.embedding.weight[idx] = (1.-m)*zg_ + m*ze_
             z = [zg1_, zg0_]
             if self.ens_size>2:
                 zg_ = 0.5*(zg0_+zg1_)
