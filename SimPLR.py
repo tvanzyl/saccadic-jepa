@@ -100,7 +100,7 @@ class SimPLR(LightningModule):
         self.emb_width  = emb_width # Used by eval classes
 
         self.prd_width = 256
-        upd_width = 2048
+        upd_width = self.emb_width*4
         self.ens_size = 2 + n_local_views
 
         self.backbone = resnet
