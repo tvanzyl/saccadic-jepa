@@ -81,7 +81,9 @@ class SimPLR(LightningModule):
                  decay:float=1e-4,
                  running_stats:bool=False,
                  ema_v2:bool=False,
-                 momentum_head:bool=False,) -> None:
+                 momentum_head:bool=False,
+                 identity_head:bool=False,
+                 no_projection_head:bool=False,) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -94,24 +96,39 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device
         self.running_stats = running_stats
         self.ema_v2 = ema_v2
+        if identity_head and momentum_head:
+            raise Exception("Invalid Arguments, can't select identity and momentum")
         self.momentum_head = momentum_head
+        self.identity_head = identity_head
+        self.no_projection_head = no_projection_head
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
-
-        self.prd_width = 256
-        upd_width = self.emb_width*4
+        
         self.ens_size = 2 + n_local_views
-
         self.backbone = resnet
 
-        self.projection_head = nn.Sequential(
-                nn.Linear(emb_width, upd_width, False),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, upd_width),
-                L2NormalizationLayer(),
-            )
+        if self.no_projection_head:
+            upd_width = self.emb_width
+        else:
+            upd_width = self.emb_width*4
+        
+        if self.identity_head:
+            self.prd_width = upd_width
+        else:
+            self.prd_width = 256
+
+        if self.no_projection_head:
+            self.projection_head = nn.Sequential()
+        else:
+            self.projection_head = nn.Sequential(
+                    nn.Linear(emb_width, upd_width, False),
+                    nn.BatchNorm1d(upd_width),
+                    nn.ReLU(),
+                    nn.Linear(upd_width, upd_width),
+                    # L2NormalizationLayer(),
+                )
+        
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(                
                 nn.BatchNorm1d(upd_width, affine=False),
@@ -121,7 +138,8 @@ class SimPLR(LightningModule):
         self.merge_head = nn.Linear(upd_width, self.prd_width)      
         self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         #Uncomment this line for identity teacher
-        # nn.init.eye_( self.merge_head.weight )
+        if self.identity_head:
+            nn.init.eye_( self.merge_head.weight )
         
         self.criterion = NegativeCosineSimilarity()
 
@@ -155,26 +173,27 @@ class SimPLR(LightningModule):
                 zg0_ = self.merge_head( g[0] )
                 zg1_ = self.merge_head( g[1] )
             if self.ema_v2:
+                #For EMA 2.0
                 zg_ = 0.5*(zg0_+zg1_)
-                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.99, 1.0)
-                m = 1.-momentum #0 means only current, 1 means only previous
                 ze_ = self.embedding.weight[idx].clone()
-                zg0_ = .5*zg0_ + .5*ze_
-                zg1_ = .5*zg1_ + .5*ze_
+                weight = 0.5
+                # m_start = 0.9 #(0.0-0.1)
+                # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
+                # m = momentum-m_start #0 means only current, 1 means only previous 
+                # zg0_ = (1.-m)*zg0_ + m*ze_
+                # zg1_ = (1.-m)*zg1_ + m*ze_
+
+                zg0_ = (1.-weight)*zg0_ + weight*ze_
+                zg1_ = (1.-weight)*zg1_ + weight*ze_
+                m_start = 0.9 #(0.0-0.1)
+                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
+                m = momentum-m_start #0 means only current, 1 means only previous 
                 self.embedding.weight[idx] = (1.-m)*zg_ + m*ze_
             z = [zg1_, zg0_]
             if self.ens_size>2:
                 zg_ = 0.5*(zg0_+zg1_)
                 for _ in range(self.ens_size-2):
                     z.append( zg_ )
-        
-        #Uncomment for EMA 2.0
-        # p.extend([p[0], p[1]])
-        # with torch.no_grad():
-        #     ze_ = self.embedding.weight[idx].clone()
-        #     z.extend([ze_, ze_])
-        #     _do_momentum_update(self.embedding.weight[idx], 0.5*(zg0_+zg1_), 0.1)
-            # 
 
         return f0_, p, z
 

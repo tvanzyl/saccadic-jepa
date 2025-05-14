@@ -48,6 +48,8 @@ parser.add_argument("--decay", type=float, default=1e-4)
 parser.add_argument("--running-stats", action="store_true")
 parser.add_argument("--ema-v2", action="store_true")
 parser.add_argument("--momentum-head", action="store_true")
+parser.add_argument("--identity-head", action="store_true")
+parser.add_argument("--no-projection-head", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -129,6 +131,8 @@ def main(
     running_stats: bool,
     ema_v2: bool,
     momentum_head: bool,
+    identity_head: bool,
+    no_projection_head: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -150,6 +154,8 @@ def main(
             running_stats=running_stats,
             ema_v2=ema_v2,
             momentum_head=momentum_head,
+            identity_head=identity_head,
+            no_projection_head=no_projection_head
         )
 
         if compile_model and hasattr(torch, "compile"):
