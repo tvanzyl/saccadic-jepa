@@ -176,19 +176,20 @@ class SimPLR(LightningModule):
                 #For EMA 2.0
                 zg_ = 0.5*(zg0_+zg1_)
                 ze_ = self.embedding.weight[idx].clone()
-                weight = 0.5
+                # weight = 0.5
+                m_start = 0.4 #(0.0-0.1)
+                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
+                m = momentum-m_start #0 means only current, 1 means only previous 
+                zg0_ = (1.-m)*zg0_ + m*ze_
+                zg1_ = (1.-m)*zg1_ + m*ze_
+
+                # zg0_ = (1.-weight)*zg0_ + weight*ze_
+                # zg1_ = (1.-weight)*zg1_ + weight*ze_
                 # m_start = 0.9 #(0.0-0.1)
                 # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
                 # m = momentum-m_start #0 means only current, 1 means only previous 
-                # zg0_ = (1.-m)*zg0_ + m*ze_
-                # zg1_ = (1.-m)*zg1_ + m*ze_
-
-                zg0_ = (1.-weight)*zg0_ + weight*ze_
-                zg1_ = (1.-weight)*zg1_ + weight*ze_
-                m_start = 0.9 #(0.0-0.1)
-                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
-                m = momentum-m_start #0 means only current, 1 means only previous 
                 self.embedding.weight[idx] = (1.-m)*zg_ + m*ze_
+                # p.extend([p[0], p[1]])
             z = [zg1_, zg0_]
             if self.ens_size>2:
                 zg_ = 0.5*(zg0_+zg1_)
