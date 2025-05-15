@@ -91,7 +91,13 @@ class SimPLR(LightningModule):
                                   'backbone',
                                   'n_local_views',
                                   'lr',
-                                  'decay')
+                                  'decay',
+                                  'running_stats',
+                                  'ema_v2',
+                                  'momentum_head',
+                                  'identity_head',
+                                  'no_projection_head',
+                                  'm',)
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
