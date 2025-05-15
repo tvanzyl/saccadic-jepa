@@ -83,7 +83,8 @@ class SimPLR(LightningModule):
                  ema_v2:bool=False,
                  momentum_head:bool=False,
                  identity_head:bool=False,
-                 no_projection_head:bool=False,) -> None:
+                 no_projection_head:bool=False,
+                 m:float = 0.5,) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -101,6 +102,7 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head
         self.identity_head = identity_head
         self.no_projection_head = no_projection_head
+        self.m = m
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
@@ -177,7 +179,7 @@ class SimPLR(LightningModule):
                 zg_ = 0.5*(zg0_+zg1_)
                 ze_ = self.embedding.weight[idx].clone()
                 # weight = 0.5
-                m_start = 0.4 #(0.0-0.1)
+                m_start = self.m #(0.0-0.1)
                 momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
                 m = momentum-m_start #0 means only current, 1 means only previous 
                 zg0_ = (1.-m)*zg0_ + m*ze_
