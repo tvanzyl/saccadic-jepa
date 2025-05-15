@@ -188,8 +188,8 @@ class SimPLR(LightningModule):
                 m_start = self.m #(0.0-0.1)
                 momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
                 m = momentum-m_start #0 means only current, 1 means only previous 
-                zg0_ = (1.-m)*zg0_ + m*ze_
-                zg1_ = (1.-m)*zg1_ + m*ze_
+                zg0_ = (m)*zg0_ + (1.-m)*ze_
+                zg1_ = (m)*zg1_ + (1.-m)*ze_
 
                 # zg0_ = (1.-weight)*zg0_ + weight*ze_
                 # zg1_ = (1.-weight)*zg1_ + weight*ze_
