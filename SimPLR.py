@@ -187,9 +187,9 @@ class SimPLR(LightningModule):
                 m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
                 ze_ = self.embedding.weight[idx].clone()
                 #0 means only previous, 1 means only current
-                zg0_ = (m)*zg0_ + (1.-m)*ze_
-                zg1_ = (m)*zg1_ + (1.-m)*ze_
-                self.embedding.weight[idx] = (1.-.05)*zg_ + .05*ze_
+                zg0_ = (.5)*zg0_ + (.5)*ze_
+                zg1_ = (.5)*zg1_ + (.5)*ze_
+                self.embedding.weight[idx] = (1.-m)*zg_ + (m)*ze_
             elif self.ema_v2:
                 self.embedding.weight[idx] = zg_
             z = [zg1_, zg0_]

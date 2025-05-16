@@ -26,7 +26,8 @@ def linear_eval(
     precision: str,
     num_classes: int, 
     train_transform,
-    val_transform
+    val_transform,
+    linear_lr,
 ) -> Dict[str, float]:
     """Runs a linear evaluation on the given model.
 
@@ -34,7 +35,7 @@ def linear_eval(
 
     The most important settings are:
         - Backbone: Frozen
-        - Epochs: 90
+        - Epochs: 100
         - Optimizer: SGD
         - Base Learning Rate: 0.1
         - Momentum: 0.9
@@ -70,7 +71,7 @@ def linear_eval(
     # Train linear classifier.
     metric_callback = MetricCallback()
     trainer = Trainer(
-        max_epochs=90,
+        max_epochs=100,
         accelerator=accelerator,
         devices=devices,
         callbacks=[
@@ -88,7 +89,8 @@ def linear_eval(
         batch_size_per_device=batch_size_per_device,
         feature_dim=feature_dim,
         num_classes=num_classes,
-        freeze_model=True,
+        # freeze_model=True,
+        lr=linear_lr
     )
     trainer.fit(
         model=classifier,

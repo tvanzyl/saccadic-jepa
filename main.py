@@ -51,6 +51,7 @@ parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--m", type=float, default=0.5)
+parser.add_argument("--linear-lr", type=float, default=0.1)
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -134,7 +135,8 @@ def main(
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,
-    m:float
+    m:float,
+    linear_lr:float,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -146,6 +148,11 @@ def main(
         method_dir = (
             log_dir / method / datetime.now().strftime("%m-%d_%H-%M")
         ).resolve()
+        if ckpt_path is not None: #Rename method dir if pretrain exists
+            paths = ckpt_path.split("pretrain")
+            if len(paths) > 0:
+                method_dir = Path(paths[0]).resolve()
+        
         model = METHODS[method]["model"](
             batch_size_per_device=batch_size_per_device, 
             num_classes=num_classes, 
@@ -218,7 +225,8 @@ def main(
                 devices=devices,
                 precision=precision,
                 train_transform=METHODS[method]["train_transform"],
-                val_transform=METHODS[method]["val_transform"]
+                val_transform=METHODS[method]["val_transform"],
+                linear_lr=linear_lr,
             )
 
         if skip_finetune_eval:

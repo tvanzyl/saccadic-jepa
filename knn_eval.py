@@ -70,6 +70,7 @@ def knn_eval(
         # Run KNN evaluation.
         metric_callback = MetricCallback()
         trainer = Trainer(
+            enable_checkpointing=False,
             max_epochs=1,
             accelerator=accelerator,
             devices=devices,
