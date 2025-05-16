@@ -180,29 +180,20 @@ class SimPLR(LightningModule):
             else:
                 zg0_ = self.merge_head( g[0] )
                 zg1_ = self.merge_head( g[1] )
-            if self.ema_v2:
-                #For EMA 2.0
+            if self.ema_v2 or self.ens_size > 2:
                 zg_ = 0.5*(zg0_+zg1_)
+            if self.ema_v2 and self.current_epoch > 0:
+                #For EMA 2.0
+                m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
                 ze_ = self.embedding.weight[idx].clone()
-                # weight = 0.5
-                m_start = self.m #(0.0-0.1)
-                momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
-                m = momentum-m_start #0 means only current, 1 means only previous 
+                #0 means only previous, 1 means only current
                 zg0_ = (m)*zg0_ + (1.-m)*ze_
                 zg1_ = (m)*zg1_ + (1.-m)*ze_
-
-                # zg0_ = (1.-weight)*zg0_ + weight*ze_
-                # zg1_ = (1.-weight)*zg1_ + weight*ze_
-                # m_start = 0.9 #(0.0-0.1)
-                # momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, m_start, 1.0)
-                # m = momentum-m_start #0 means only current, 1 means only previous 
-                self.embedding.weight[idx] = (1.-m)*zg_ + m*ze_
-                # p.extend([p[0], p[1]])
+                self.embedding.weight[idx] = (1.-.05)*zg_ + .05*ze_
+            elif self.ema_v2:
+                self.embedding.weight[idx] = zg_
             z = [zg1_, zg0_]
-            if self.ens_size>2:
-                zg_ = 0.5*(zg0_+zg1_)
-                for _ in range(self.ens_size-2):
-                    z.append( zg_ )
+            z.extend([zg_ for _ in range(self.ens_size-2)])
 
         return f0_, p, z
 
