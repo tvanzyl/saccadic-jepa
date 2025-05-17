@@ -59,35 +59,43 @@ def knn_eval(
     )
 
     metrics_dict: dict[str, float] = dict()
+    knn_t = [0.01, 0.02, 0.05, 0.07, 0.1, 0.2, 0.5, 1] if len(knn_k) == 1 else [0.07]
     for k in knn_k:
-        classifier = KNNClassifier(
-            model=model,
-            num_classes=num_classes,
-            feature_dtype=torch.float16,
-            knn_k=k,
-        )
+        for t in knn_t:
+            classifier = KNNClassifier(
+                model=model,
+                num_classes=num_classes,
+                feature_dtype=torch.float16,
+                knn_k=k,
+                knn_t=t
+            )
 
-        # Run KNN evaluation.
-        metric_callback = MetricCallback()
-        trainer = Trainer(
-            enable_checkpointing=False,
-            max_epochs=1,
-            accelerator=accelerator,
-            devices=devices,
-            logger=False, #TensorBoardLogger(save_dir=str(log_dir), name="knn_eval", version=k),
-            callbacks=[
-                # DeviceStatsMonitor(),
-                metric_callback,
-            ],
-            strategy="ddp_find_unused_parameters_true",
-            num_sanity_val_steps=0,
-        )
-        trainer.fit(
-            model=classifier,
-            train_dataloaders=train_dataloader,
-            val_dataloaders=val_dataloader,
-        )        
-        for metric in ["val_top1", "val_top5"]:
-            print(f"knn-{k} {metric}: {max(metric_callback.val_metrics[metric])}")
-            metrics_dict[metric+f"@{k}"] = max(metric_callback.val_metrics[metric])
+            # Run KNN evaluation.
+            metric_callback = MetricCallback()
+            trainer = Trainer(
+                # enable_checkpointing=False,
+                max_epochs=1,
+                accelerator=accelerator,
+                devices=devices,
+                logger=False, #TensorBoardLogger(save_dir=str(log_dir), name="knn_eval", version=k),
+                callbacks=[
+                    # DeviceStatsMonitor(),
+                    metric_callback,
+                ],
+                strategy="ddp_find_unused_parameters_true",
+                num_sanity_val_steps=0,
+            )
+            trainer.fit(
+                model=classifier,
+                train_dataloaders=train_dataloader, 
+                val_dataloaders=val_dataloader,
+                # verbose=False,
+            )        
+            # print(metric_callback.val_metrics)
+            for metric in ["val_top1", "val_top5"]:            
+                # print(f"knn-{k} {metric}: {max(metric_callback.val_metrics[metric+'/dataloader_idx_1'])}")
+                # metrics_dict[metric+f"@{k}"] = max(metric_callback.val_metrics[metric+'/dataloader_idx_1'])
+                print(f"knn-{k} {metric}: {max(metric_callback.val_metrics[metric])}")
+                metrics_dict[metric+f"@{k}-{t}"] = max(metric_callback.val_metrics[metric])
+        
     return metrics_dict

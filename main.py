@@ -51,7 +51,7 @@ parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--m", type=float, default=0.5)
-parser.add_argument("--linear-lr", type=float, default=0.1)
+parser.add_argument("--linear-lr", type=float, default=0.3)
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -149,7 +149,7 @@ def main(
             log_dir / method / datetime.now().strftime("%m-%d_%H-%M")
         ).resolve()
         if ckpt_path is not None: #Rename method dir if pretrain exists
-            paths = ckpt_path.split("pretrain")
+            paths = str(ckpt_path).split("pretrain")
             if len(paths) > 0:
                 method_dir = Path(paths[0]).resolve()
         
