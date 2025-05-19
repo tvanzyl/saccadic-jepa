@@ -89,7 +89,8 @@ def linear_eval(
         batch_size_per_device=batch_size_per_device,
         feature_dim=feature_dim,
         num_classes=num_classes,
-        lr=linear_lr
+        freeze_model=True,
+        lr=linear_lr        
     )
     trainer.fit(
         model=classifier,

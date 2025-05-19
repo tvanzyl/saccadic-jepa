@@ -19,3 +19,4 @@ dependencies:
   - timm
   - pip:
     - lightly
+    - torch-tb-profiler
