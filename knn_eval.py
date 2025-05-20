@@ -92,8 +92,8 @@ def knn_eval(
             )        
             # print(metric_callback.val_metrics)
             for metric in ["val_top1", "val_top5"]:            
-                print(f"knn-{k} {metric}: {max(metric_callback.val_metrics[metric+'/dataloader_idx_1'])}")
-                metrics_dict[metric+f"@{k}"] = max(metric_callback.val_metrics[metric+'/dataloader_idx_1'])
+                print(f"knn-@{k}-{t} {metric}: {max(metric_callback.val_metrics[metric+'/dataloader_idx_1'])}")
+                metrics_dict[metric+f"@{k}-{t}"] = max(metric_callback.val_metrics[metric+'/dataloader_idx_1'])
                 # print(f"knn-{k} {metric}: {max(metric_callback.val_metrics[metric])}")
                 # metrics_dict[metric+f"@{k}-{t}"] = max(metric_callback.val_metrics[metric])
         
