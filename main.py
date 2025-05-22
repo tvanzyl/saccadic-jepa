@@ -319,7 +319,10 @@ def pretrain(
         ckpt_path=ckpt_path,
     )
     for metric in ["val_online_cls_top1", "val_online_cls_top5"]:
-        print_rank_zero(f"max {metric}: {max(metric_callback.val_metrics[metric])}")
+        try:
+            print_rank_zero(f"max {metric}: {max(metric_callback.val_metrics[metric])}")
+        except:
+            print_rank_zero("Missing online metrics. Check max epochs reached.")
 
 
 def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
