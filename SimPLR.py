@@ -185,10 +185,11 @@ class SimPLR(LightningModule):
             if self.ema_v2 and self.current_epoch > 0:
                 #For EMA 2.0
                 m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
+                n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.5, 1.0)
                 ze_ = self.embedding.weight[idx].clone()
                 #1 means only previous, 0 means only current
-                zg0_ = (.5)*zg0_ + (.5)*ze_
-                zg1_ = (.5)*zg1_ + (.5)*ze_
+                zg0_ = (n)*zg0_ + (1.-n)*ze_
+                zg1_ = (n)*zg1_ + (1.-n)*ze_
                 self.embedding.weight[idx] = (1.-m)*zg_ + (m)*ze_
             elif self.ema_v2:
                 self.embedding.weight[idx] = zg_
