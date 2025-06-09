@@ -8,6 +8,7 @@ from pytorch_lightning import LightningModule
 from torch import Tensor
 from torch.nn import Identity
 from torch.optim import SGD, AdamW
+from torch.optim.lr_scheduler import ConstantLR
 from torch.optim.optimizer import Optimizer
 from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34, resnet18
@@ -130,6 +131,7 @@ class SimPLR(LightningModule):
             self.projection_head = nn.Sequential()
         else:
             self.projection_head = nn.Sequential(
+                    # L2NormalizationLayer(),
                     nn.Linear(emb_width, upd_width, False),
                     nn.BatchNorm1d(upd_width),
                     nn.ReLU(),
@@ -175,27 +177,30 @@ class SimPLR(LightningModule):
                 g0 = self.buttress( b[0] )
                 g1 = self.buttress( b[1] )
                 self.buttress[0].training = True
-                zg0_ = self.merge_head( g0 )
-                zg1_ = self.merge_head( g1 )
             else:
-                zg0_ = self.merge_head( g[0] )
-                zg1_ = self.merge_head( g[1] )
+                g0 = g[0]
+                g1 = g[1]
+            zg0_ = self.merge_head( g0 )
+            zg1_ = self.merge_head( g1 )
             if self.ema_v2 or self.ens_size > 2:
                 zg_ = 0.5*(zg0_+zg1_)
-            if self.ema_v2 and self.current_epoch > 0:
-                #For EMA 2.0
-                m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
-                n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.5, 1.0)
-                ze_ = self.embedding.weight[idx].clone()
-                #1 means only previous, 0 means only current
-                zg0_ = (n)*zg0_ + (1.-n)*ze_
-                zg1_ = (n)*zg1_ + (1.-n)*ze_
-                self.embedding.weight[idx] = (1.-m)*zg_ + (m)*ze_
-            elif self.ema_v2:
-                self.embedding.weight[idx] = zg_
-            z = [zg1_, zg0_]
-            z.extend([zg_ for _ in range(self.ens_size-2)])
-
+            if self.ema_v2:
+                if self.current_epoch > 0:
+                    #For EMA 2.0                
+                    m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
+                    n = 0.5 #cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.5, 1.0)
+                    ze_ = self.embedding.weight[idx].clone()
+                    #1 means only previous, 0 means only current                    
+                    zg0_ = (1.-n)*zg0_ + (n)*ze_
+                    zg1_ = (1.-n)*zg1_ + (n)*ze_
+                    self.embedding.weight[idx] = (1.-m)*zg_ + (m)*ze_
+                else:
+                    self.embedding.weight[idx] = zg_.detach()
+        z = [zg1_, zg0_]
+        z.extend([zg_ for _ in range(self.ens_size-2)])
+        # if self.ema_v2:
+        #     z.extend([ze_ ,ze_ ])
+        #     p.extend([p[0],p[1]])
         return f0_, p, z
 
     def on_save_checkpoint(self, checkpoint):
@@ -273,7 +278,7 @@ class SimPLR(LightningModule):
                     "name": "online_classifier",
                     "params": self.online_classifier.parameters(),                    
                     "weight_decay": 0.0,
-                    "lr":0.1
+                    "lr": 0.1
                 },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
@@ -290,9 +295,12 @@ class SimPLR(LightningModule):
                     * 10
                 ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
+                # end_value=0.1*self.lr
             ),
             "interval": "step",
         }
+        # scheduler = {"scheduler": ConstantLR(optimizer=optimizer,factor=1.0,total_iters=1),"interval": "step",}
+                     
         return [optimizer], [scheduler]
 
 # For ResNet50 we adjust crop scales as recommended by the authors:
