@@ -196,11 +196,8 @@ class SimPLR(LightningModule):
                     self.embedding.weight[idx] = (1.-m)*zg_ + (m)*ze_
                 else:
                     self.embedding.weight[idx] = zg_.detach()
-        z = [zg1_, zg0_]
-        z.extend([zg_ for _ in range(self.ens_size-2)])
-        # if self.ema_v2:
-        #     z.extend([ze_ ,ze_ ])
-        #     p.extend([p[0],p[1]])
+            z = [zg1_, zg0_]
+            z.extend([zg_ for _ in range(self.ens_size-2)])
         return f0_, p, z
 
     def on_save_checkpoint(self, checkpoint):
