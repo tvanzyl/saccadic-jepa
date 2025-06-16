@@ -141,7 +141,7 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(                
-                nn.BatchNorm1d(upd_width, affine=False, momentum=self.running_stats),
+                nn.BatchNorm1d(upd_width, affine=False, momentum=self.running_stats, track_running_stats=(self.running_stats>0)),
                 nn.LeakyReLU()
         )
         self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
