@@ -80,7 +80,7 @@ class SimPLR(LightningModule):
                  n_local_views:int = 6,
                  lr:float = 0.15,
                  decay:float=1e-4,
-                 running_stats:bool=False,
+                 running_stats:float=0.0,
                  ema_v2:bool=False,
                  momentum_head:bool=False,
                  identity_head:bool=False,
@@ -141,7 +141,7 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(                
-                nn.BatchNorm1d(upd_width, affine=False),
+                nn.BatchNorm1d(upd_width, affine=False, momentum=self.running_stats),
                 nn.LeakyReLU()
         )
         self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
@@ -171,7 +171,7 @@ class SimPLR(LightningModule):
         g = [self.buttress( b_ ) for b_ in b]
         p = [self.prediction_head( g_ ) for g_ in g]
         with torch.no_grad():
-            if self.running_stats:
+            if self.running_stats > 0.0:
                 # Filthy hack to abuse the Batchnorm running stats
                 self.buttress[0].training = False
                 g0 = self.buttress( b[0] )
@@ -186,7 +186,7 @@ class SimPLR(LightningModule):
                 if self.current_epoch > 0:
                     #For EMA 2.0                
                     # m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
-                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.m, 0.9)
+                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.m, 0.85)
                     ze_ = self.embedding.weight[idx].clone()
                     #1 means only previous, 0 means only current                    
                     zg0_ = (n)*zg0_ + (1.-n)*ze_

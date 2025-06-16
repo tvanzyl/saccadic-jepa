@@ -45,7 +45,7 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn-k", type=int, nargs="+")
 parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
-parser.add_argument("--running-stats", action="store_true")
+parser.add_argument("--running-stats", type=float, default=0.0)
 parser.add_argument("--ema-v2", action="store_true")
 parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
@@ -130,7 +130,7 @@ def main(
     knn_k: Union[Sequence[int], int],
     lr: float,
     decay: float,
-    running_stats: bool,
+    running_stats: float,
     ema_v2: bool,
     momentum_head: bool,
     identity_head: bool,
