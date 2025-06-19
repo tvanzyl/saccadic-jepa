@@ -85,7 +85,8 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 m:float = 0.5,) -> None:
+                 m:float = 0.5,
+                 prd_width:int = 256,) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -122,10 +123,7 @@ class SimPLR(LightningModule):
         else:
             upd_width = self.emb_width*4
         
-        if self.identity_head:
-            self.prd_width = upd_width
-        else:
-            self.prd_width = 256
+        self.prd_width = prd_width
 
         if self.no_projection_head:
             self.projection_head = nn.Sequential()
@@ -145,11 +143,16 @@ class SimPLR(LightningModule):
                 nn.LeakyReLU()
         )
         self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
-        self.merge_head = nn.Linear(upd_width, self.prd_width)      
-        self.merge_head.weight.data = self.prediction_head.weight.data.clone()
-        #Uncomment this line for identity teacher
         if self.identity_head:
-            nn.init.eye_( self.merge_head.weight )
+            #Identity matrix hack for if requires dimensionality reduction
+            self.merge_head = nn.Sequential(                
+                nn.LPPool1d(1, upd_width/self.prd_width, upd_width/self.prd_width),
+                nn.Linear(self.prd_width, self.prd_width),
+            )
+            nn.init.eye_( self.merge_head[1].weight )
+        else:
+            self.merge_head = nn.Linear(upd_width, self.prd_width)      
+            self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
 
@@ -186,7 +189,7 @@ class SimPLR(LightningModule):
                 if self.current_epoch > 0:
                     #For EMA 2.0                
                     # m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
-                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.m, 0.85)
+                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.m, 1.00)
                     ze_ = self.embedding.weight[idx].clone()
                     #1 means only previous, 0 means only current                    
                     zg0_ = (n)*zg0_ + (1.-n)*ze_

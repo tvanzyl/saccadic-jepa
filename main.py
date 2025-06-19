@@ -52,6 +52,7 @@ parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--m", type=float, default=0.5)
 parser.add_argument("--linear-lr", type=float, default=0.3)
+parser.add_argument("--prd-width", type=int, default=256)
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -137,6 +138,7 @@ def main(
     no_projection_head: bool,
     m:float,
     linear_lr:float,
+    prd_width: int,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -166,6 +168,7 @@ def main(
             identity_head=identity_head,
             no_projection_head=no_projection_head,
             m=m,
+            prd_width=prd_width,
         )
 
         if compile_model and hasattr(torch, "compile"):
@@ -190,7 +193,7 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 precision=precision,
-                ckpt_path=ckpt_path,                
+                ckpt_path=ckpt_path,
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
         if skip_knn_eval:
