@@ -85,7 +85,8 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 m:float = 0.5,
+                 m0:float = 0.60,
+                 m1:float = 0.85,
                  prd_width:int = 256,) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -99,7 +100,9 @@ class SimPLR(LightningModule):
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
-                                  'm',)
+                                  'm0',
+                                  'm1',
+                                  'prd_width')
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
@@ -110,7 +113,8 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head
         self.identity_head = identity_head
         self.no_projection_head = no_projection_head
-        self.m = m
+        self.m0 = m0
+        self.m1 = m1
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes
@@ -139,14 +143,17 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(                
-                nn.BatchNorm1d(upd_width, affine=False, momentum=self.running_stats, track_running_stats=(self.running_stats>0)),
+                nn.BatchNorm1d(upd_width, 
+                               affine=False, 
+                               momentum=self.running_stats, 
+                               track_running_stats=(self.running_stats>0)),
                 nn.LeakyReLU()
         )
         self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
         if self.identity_head:
             #Identity matrix hack for if requires dimensionality reduction
             self.merge_head = nn.Sequential(                
-                nn.LPPool1d(1, upd_width/self.prd_width, upd_width/self.prd_width),
+                nn.AdaptiveAvgPool1d(self.prd_width),
                 nn.Linear(self.prd_width, self.prd_width),
             )
             nn.init.eye_( self.merge_head[1].weight )
@@ -189,7 +196,9 @@ class SimPLR(LightningModule):
                 if self.current_epoch > 0:
                     #For EMA 2.0                
                     # m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
-                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.m, 0.85)
+                    n = cosine_schedule(self.global_step, 
+                                        self.trainer.estimated_stepping_batches, 
+                                        self.m0, self.m1)
                     ze_ = self.embedding.weight[idx].clone()
                     #1 means only previous, 0 means only current                    
                     zg0_ = (n)*zg0_ + (1.-n)*ze_
