@@ -85,6 +85,7 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
+                 n0:float = 0.85,
                  m0:float = 0.60,
                  m1:float = 0.85,
                  prd_width:int = 256,) -> None:
@@ -100,6 +101,7 @@ class SimPLR(LightningModule):
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
+                                  'n0',
                                   'm0',
                                   'm1',
                                   'prd_width')
@@ -113,6 +115,7 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head
         self.identity_head = identity_head
         self.no_projection_head = no_projection_head
+        self.n0 = n0
         self.m0 = m0
         self.m1 = m1
 
@@ -194,16 +197,17 @@ class SimPLR(LightningModule):
             zg1_ = self.merge_head( g1 )
             if self.ema_v2:
                 if self.current_epoch > 0:
-                    #For EMA 2.0                
-                    # m = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.0, self.m)
-                    n = cosine_schedule(self.global_step, 
+                    #For EMA 2.0
+                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.n0, self.n0)
+                    m = cosine_schedule(self.global_step, 
                                         self.trainer.estimated_stepping_batches, 
                                         self.m0, self.m1)
                     ze_ = self.embedding.weight[idx].clone()
+                    zg_ = 0.5*(zg0_+zg1_)
+                    self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
                     #1 means only previous, 0 means only current                    
-                    zg0_ = (n)*zg0_ + (1.-n)*ze_
-                    zg1_ = (n)*zg1_ + (1.-n)*ze_
-                    self.embedding.weight[idx] = 0.5*(zg0_+zg1_) #(1.-m)*zg_ + (m)*ze_
+                    zg0_ = (m)*zg0_ + (1.-m)*ze_
+                    zg1_ = (m)*zg1_ + (1.-m)*ze_
                 else:
                     zg_ = 0.5*(zg0_+zg1_)
                     self.embedding.weight[idx] = zg_.detach()
