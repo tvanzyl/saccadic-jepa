@@ -174,7 +174,7 @@ def main(
             identity_head=identity_head,
             no_projection_head=no_projection_head,
             n0=n0,
-            n0=n1,
+            n1=n1,
             m0=m0,
             m1=m1,
             prd_width=prd_width,
