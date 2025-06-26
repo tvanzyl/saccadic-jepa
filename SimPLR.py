@@ -85,7 +85,8 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 n0:float = 0.85,
+                 n0:float = 0.90,
+                 n1:float = 0.90,
                  m0:float = 0.60,
                  m1:float = 0.85,
                  prd_width:int = 256,) -> None:
@@ -116,6 +117,7 @@ class SimPLR(LightningModule):
         self.identity_head = identity_head
         self.no_projection_head = no_projection_head
         self.n0 = n0
+        self.n1 = n1
         self.m0 = m0
         self.m1 = m1
 
@@ -199,7 +201,9 @@ class SimPLR(LightningModule):
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.current_epoch > 0:
                     #For EMA 2.0
-                    n = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, self.n0, self.n0)
+                    n = cosine_schedule(self.global_step, 
+                                        self.trainer.estimated_stepping_batches, 
+                                        self.n0, self.n1)
                     m = cosine_schedule(self.global_step, 
                                         self.trainer.estimated_stepping_batches, 
                                         self.m0, self.m1)
