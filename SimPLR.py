@@ -85,11 +85,12 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 n0:float = 0.90,
-                 n1:float = 0.90,
-                 m0:float = 0.60,
-                 m1:float = 0.85,
-                 prd_width:int = 256,) -> None:
+                 n0:float = 1.00,
+                 n1:float = 1.00,
+                 m0:float = 0.50,
+                 m1:float = 0.95,
+                 prd_width:int = 256,
+                 no_L2:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -103,9 +104,11 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'n0',
+                                  'n1',
                                   'm0',
                                   'm1',
-                                  'prd_width')
+                                  'prd_width',
+                                  'no_L2')
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
@@ -137,13 +140,20 @@ class SimPLR(LightningModule):
         if self.no_projection_head:
             self.projection_head = nn.Sequential()
         else:
-            self.projection_head = nn.Sequential(
+            if no_L2:
+                self.projection_head = nn.Sequential(                    
+                    nn.Linear(emb_width, upd_width, False),
+                    nn.BatchNorm1d(upd_width),
+                    nn.ReLU(),
+                    nn.Linear(upd_width, upd_width),
+                )
+            else:
+                self.projection_head = nn.Sequential(
                     L2NormalizationLayer(),
                     nn.Linear(emb_width, upd_width, False),
                     nn.BatchNorm1d(upd_width),
                     nn.ReLU(),
                     nn.Linear(upd_width, upd_width),
-                    # L2NormalizationLayer(),
                 )
         
         #Use Batchnorm none-affine for centering
@@ -158,7 +168,7 @@ class SimPLR(LightningModule):
         if self.identity_head:
             #Identity matrix hack for if requires dimensionality reduction
             self.merge_head = nn.Sequential(                
-                nn.AdaptiveAvgPool1d(self.prd_width),
+                nn.LPPool1d(1, upd_width//self.prd_width),
                 nn.Linear(self.prd_width, self.prd_width),
             )
             nn.init.eye_( self.merge_head[1].weight )
@@ -207,9 +217,12 @@ class SimPLR(LightningModule):
                     m = cosine_schedule(self.global_step, 
                                         self.trainer.estimated_stepping_batches, 
                                         self.m0, self.m1)
-                    ze_ = self.embedding.weight[idx].clone()                    
-                    self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
-                    #1 means only previous, 0 means only current                    
+                    ze_ = self.embedding.weight[idx].clone()
+                    if n < 1.0:
+                        self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
+                    else:
+                        self.embedding.weight[idx] = zg_
+                    #1 means only previous, 0 means only current
                     zg0_ = (m)*zg0_ + (1.-m)*ze_
                     zg1_ = (m)*zg1_ + (1.-m)*ze_
                 else:                    
@@ -217,7 +230,7 @@ class SimPLR(LightningModule):
             z = [zg1_, zg0_]
             if self.ens_size > 2:
                 zg_ = 0.5*(zg0_+zg1_)
-            z.extend([zg_ for _ in range(self.ens_size-2)])
+                z.extend([zg_ for _ in range(self.ens_size-2)])
         return f0_, p, z
 
     def on_save_checkpoint(self, checkpoint):
