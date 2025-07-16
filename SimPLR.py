@@ -90,7 +90,8 @@ class SimPLR(LightningModule):
                  m0:float = 0.50,
                  m1:float = 0.95,
                  prd_width:int = 256,
-                 no_L2:bool=False) -> None:
+                 no_L2:bool=False,
+                 no_ReLU_buttress:bool=False,) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -108,7 +109,8 @@ class SimPLR(LightningModule):
                                   'm0',
                                   'm1',
                                   'prd_width',
-                                  'no_L2')
+                                  'no_L2',
+                                  'no_ReLU_buttress')
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
@@ -116,9 +118,7 @@ class SimPLR(LightningModule):
         self.ema_v2 = ema_v2
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
-        self.momentum_head = momentum_head
-        self.identity_head = identity_head
-        self.no_projection_head = no_projection_head
+        self.momentum_head = momentum_head                
         self.n0 = n0
         self.n1 = n1
         self.m0 = m0
@@ -130,42 +130,43 @@ class SimPLR(LightningModule):
         self.ens_size = 2 + n_local_views
         self.backbone = resnet
 
-        if self.no_projection_head:
+        if no_projection_head:
             upd_width = self.emb_width
         else:
             upd_width = self.emb_width*4
         
         self.prd_width = prd_width
 
-        if self.no_projection_head:
+        if no_projection_head:
             self.projection_head = nn.Sequential()
+        elif no_L2:
+            self.projection_head = nn.Sequential(                    
+                nn.Linear(emb_width, upd_width, False),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(),
+                nn.Linear(upd_width, upd_width),
+            )
         else:
-            if no_L2:
-                self.projection_head = nn.Sequential(                    
-                    nn.Linear(emb_width, upd_width, False),
-                    nn.BatchNorm1d(upd_width),
-                    nn.ReLU(),
-                    nn.Linear(upd_width, upd_width),
-                )
-            else:
-                self.projection_head = nn.Sequential(
-                    L2NormalizationLayer(),
-                    nn.Linear(emb_width, upd_width, False),
-                    nn.BatchNorm1d(upd_width),
-                    nn.ReLU(),
-                    nn.Linear(upd_width, upd_width),
-                )
+            self.projection_head = nn.Sequential(
+                L2NormalizationLayer(),
+                nn.Linear(emb_width, upd_width, False),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(),
+                nn.Linear(upd_width, upd_width),
+            )
         
         #Use Batchnorm none-affine for centering
-        self.buttress =  nn.Sequential(                
-                nn.BatchNorm1d(upd_width, 
-                               affine=False, 
-                               momentum=self.running_stats, 
-                               track_running_stats=(self.running_stats>0)),
-                nn.LeakyReLU()
-        )
+        self.buttress =  nn.Sequential(
+                                nn.BatchNorm1d(upd_width, 
+                                affine=False, 
+                                momentum=self.running_stats, 
+                                track_running_stats=(self.running_stats>0)),                    
+                        )
+        if not no_ReLU_buttress:
+            self.buttress.append( nn.LeakyReLU() )
+
         self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
-        if self.identity_head:
+        if identity_head:
             #Identity matrix hack for if requires dimensionality reduction
             self.merge_head = nn.Sequential(                
                 nn.LPPool1d(1, upd_width//self.prd_width),
@@ -173,16 +174,10 @@ class SimPLR(LightningModule):
             )
             nn.init.eye_( self.merge_head[1].weight )
         else:
-            self.merge_head = nn.Linear(upd_width, self.prd_width)      
+            self.merge_head = nn.Linear(upd_width, self.prd_width)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
-
-        #In case we need to load model before the bug fix
-        # self.embedding = nn.Embedding(100000, 
-        #                               self.prd_width, 
-        #                               dtype=torch.float16,
-        #                               device=self.device)
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 

@@ -57,6 +57,7 @@ parser.add_argument("--m1", type=float, default=0.90)
 parser.add_argument("--linear-lr", type=float, default=0.3)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--no-L2", action="store_true")
+parser.add_argument("--no-ReLU-buttress", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -147,6 +148,7 @@ def main(
     linear_lr: float,
     prd_width: int,
     no_L2: bool,
+    no_ReLU_buttress: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -181,6 +183,7 @@ def main(
             m1=m1,
             prd_width=prd_width,
             no_L2=no_L2,
+            no_ReLU_buttress=no_ReLU_buttress,
         )
 
         if compile_model and hasattr(torch, "compile"):
