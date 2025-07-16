@@ -209,7 +209,7 @@ class SimPLR(LightningModule):
             zg1_ = self.merge_head( g1 )
             if self.ema_v2:
                 zg_ = 0.5*(zg0_+zg1_)
-                if self.current_epoch > 0:
+                if not self.first_epoch:
                     #For EMA 2.0
                     n = cosine_schedule(self.global_step, 
                                         self.trainer.estimated_stepping_batches, 
@@ -225,7 +225,7 @@ class SimPLR(LightningModule):
                     #1 means only previous, 0 means only current
                     zg0_ = (m)*zg0_ + (1.-m)*ze_
                     zg1_ = (m)*zg1_ + (1.-m)*ze_
-                else:                    
+                else:
                     self.embedding.weight[idx] = zg_.detach()
             z = [zg1_, zg0_]
             if self.ens_size > 2:
@@ -237,12 +237,19 @@ class SimPLR(LightningModule):
         if self.ema_v2:
             del checkpoint['state_dict']['embedding.weight']
 
-    def on_train_start(self):
+    def on_train_epoch_end(self):
         if self.ema_v2:
+            self.first_epoch = False
+        return super().on_train_epoch_end()
+
+    def on_train_start(self):                
+        if self.ema_v2:
+            self.first_epoch = True
             self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
                                         self.prd_width, 
                                         dtype=torch.float16,
-                                        device=self.device)
+                                        device=self.device)        
+        return super().on_train_start()
 
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
@@ -255,8 +262,8 @@ class SimPLR(LightningModule):
         for xi in range(len(z)):
             p_ = p[xi]
             z_ = z[xi]
-            loss += self.criterion( p_, z_ ) / len(z)
-        
+            loss += self.criterion( p_, z_ ) / len(z)       
+
         self.log_dict(
             {"train_loss": loss},
             prog_bar=True,
