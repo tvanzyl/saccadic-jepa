@@ -156,14 +156,21 @@ class SimPLR(LightningModule):
             )
         
         #Use Batchnorm none-affine for centering
-        self.buttress =  nn.Sequential(
+        if no_ReLU_buttress:
+            self.buttress =  nn.Sequential(
                                 nn.BatchNorm1d(upd_width, 
                                 affine=False, 
                                 momentum=self.running_stats, 
                                 track_running_stats=(self.running_stats>0)),                    
                         )
-        if not no_ReLU_buttress:
-            self.buttress.append( nn.LeakyReLU() )
+        else:
+            self.buttress =  nn.Sequential(
+                                nn.BatchNorm1d(upd_width, 
+                                affine=False, 
+                                momentum=self.running_stats, 
+                                track_running_stats=(self.running_stats>0)),
+                                nn.LeakyReLU()
+                        )
 
         self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
         if identity_head:
@@ -204,7 +211,9 @@ class SimPLR(LightningModule):
             zg1_ = self.merge_head( g1 )
             if self.ema_v2:
                 zg_ = 0.5*(zg0_+zg1_)
-                if not self.first_epoch:
+                if self.first_epoch:
+                    self.embedding.weight[idx] = zg_.detach()
+                else:
                     #For EMA 2.0
                     n = cosine_schedule(self.global_step, 
                                         self.trainer.estimated_stepping_batches, 
@@ -220,8 +229,6 @@ class SimPLR(LightningModule):
                     #1 means only previous, 0 means only current
                     zg0_ = (m)*zg0_ + (1.-m)*ze_
                     zg1_ = (m)*zg1_ + (1.-m)*ze_
-                else:
-                    self.embedding.weight[idx] = zg_.detach()
             z = [zg1_, zg0_]
             if self.ens_size > 2:
                 zg_ = 0.5*(zg0_+zg1_)
