@@ -59,7 +59,7 @@ def knn_eval(
     )
 
     metrics_dict: dict[str, float] = dict()
-    knn_t = [0.01, 0.02, 0.05, 0.07, 0.1, 0.2, 0.5, 1] if len(knn_k) == 1 else [0.07]
+    knn_t = [0.01, 0.02, 0.05, 0.07, 0.1, 0.2, 0.5, 1.0] if len(knn_k) == 1 else [0.1]
     for k in knn_k:
         for t in knn_t:
             classifier = KNNClassifier(

@@ -58,6 +58,7 @@ parser.add_argument("--linear-lr", type=float, default=0.3)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--no-L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
+parser.add_argument("--no-prediction-head", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -149,12 +150,13 @@ def main(
     prd_width: int,
     no_L2: bool,
     no_ReLU_buttress: bool,
+    no_prediction_head: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
     method_names = methods or METHODS.keys()
     knn_k = knn_k or [1, 2, 5, 10, 20, 50, 100, 200]
-    knn_k = knn_k if isinstance(knn_k,list) else [knn_k]
+    knn_k = knn_k if isinstance(knn_k, list) else [knn_k]
 
     for method in method_names:
         method_dir = (
@@ -184,6 +186,7 @@ def main(
             prd_width=prd_width,
             no_L2=no_L2,
             no_ReLU_buttress=no_ReLU_buttress,
+            no_prediction_head=no_prediction_head,
         )
 
         if compile_model and hasattr(torch, "compile"):

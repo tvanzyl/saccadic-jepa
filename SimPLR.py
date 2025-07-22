@@ -85,13 +85,12 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 n0:float = 1.00,
-                 n1:float = 1.00,
-                 m0:float = 0.50,
-                 m1:float = 0.95,
+                 n0:float = 1.00, n1:float = 1.00,
+                 m0:float = 0.50, m1:float = 0.95,
                  prd_width:int = 256,
                  no_L2:bool=False,
-                 no_ReLU_buttress:bool=False,) -> None:
+                 no_ReLU_buttress:bool=False,
+                 no_prediction_head:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -171,12 +170,15 @@ class SimPLR(LightningModule):
                                 track_running_stats=(self.running_stats>0)),
                                 nn.LeakyReLU()
                         )
-
-        self.prediction_head = nn.Linear(upd_width, self.prd_width, False)        
+        if no_prediction_head:
+            self.prediction_head = nn.Identity()
+        else:
+            self.prediction_head = nn.Linear(upd_width, self.prd_width, False)
         if identity_head:
             #Identity matrix hack for if requires dimensionality reduction
             self.merge_head = nn.Sequential(                
-                nn.LPPool1d(1, upd_width//self.prd_width),
+                # nn.LPPool1d(1, upd_width//self.prd_width),
+                nn.AdaptiveAvgPool1d(self.prd_width),
                 nn.Linear(self.prd_width, self.prd_width),
             )
             nn.init.eye_( self.merge_head[1].weight )
@@ -390,7 +392,7 @@ transforms = {
 "Cifar100":  transform32,
 "Tiny":      transform64,
 "Tiny-64-W": DINOTransform(global_crop_size=64,
-                           global_crop_scale=(0.08, 1.0),
+                           global_crop_scale=(0.2, 1.0),
                            n_local_views=0,
                            cj_prob=0.0,
                            random_gray_scale=0.0,
@@ -398,7 +400,7 @@ transforms = {
                            gaussian_blur=(0.0, 0.0, 0.0)),
 "Tiny-64-S": DINOTransform(global_crop_size=64,
                            n_local_views=0,
-                           global_crop_scale=(0.08, 1.0),
+                           global_crop_scale=(0.2, 1.0),
                            gaussian_blur=(0.0, 0.0, 0.0),),
 "STL":       transform96,
 "STL-S":     DINOTransform(global_crop_size=96,
