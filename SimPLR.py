@@ -174,14 +174,19 @@ class SimPLR(LightningModule):
             self.prediction_head = nn.Identity()
         else:
             self.prediction_head = nn.Linear(upd_width, self.prd_width, False)
-        if identity_head:
-            #Identity matrix hack for if requires dimensionality reduction
-            self.merge_head = nn.Sequential(                
-                # nn.LPPool1d(1, upd_width//self.prd_width),
-                nn.AdaptiveAvgPool1d(self.prd_width),
-                nn.Linear(self.prd_width, self.prd_width),
-            )
-            nn.init.eye_( self.merge_head[1].weight )
+        if identity_head:            
+            if upd_width == prd_width:
+                self.merge_head = nn.Linear(self.prd_width, self.prd_width)
+                nn.init.eye_( self.merge_head.weight )
+            elif upd_width > prd_width:
+                #Identity matrix hack for if requires dimensionality reduction
+                self.merge_head = nn.Sequential(
+                    nn.AdaptiveAvgPool1d(self.prd_width),
+                    nn.Linear(self.prd_width, self.prd_width),
+                )
+                nn.init.eye_( self.merge_head[1].weight )
+            else:
+                raise Exception("Invalid Arguments, can't select prd width larger than upd width")
         else:
             self.merge_head = nn.Linear(upd_width, self.prd_width)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
