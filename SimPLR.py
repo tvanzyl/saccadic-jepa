@@ -90,7 +90,8 @@ class SimPLR(LightningModule):
                  prd_width:int = 256,
                  no_L2:bool=False,
                  no_ReLU_buttress:bool=False,
-                 no_prediction_head:bool=False) -> None:
+                 no_prediction_head:bool=False,
+                 JS:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -115,6 +116,7 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device
         self.running_stats = running_stats
         self.ema_v2 = ema_v2
+        self.JS = JS
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
         self.momentum_head = momentum_head                
@@ -216,6 +218,40 @@ class SimPLR(LightningModule):
                 g1 = g[1]
             zg0_ = self.merge_head( g0 )
             zg1_ = self.merge_head( g1 )
+            if self.JS:
+                #For James-Stein
+                zg_ = 0.5*(zg0_+zg1_)
+                if self.first_epoch:
+                    self.embedding.weight[idx] = zg_.detach()
+                else:
+                    n = cosine_schedule(self.global_step, 
+                                        self.trainer.estimated_stepping_batches, 
+                                        self.n0, self.n1)
+                    ze_ = self.embedding.weight[idx].clone()
+                    if n < 1.0:
+                        self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
+                    else:
+                        self.embedding.weight[idx] = zg_
+                    
+                    #  divided by two?
+                    sigma_ = (self.prd_width-2)*torch.mean(((zg0_-zg_)**2 + (zg1_-zg_)**2)/2, dim=1, keepdim=True) #4
+                    sigma0_ = sigma_
+                    sigma1_ = sigma_
+
+                    norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2  #size 128
+                    norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2  #size 128
+                    
+                    self.log_dict({"JS_s":sigma0_.mean()}, sync_dist=True)
+                    self.log_dict({"JS_n":norm0_.mean()}, sync_dist=True)
+                    self.log_dict({"JS_r":(sigma0_/norm0_).mean()}, sync_dist=True)
+                    
+                    # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
+                    n0 = torch.maximum(1.0 - sigma0_/norm0_,torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - sigma1_/norm1_,torch.tensor(0.0))
+
+                    zg0_ = n0*zg0_ + (1.-n0)*ze_
+                    zg1_ = n1*zg1_ + (1.-n1)*ze_
+                
             if self.ema_v2:
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
@@ -243,16 +279,16 @@ class SimPLR(LightningModule):
         return f0_, p, z
 
     def on_save_checkpoint(self, checkpoint):
-        if self.ema_v2:
+        if self.ema_v2 or self.JS:
             del checkpoint['state_dict']['embedding.weight']
 
     def on_train_epoch_end(self):
-        if self.ema_v2:
+        if self.ema_v2 or self.JS:
             self.first_epoch = False
         return super().on_train_epoch_end()
 
     def on_train_start(self):                
-        if self.ema_v2:
+        if self.ema_v2 or self.JS:
             self.first_epoch = True
             self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
                                         self.prd_width, 
@@ -429,6 +465,7 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
 
 
 

@@ -59,6 +59,7 @@ parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--no-L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
+parser.add_argument("--JS", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -142,15 +143,14 @@ def main(
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,
-    n0: float,
-    n1: float,
-    m0: float,
-    m1: float,
+    n0: float,    n1: float,
+    m0: float,    m1: float,
     linear_lr: float,
     prd_width: int,
     no_L2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
+    JS: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -179,14 +179,13 @@ def main(
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,
-            n0=n0,
-            n1=n1,
-            m0=m0,
-            m1=m1,
+            n0=n0,            n1=n1,
+            m0=m0,            m1=m1,
             prd_width=prd_width,
             no_L2=no_L2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
+            JS=JS,
         )
 
         if compile_model and hasattr(torch, "compile"):
