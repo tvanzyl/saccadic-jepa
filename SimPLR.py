@@ -173,10 +173,10 @@ class SimPLR(LightningModule):
                                 nn.LeakyReLU()
                         )
         if no_prediction_head:
-            self.prediction_head = nn.Identity()
+            self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
             self.prediction_head = nn.Linear(upd_width, self.prd_width, False)
-        if identity_head:            
+        if identity_head:
             if upd_width == prd_width:
                 self.merge_head = nn.Linear(self.prd_width, self.prd_width)
                 nn.init.eye_( self.merge_head.weight )
@@ -186,7 +186,7 @@ class SimPLR(LightningModule):
                     nn.AdaptiveAvgPool1d(self.prd_width),
                     nn.Linear(self.prd_width, self.prd_width),
                 )
-                nn.init.eye_( self.merge_head[1].weight )
+                nn.init.eye_( self.merge_head[1].weight )                
             else:
                 raise Exception("Invalid Arguments, can't select prd width larger than upd width")
         else:
