@@ -232,22 +232,23 @@ class SimPLR(LightningModule):
                         self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
                     else:
                         self.embedding.weight[idx] = zg_
-                    
-                    #  divided by two?
-                    sigma_ = (self.prd_width-2)*torch.mean(((zg0_-zg_)**2 + (zg1_-zg_)**2)/2, dim=1, keepdim=True) #4
-                    sigma0_ = sigma_
-                    sigma1_ = sigma_
+                                       
+                    sigma0_ = (torch.mean((zg0_-zg_)**2, dim=1, keepdim=True) - 
+                                torch.mean((zg0_-zg_), dim=1, keepdim=True)**2)
+                    sigma1_ = (torch.mean((zg1_-zg_)**2, dim=1, keepdim=True) - 
+                                torch.mean((zg1_-zg_), dim=1, keepdim=True)**2)
+                    sigma_ = (self.prd_width-2)*(sigma0_+sigma1_)/2.0
 
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2  #size 128
                     norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2  #size 128
                     
-                    self.log_dict({"JS_s":sigma0_.mean()}, sync_dist=True)
+                    self.log_dict({"JS_s":sigma_.mean()}, sync_dist=True)
                     self.log_dict({"JS_n":norm0_.mean()}, sync_dist=True)
-                    self.log_dict({"JS_r":(sigma0_/norm0_).mean()}, sync_dist=True)
+                    self.log_dict({"JS_r":(sigma_/norm0_).mean()}, sync_dist=True)
                     
                     # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
-                    n0 = torch.maximum(1.0 - sigma0_/norm0_,torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma1_/norm1_,torch.tensor(0.0))
+                    n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
