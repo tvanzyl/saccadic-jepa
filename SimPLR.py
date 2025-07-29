@@ -249,8 +249,8 @@ class SimPLR(LightningModule):
                     # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
                     # n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
                     # n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
-                    n0 = 1.0 - sigma_/norm0_,torch.tensor(0.0)
-                    n1 = 1.0 - sigma_/norm1_,torch.tensor(0.0)
+                    n0 = 1.0 - sigma_/norm0_
+                    n1 = 1.0 - sigma_/norm1_
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
