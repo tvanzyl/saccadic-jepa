@@ -373,12 +373,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                warmup_epochs=0,
-                # warmup_epochs=int(
-                #       self.trainer.estimated_stepping_batches
-                #     / self.trainer.max_epochs
-                #     * 10
-                # ),
+                # warmup_epochs=0,
+                warmup_epochs=int(
+                      self.trainer.estimated_stepping_batches
+                    / self.trainer.max_epochs
+                    * 10
+                ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
                 # end_value=0.1*self.lr
             ),
