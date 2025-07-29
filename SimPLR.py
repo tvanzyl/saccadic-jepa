@@ -247,8 +247,10 @@ class SimPLR(LightningModule):
                     self.log_dict({"JS_r":(sigma_/norm0_).mean()}, sync_dist=True)
                     
                     # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
-                    n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
+                    # n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
+                    # n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
+                    n0 = 1.0 - sigma_/norm0_,torch.tensor(0.0)
+                    n1 = 1.0 - sigma_/norm1_,torch.tensor(0.0)
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
@@ -371,12 +373,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                # warmup_epochs=0,
-                warmup_epochs=int(
-                      self.trainer.estimated_stepping_batches
-                    / self.trainer.max_epochs
-                    * 10
-                ),
+                warmup_epochs=0,
+                # warmup_epochs=int(
+                #       self.trainer.estimated_stepping_batches
+                #     / self.trainer.max_epochs
+                #     * 10
+                # ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
                 # end_value=0.1*self.lr
             ),
