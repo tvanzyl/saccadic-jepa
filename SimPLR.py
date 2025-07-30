@@ -240,8 +240,8 @@ class SimPLR(LightningModule):
                     self.embedding.weight[idx] = (ze_ + zic_).detach()
                     self.embedding_var.weight[idx] = sigma_.detach()
 
-                    norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2  #size 128
-                    norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2  #size 128
+                    norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
+                    norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2
                     
                     sigma_ = (self.prd_width-2)*sigma_
 
@@ -250,9 +250,9 @@ class SimPLR(LightningModule):
                     self.log_dict({"JS_r":(sigma_/norm0_).mean()}, sync_dist=True)
                     
                     # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
-                    n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
-                    
+                    n0 = torch.maximum(1.0 - sigma_/norm0_, torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - sigma_/norm1_, torch.tensor(0.0))
+
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                 
