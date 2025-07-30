@@ -219,39 +219,40 @@ class SimPLR(LightningModule):
             zg0_ = self.merge_head( g0 )
             zg1_ = self.merge_head( g1 )
             if self.JS:
-                #For James-Stein
+                # For James-Stein
+                # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
                     self.embedding.weight[idx] = zg_.detach()
+                    self.embedding_var.weight[idx] = 0.0
                 else:
                     n = cosine_schedule(self.global_step, 
                                         self.trainer.estimated_stepping_batches, 
                                         self.n0, self.n1)
+                    
                     ze_ = self.embedding.weight[idx].clone()
-                    if n < 1.0:
-                        self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
-                    else:
-                        self.embedding.weight[idx] = zg_
-                                       
-                    sigma0_ = (torch.mean((zg0_-zg_)**2, dim=1, keepdim=True) - 
-                                torch.mean((zg0_-zg_), dim=1, keepdim=True)**2)
-                    sigma1_ = (torch.mean((zg1_-zg_)**2, dim=1, keepdim=True) - 
-                                torch.mean((zg1_-zg_), dim=1, keepdim=True)**2)
-                    sigma_ = (self.prd_width-2)*(sigma0_+sigma1_)/2.0
+                    zvr_ = self.embedding_var.weight[idx].clone()
+
+                    zdf_ = zg_ - ze_
+                    zic_ = n * zdf_
+                    sigma_ = torch.mean((1.0 - n) * (zvr_ + zdf_ * zic_), dim=1, keepdim=True)
+
+                    self.embedding.weight[idx] = (ze_ + zic_).detach()
+                    self.embedding_var.weight[idx] = sigma_.detach()
 
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2  #size 128
                     norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2  #size 128
                     
+                    sigma_ = (self.prd_width-2)*sigma_
+
                     self.log_dict({"JS_s":sigma_.mean()}, sync_dist=True)
                     self.log_dict({"JS_n":norm0_.mean()}, sync_dist=True)
                     self.log_dict({"JS_r":(sigma_/norm0_).mean()}, sync_dist=True)
                     
                     # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
-                    # n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
-                    # n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
-                    n0 = 1.0 - sigma_/norm0_
-                    n1 = 1.0 - sigma_/norm1_
-
+                    n0 = torch.maximum(1.0 - sigma_/norm0_,torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - sigma_/norm1_,torch.tensor(0.0))
+                    
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                 
@@ -284,6 +285,7 @@ class SimPLR(LightningModule):
     def on_save_checkpoint(self, checkpoint):
         if self.ema_v2 or self.JS:
             del checkpoint['state_dict']['embedding.weight']
+            del checkpoint['state_dict']['embedding_var.weight']
 
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
@@ -296,7 +298,11 @@ class SimPLR(LightningModule):
             self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
                                         self.prd_width, 
                                         dtype=torch.float16,
-                                        device=self.device)        
+                                        device=self.device)
+            self.embedding_var = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
+                                        1, 
+                                        dtype=torch.float16,
+                                        device=self.device)
         return super().on_train_start()
 
     def training_step(
@@ -468,6 +474,7 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
 
 
 
