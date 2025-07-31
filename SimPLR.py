@@ -233,9 +233,16 @@ class SimPLR(LightningModule):
                     ze_ = self.embedding.weight[idx].clone()
                     zvr_ = self.embedding_var.weight[idx].clone()
 
-                    zdf_ = zg_ - ze_
-                    zic_ = n * zdf_
-                    sigma_ = torch.mean((1.0 - n) * (zvr_ + zdf_ * zic_), dim=1, keepdim=True)
+                    zdf0_ = zg0_ - ze_
+                    zic0_ = n * zdf0_
+                    sigma0_ = torch.mean((1.0 - n) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
+
+                    zdf1_ = zg1_ - ze_
+                    zic1_ = n * zdf1_
+                    sigma1_ = torch.mean((1.0 - n) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
+
+                    zic_ = (zic0_+zic1_)/2
+                    sigma_ = (sigma0_+sigma1_)/2
 
                     self.embedding.weight[idx] = (ze_ + zic_).detach()
                     self.embedding_var.weight[idx] = sigma_.detach()
