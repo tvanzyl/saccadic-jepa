@@ -74,8 +74,9 @@ def backbones(name):
 
 
 class SimPLR(LightningModule):
-    def __init__(self, batch_size_per_device: int, 
+    def __init__(self, batch_size_per_device: int,                  
                  num_classes: int, 
+                 warmup: int = 2,
                  backbone:str = "resnet-50",
                  n_local_views:int = 6,
                  lr:float = 0.15,
@@ -91,7 +92,8 @@ class SimPLR(LightningModule):
                  no_L2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
-                 JS:bool=False) -> None:
+                 JS:bool=False,
+                 no_mem_bank:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -110,14 +112,18 @@ class SimPLR(LightningModule):
                                   'prd_width',
                                   'no_L2',
                                   'no_ReLU_buttress')
+        self.warmup = warmup
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
         self.running_stats = running_stats
         self.ema_v2 = ema_v2
         self.JS = JS
+        self.no_mem_bank = no_mem_bank
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
+        if JS and ema_v2:
+            raise Exception("Invalid Arguments, can't select JS and EMA")
         self.momentum_head = momentum_head                
         self.n0 = n0
         self.n1 = n1
@@ -200,11 +206,14 @@ class SimPLR(LightningModule):
         return self.backbone(x)
 
     def forward_student(self, x: Tensor, idx: Tensor) -> Tensor:
+        if self.no_mem_bank:
+            y = x[2:]
+            x = x[:2]
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
         f0_ = f[0].detach()
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
-        p = [self.prediction_head( g_ ) for g_ in g]
+        p = [self.prediction_head( g_ ) for g_ in g]        
         with torch.no_grad():
             if self.running_stats > 0.0:
                 # Filthy hack to abuse the Batchnorm running stats
@@ -213,11 +222,11 @@ class SimPLR(LightningModule):
                 g1 = self.buttress( b[1] )
                 self.buttress[0].training = True
             else:
-                g0 = g[0]
-                g1 = g[1]
+                g0 = g[0].detach()
+                g1 = g[1].detach()                
             zg0_ = self.merge_head( g0 )
             zg1_ = self.merge_head( g1 )
-            if self.JS:
+            if self.JS:                
                 # For James-Stein
                 # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 zg_ = 0.5*(zg0_+zg1_)
@@ -229,7 +238,19 @@ class SimPLR(LightningModule):
                                         self.trainer.estimated_stepping_batches, 
                                         self.n0, self.n1)
                     
-                    ze_ = self.embedding.weight[idx].clone()
+                    if self.no_mem_bank:
+                        fy0 = self.backbone( y[0] ).flatten(start_dim=1)
+                        fy1 = self.backbone( y[1] ).flatten(start_dim=1)
+                        by0 = self.projection_head( fy0 )
+                        by1 = self.projection_head( fy1 )
+                        g0 = self.buttress( by0 )
+                        g1 = self.buttress( by1 )
+                        ze0_ = self.merge_head( g0 )
+                        ze1_ = self.merge_head( g1 )
+                        ze_ = (ze0_+ze1_)/2.0
+                    else:
+                        ze_ = self.embedding.weight[idx].clone()
+
                     zvr_ = self.embedding_var.weight[idx].clone()
 
                     zdf0_ = zg0_ - ze_
@@ -283,7 +304,7 @@ class SimPLR(LightningModule):
                     zg0_ = (m)*zg0_ + (1.-m)*ze_
                     zg1_ = (m)*zg1_ + (1.-m)*ze_
             z = [zg1_, zg0_]
-            if self.ens_size > 2:
+            if self.ens_size > 2 and not self.no_mem_bank:
                 zg_ = 0.5*(zg0_+zg1_)
                 z.extend([zg_ for _ in range(self.ens_size-2)])
         return f0_, p, z
@@ -389,7 +410,7 @@ class SimPLR(LightningModule):
                 warmup_epochs=int(
                       self.trainer.estimated_stepping_batches
                     / self.trainer.max_epochs
-                    * 10
+                    * self.warmup
                 ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
                 # end_value=0.1*self.lr
@@ -457,6 +478,12 @@ transforms = {
 "Tiny-64-S": DINOTransform(global_crop_size=64,
                            n_local_views=0,
                            global_crop_scale=(0.2, 1.0),
+                           gaussian_blur=(0.0, 0.0, 0.0),),
+"Tiny-64-2": DINOTransform(global_crop_size=64,
+                           global_crop_scale=(0.2, 1.0),
+                           local_crop_size=64,
+                           local_crop_scale=(0.2, 1.0),
+                           n_local_views=2,                          
                            gaussian_blur=(0.0, 0.0, 0.0),),
 "STL":       transform96,
 "STL-S":     DINOTransform(global_crop_size=96,

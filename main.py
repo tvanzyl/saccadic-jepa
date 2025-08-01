@@ -30,6 +30,7 @@ parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data/imagene
 parser.add_argument("--log-dir", type=Path, default="benchmark_logs")
 parser.add_argument("--batch-size-per-device", type=int, default=256)
 parser.add_argument("--epochs", type=int, default=100)
+parser.add_argument("--warmup", type=int, default=2)
 parser.add_argument("--num-workers", type=int, default=8)
 parser.add_argument("--accelerator", type=str, default="gpu")
 parser.add_argument("--devices", type=int, default=1)
@@ -60,6 +61,7 @@ parser.add_argument("--no-L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
+parser.add_argument("--no-mem-bank", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -83,6 +85,10 @@ METHODS = {
                      "train_transform": train_transform(64, (0.2, 1.)),
                      "val_transform": SimPLR.val_transforms["Tiny"],
                      "transform": SimPLR.transforms["Tiny-64-S"],},
+    "Tiny-64-2":   {"model": SimPLR.SimPLR, "n_local_views":2,
+                     "train_transform": train_transform(64, (0.2, 1.)),
+                     "val_transform": SimPLR.val_transforms["Tiny"],
+                     "transform": SimPLR.transforms["Tiny-64-2"],},
 
     "STL":          {"model": SimPLR.SimPLR, "n_local_views":6,
                      "train_transform": train_transform(96, (0.2, 1.)),
@@ -122,7 +128,8 @@ def main(
     val_dir: Path,
     log_dir: Path,
     batch_size_per_device: int,
-    epochs: int,
+    epochs: int, 
+    warmup: int,
     num_workers: int,
     accelerator: str,
     devices: int,
@@ -151,6 +158,7 @@ def main(
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
     JS: bool,
+    no_mem_bank: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -168,8 +176,9 @@ def main(
                 method_dir = Path(paths[0]).resolve()
         
         model = METHODS[method]["model"](
-            batch_size_per_device=batch_size_per_device, 
+            batch_size_per_device=batch_size_per_device,             
             num_classes=num_classes, 
+            warmup=warmup,
             backbone=backbone,
             n_local_views=METHODS[method]["n_local_views"],
             lr=lr,
@@ -186,6 +195,7 @@ def main(
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
             JS=JS,
+            no_mem_bank=no_mem_bank,            
         )
 
         if compile_model and hasattr(torch, "compile"):
