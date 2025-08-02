@@ -147,6 +147,9 @@ class SimPLR(LightningModule):
             self.projection_head = nn.Sequential()
         elif no_L2:
             self.projection_head = nn.Sequential(                    
+                nn.Linear(emb_width, emb_width, False),
+                nn.BatchNorm1d(emb_width),
+                nn.ReLU(),
                 nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
