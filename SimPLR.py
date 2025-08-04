@@ -111,7 +111,8 @@ class SimPLR(LightningModule):
                                   'm0', 'm1',
                                   'prd_width',
                                   'no_L2',
-                                  'no_ReLU_buttress')
+                                  'no_ReLU_buttress',
+                                  'no_mem_bank',)
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
