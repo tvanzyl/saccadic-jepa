@@ -87,7 +87,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,
                  n0:float = 1.00, n1:float = 1.00,
-                 m0:float = 0.50, m1:float = 0.95,
+                 m0:float = 0.50, m1:float = 0.50,
                  prd_width:int = 256,
                  no_L2:bool=False,
                  no_ReLU_buttress:bool=False,
@@ -229,6 +229,12 @@ class SimPLR(LightningModule):
                 g1 = g[1].detach()                
             zg0_ = self.merge_head( g0 )
             zg1_ = self.merge_head( g1 )
+            n = cosine_schedule(self.global_step, 
+                                        self.trainer.estimated_stepping_batches, 
+                                        self.n0, self.n1)            
+            m = cosine_schedule(self.global_step, 
+                                self.trainer.estimated_stepping_batches, 
+                                self.m0, self.m1)            
             if self.JS:                
                 # For James-Stein
                 # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
@@ -237,10 +243,6 @@ class SimPLR(LightningModule):
                     self.embedding.weight[idx] = zg_.detach()
                     self.embedding_var.weight[idx] = 0.0
                 else:
-                    n = cosine_schedule(self.global_step, 
-                                        self.trainer.estimated_stepping_batches, 
-                                        self.n0, self.n1)
-                    
                     if self.no_mem_bank:
                         fy0 = self.backbone( y[0] ).flatten(start_dim=1)
                         fy1 = self.backbone( y[1] ).flatten(start_dim=1)
@@ -267,7 +269,7 @@ class SimPLR(LightningModule):
                     zic_ = (zic0_+zic1_)/2
                     sigma_ = (sigma0_+sigma1_)/2
 
-                    self.embedding.weight[idx] = (ze_ + zic_).detach()
+                    self.embedding.weight[idx] = ((m)*ze_ + (1.0-m)*zic_).detach()
                     self.embedding_var.weight[idx] = sigma_.detach()
 
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
@@ -291,13 +293,7 @@ class SimPLR(LightningModule):
                 if self.first_epoch:
                     self.embedding.weight[idx] = zg_.detach()
                 else:
-                    #For EMA 2.0
-                    n = cosine_schedule(self.global_step, 
-                                        self.trainer.estimated_stepping_batches, 
-                                        self.n0, self.n1)
-                    m = cosine_schedule(self.global_step, 
-                                        self.trainer.estimated_stepping_batches, 
-                                        self.m0, self.m1)
+                    #For EMA 2.0                    
                     ze_ = self.embedding.weight[idx].clone()
                     if n < 1.0:
                         self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
