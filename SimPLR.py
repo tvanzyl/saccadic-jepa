@@ -270,7 +270,7 @@ class SimPLR(LightningModule):
                     zic_ = (zic0_+zic1_)/2
                     sigma_ = (sigma0_+sigma1_)/2
 
-                    self.embedding.weight[idx] = ((1.0-m)*(ze_ + zic_) + (m/n)*(zic_) ).detach()
+                    self.embedding.weight[idx] = ((1.0-m)*(ze_ + zic_) + (m)*(zg_) ).detach()
                     self.embedding_var.weight[idx] = sigma_.detach()
 
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
