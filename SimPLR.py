@@ -87,7 +87,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,
                  n0:float = 1.00, n1:float = 1.00,
-                 m0:float = 0.50, m1:float = 0.50,
+                 m0:float = 0.00, m1:float = 0.00,
                  prd_width:int = 256,
                  no_L2:bool=False,
                  no_ReLU_buttress:bool=False,
