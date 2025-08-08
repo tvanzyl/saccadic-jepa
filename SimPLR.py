@@ -161,7 +161,11 @@ class SimPLR(LightningModule):
                 nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
+                nn.Linear(upd_width, upd_width, False),
+                nn.BatchNorm1d(upd_width),
+                nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
+                L2NormalizationLayer(),
             )
         
         #Use Batchnorm none-affine for centering
@@ -173,8 +177,7 @@ class SimPLR(LightningModule):
                                 track_running_stats=(self.running_stats>0)),                                
                         )
         else:
-            self.buttress =  nn.Sequential(
-                                L2NormalizationLayer(),
+            self.buttress =  nn.Sequential(                                
                                 nn.BatchNorm1d(upd_width, 
                                 affine=False, 
                                 momentum=self.running_stats, 
