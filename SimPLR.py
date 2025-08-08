@@ -148,17 +148,16 @@ class SimPLR(LightningModule):
             self.projection_head = nn.Sequential()
         elif no_L2:
             self.projection_head = nn.Sequential(                    
-                nn.Linear(emb_width, 2*emb_width, False),
-                nn.BatchNorm1d(2*emb_width),
+                nn.Linear(emb_width, upd_width, False),
+                nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
-                nn.Linear(2*emb_width, upd_width, False),
+                nn.Linear(upd_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
             )
         else:
-            self.projection_head = nn.Sequential(
-                L2NormalizationLayer(),
+            self.projection_head = nn.Sequential(                
                 nn.Linear(emb_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
@@ -175,11 +174,12 @@ class SimPLR(LightningModule):
                         )
         else:
             self.buttress =  nn.Sequential(
+                                L2NormalizationLayer(),
                                 nn.BatchNorm1d(upd_width, 
                                 affine=False, 
                                 momentum=self.running_stats, 
                                 track_running_stats=(self.running_stats>0)),
-                                nn.LeakyReLU()
+                                nn.ReLU()
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
