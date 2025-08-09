@@ -57,11 +57,12 @@ parser.add_argument("--m0", type=float, default=0.00)
 parser.add_argument("--m1", type=float, default=0.00)
 parser.add_argument("--linear-lr", type=float, default=0.3)
 parser.add_argument("--prd-width", type=int, default=256)
-parser.add_argument("--no-L2", action="store_true")
+parser.add_argument("--L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-mem-bank", action="store_true")
+parser.add_argument("--fwd-2", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -154,11 +155,12 @@ def main(
     m0: float,    m1: float,
     linear_lr: float,
     prd_width: int,
-    no_L2: bool,
+    L2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
     JS: bool,
     no_mem_bank: bool,
+    fwd_2: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -191,11 +193,12 @@ def main(
             n0=n0,            n1=n1,
             m0=m0,            m1=m1,
             prd_width=prd_width,
-            no_L2=no_L2,
+            L2=L2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
             JS=JS,
-            no_mem_bank=no_mem_bank,            
+            no_mem_bank=no_mem_bank,
+            fwd_2=fwd_2
         )
 
         if compile_model and hasattr(torch, "compile"):
