@@ -252,7 +252,6 @@ class SimPLR(LightningModule):
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
                     self.embedding.weight[idx] = zg_.detach()
-                    self.embedding_var.weight[idx] = 0.0
                 else:
                     if self.fwd_2:
                         fy = [self.backbone( y_ ).flatten(start_dim=1) for y_ in y]
@@ -291,7 +290,7 @@ class SimPLR(LightningModule):
                     self.log_dict({"JS_n":norm0_.mean()}, sync_dist=True)
                     self.log_dict({"JS_r":(sigma_/norm0_).mean()}, sync_dist=True)
                     
-                    # https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator
+                    # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     n0 = torch.maximum(1.0 - sigma_/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - sigma_/norm1_, torch.tensor(0.0))
 
@@ -340,6 +339,7 @@ class SimPLR(LightningModule):
                                         1, 
                                         dtype=torch.float16,
                                         device=self.device)
+            nn.init.zeros_(self.embedding_var.weight)            
         return super().on_train_start()
 
     def training_step(
