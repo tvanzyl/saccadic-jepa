@@ -51,6 +51,7 @@ parser.add_argument("--ema-v2", action="store_true")
 parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
+parser.add_argument("--alpha", type=float, default=0.65)
 parser.add_argument("--n0", type=float, default=1.00)
 parser.add_argument("--n1", type=float, default=1.00)
 parser.add_argument("--m0", type=float, default=0.00)
@@ -151,6 +152,7 @@ def main(
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,
+    alpha: float,
     n0: float,    n1: float,
     m0: float,    m1: float,
     linear_lr: float,
@@ -190,6 +192,7 @@ def main(
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,
+            alpha=alpha,
             n0=n0,            n1=n1,
             m0=m0,            m1=m1,
             prd_width=prd_width,

@@ -86,6 +86,7 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
+                 alpha:float = 0.65,
                  n0:float = 1.00, n1:float = 1.00,
                  m0:float = 0.00, m1:float = 0.00,
                  prd_width:int = 256,
@@ -125,6 +126,7 @@ class SimPLR(LightningModule):
         self.mem_bank = not no_mem_bank        
         self.fwd_2 = fwd_2
         self.momentum_head = momentum_head                
+        self.alpha = alpha
         self.n0 = n0
         self.n1 = n1
         self.m0 = m0
@@ -240,40 +242,37 @@ class SimPLR(LightningModule):
                 g1 = g[1].detach()                
             zg0_ = self.merge_head( g0 )
             zg1_ = self.merge_head( g1 )
-            n = cosine_schedule(self.global_step, 
-                                        self.trainer.estimated_stepping_batches, 
-                                        self.n0, self.n1)            
-            m = cosine_schedule(self.global_step, 
-                                self.trainer.estimated_stepping_batches, 
-                                self.m0, self.m1)            
+             
+            if self.fwd_2:
+                fy = [self.backbone( y_ ).flatten(start_dim=1) for y_ in y]
+                by = [self.projection_head( fy_ ) for fy_ in fy]
+                gy = [self.buttress( by_ ) for by_ in by]
+                zy = [self.merge_head( gy_ ) for gy_ in gy]
+                ze2_ = (zy[0]+zy[1])/2.0
+                    
             if self.JS:
                 # For James-Stein
                 # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
                     self.embedding.weight[idx] = zg_.detach()
-                else:
-                    if self.fwd_2:
-                        fy = [self.backbone( y_ ).flatten(start_dim=1) for y_ in y]
-                        by = [self.projection_head( fy_ ) for fy_ in fy]
-                        gy = [self.buttress( by_ ) for by_ in by]
-                        zy = [self.merge_head( gy_ ) for gy_ in gy]
-                        ze_ = (zy[0]+zy[1])/2.0
-                    
+                else:                    
                     if self.fwd_2 and self.mem_bank:
-                        ze_ = (self.embedding.weight[idx].clone() + ze_)/2.0
+                        ze_ = (self.embedding.weight[idx].clone() + ze2_)/2.0
                     elif self.mem_bank:
                         ze_ = self.embedding.weight[idx].clone()
+                    elif self.fwd_2:
+                        ze_ = ze2_
 
                     zvr_ = self.embedding_var.weight[idx].clone()
 
                     zdf0_ = zg0_ - ze_
-                    zic0_ = n * zdf0_
-                    sigma0_ = torch.mean((1.0 - n) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
+                    zic0_ = self.alpha * zdf0_
+                    sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
 
                     zdf1_ = zg1_ - ze_
-                    zic1_ = n * zdf1_
-                    sigma1_ = torch.mean((1.0 - n) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                    zic1_ = self.alpha * zdf1_
+                    sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
 
                     zic_ = (zic0_+zic1_)/2
                     sigma_ = (sigma0_+sigma1_)/2
@@ -298,12 +297,24 @@ class SimPLR(LightningModule):
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                 
             if self.ema_v2:
+                n = cosine_schedule(self.global_step, 
+                                        self.trainer.estimated_stepping_batches, 
+                                        self.n0, self.n1)            
+                m = cosine_schedule(self.global_step, 
+                                self.trainer.estimated_stepping_batches, 
+                                self.m0, self.m1)       
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
                     self.embedding.weight[idx] = zg_.detach()
                 else:
-                    #For EMA 2.0                    
-                    ze_ = self.embedding.weight[idx].clone()
+                    #For EMA 2.0
+                    if self.fwd_2 and self.mem_bank:
+                        ze_ = (self.embedding.weight[idx].clone() + ze2_)/2.0
+                    elif self.mem_bank:
+                        ze_ = self.embedding.weight[idx].clone()
+                    elif self.fwd_2:
+                        ze_ = ze2_
+
                     if n < 1.0:
                         self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
                     else:
