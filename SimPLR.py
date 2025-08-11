@@ -87,8 +87,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,
                  alpha:float = 0.65,
-                 n0:float = 1.00, n1:float = 1.00,
-                 m0:float = 0.00, m1:float = 0.00,
+                 n0:float = 1.00, n1:float = 1.00,                 
                  prd_width:int = 256,
                  L2:bool=False,
                  no_ReLU_buttress:bool=False,
@@ -110,8 +109,7 @@ class SimPLR(LightningModule):
                                   'no_projection_head',
                                   'no_prediction_head',
                                   'alpha',
-                                  'n0', 'n1',
-                                  'm0', 'm1',
+                                  'n0', 'n1',                                  
                                   'prd_width',
                                   'L2',
                                   'no_ReLU_buttress',
@@ -129,9 +127,7 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head                
         self.alpha = alpha
         self.n0 = n0
-        self.n1 = n1
-        self.m0 = m0
-        self.m1 = m1
+        self.n1 = n1        
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
@@ -150,7 +146,7 @@ class SimPLR(LightningModule):
             upd_width = self.emb_width
         else:
             upd_width = self.emb_width*4
-        
+        print(upd_width)
         self.prd_width = prd_width
 
         if no_projection_head:
@@ -175,8 +171,7 @@ class SimPLR(LightningModule):
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
                 nn.Linear(upd_width, upd_width),
-            )        
-            
+            )
         
         #Use Batchnorm none-affine for centering
         if no_ReLU_buttress:
@@ -256,16 +251,16 @@ class SimPLR(LightningModule):
                 # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
-                    self.embedding.weight[idx] = zg_.detach()
+                    self.embedding[idx] = zg_.detach()
                 else:                    
                     if self.fwd_2 and self.mem_bank:
-                        ze_ = (self.embedding.weight[idx].clone() + ze2_)/2.0
+                        ze_ = (self.embedding[idx] + ze2_)/2.0
                     elif self.mem_bank:
-                        ze_ = self.embedding.weight[idx].clone()
+                        ze_ = self.embedding[idx]
                     elif self.fwd_2:
                         ze_ = ze2_
 
-                    zvr_ = self.embedding_var.weight[idx].clone()
+                    zvr_ = self.embedding_var[idx]
 
                     zdf0_ = zg0_ - ze_
                     zic0_ = self.alpha * zdf0_
@@ -274,55 +269,53 @@ class SimPLR(LightningModule):
                     zdf1_ = zg1_ - ze_
                     zic1_ = self.alpha * zdf1_
                     sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                    
+                    sigma_ = (sigma0_+sigma1_)/2.0
 
-                    zic_ = (zic0_+zic1_)/2
-                    sigma_ = (sigma0_+sigma1_)/2
-
-                    self.embedding.weight[idx] = (ze_ + zic_)
-                    self.embedding_var.weight[idx] = sigma_.detach()
-
+                    # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2
                     
-                    sigma_ = (self.prd_width-2)*sigma_
+                    sigma_ = (self.prd_width-2.0)*sigma_
 
-                    self.log_dict({"JS_s":sigma_.mean()}, sync_dist=True)
-                    self.log_dict({"JS_n":norm0_.mean()}, sync_dist=True)
-                    self.log_dict({"JS_r":(sigma_/norm0_).mean()}, sync_dist=True)
+                    self.log_dict({"JS_s":sigma_.mean()})
+                    self.log_dict({"JS_n":norm0_.mean()})
+                    self.log_dict({"JS_r":(sigma_/norm0_).mean()})
                     
-                    # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                    n0 = torch.maximum(1.0 - sigma_/norm0_, torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma_/norm1_, torch.tensor(0.0))
+                    n0 = torch.maximum(1.0 - sigma_/norm0_, torch.tensor(0.0), dim=1, keepdim=True)
+                    n1 = torch.maximum(1.0 - sigma_/norm1_, torch.tensor(0.0), dim=1, keepdim=True)
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                 
+                    zic_ = (zic0_+zic1_)/2.0
+                    self.embedding[idx] = (ze_ + zic_)
+                    self.embedding_var[idx] = sigma_
+
             if self.ema_v2:
                 n = cosine_schedule(self.global_step, 
-                                        self.trainer.estimated_stepping_batches, 
-                                        self.n0, self.n1)            
-                m = cosine_schedule(self.global_step, 
-                                self.trainer.estimated_stepping_batches, 
-                                self.m0, self.m1)       
+                                    self.trainer.estimated_stepping_batches, 
+                                    self.n0, self.n1)            
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
-                    self.embedding.weight[idx] = zg_.detach()
+                    self.embedding[idx] = zg_.detach()
                 else:
                     #For EMA 2.0
                     if self.fwd_2 and self.mem_bank:
-                        ze_ = (self.embedding.weight[idx].clone() + ze2_)/2.0
+                        ze_ = (self.embedding[idx] + ze2_)/2.0
                     elif self.mem_bank:
-                        ze_ = self.embedding.weight[idx].clone()
+                        ze_ = self.embedding[idx]
                     elif self.fwd_2:
                         ze_ = ze2_
 
-                    if n < 1.0:
-                        self.embedding.weight[idx] = (n)*zg_ + (1.-n)*ze_
-                    else:
-                        self.embedding.weight[idx] = zg_
                     #1 means only previous, 0 means only current
-                    zg0_ = (m)*zg0_ + (1.-m)*ze_
-                    zg1_ = (m)*zg1_ + (1.-m)*ze_
+                    zg0_ = (n)*zg0_ + (1.-n)*ze_
+                    zg1_ = (n)*zg1_ + (1.-n)*ze_
+
+                    if self.alpha < 1.0:
+                        self.embedding[idx] = (self.alpha)*zg_ + (1.-self.alpha)*ze_
+                    else:
+                        self.embedding[idx] = zg_
             z = [zg1_, zg0_]
             if self.ens_size > 2 and not self.fwd_2:
                 zg_ = 0.5*(zg0_+zg1_)
@@ -332,8 +325,8 @@ class SimPLR(LightningModule):
 
     def on_save_checkpoint(self, checkpoint):
         if self.ema_v2 or self.JS:
-            del checkpoint['state_dict']['embedding.weight']
-            del checkpoint['state_dict']['embedding_var.weight']
+            del checkpoint['state_dict']['embedding']
+            del checkpoint['state_dict']['embedding_var']
 
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
@@ -342,16 +335,14 @@ class SimPLR(LightningModule):
 
     def on_train_start(self):                
         if self.ema_v2 or self.JS:
-            self.first_epoch = True
-            self.embedding = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
-                                        self.prd_width, 
+            self.first_epoch = True            
+            N = len(self.trainer.train_dataloader.dataset)
+            self.embedding = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
-            self.embedding_var = nn.Embedding(len(self.trainer.train_dataloader.dataset), 
-                                        1, 
+            self.embedding_var = torch.zeros((N, 1), 
                                         dtype=torch.float16,
-                                        device=self.device)
-            nn.init.zeros_(self.embedding_var.weight)            
+                                        device=self.device)            
         return super().on_train_start()
 
     def training_step(
@@ -365,7 +356,7 @@ class SimPLR(LightningModule):
         for xi in range(len(z)):
             p_ = p[xi]
             z_ = z[xi]
-            loss += self.criterion( p_, z_ ) / len(z)       
+            loss += self.criterion( p_, z_ ) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
