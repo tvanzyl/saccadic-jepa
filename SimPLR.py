@@ -251,7 +251,7 @@ class SimPLR(LightningModule):
                 # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
-                    self.embedding[idx] = zg_.detach()
+                    self.embedding[idx] = zg_
                 else:                    
                     if self.fwd_2 and self.mem_bank:
                         ze_ = (self.embedding[idx] + ze2_)/2.0
@@ -332,10 +332,10 @@ class SimPLR(LightningModule):
         if self.ema_v2 or self.JS:
             self.first_epoch = True            
             N = len(self.trainer.train_dataloader.dataset)
-            self.embedding = torch.empty((N, self.prd_width),
+            self.embedding      = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
-            self.embedding_var = torch.zeros((N, 1), 
+            self.embedding_var  = torch.zeros((N, 1), 
                                         dtype=torch.float16,
                                         device=self.device)            
         return super().on_train_start()
