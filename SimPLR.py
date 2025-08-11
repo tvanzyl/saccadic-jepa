@@ -109,6 +109,7 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_prediction_head',
+                                  'alpha',
                                   'n0', 'n1',
                                   'm0', 'm1',
                                   'prd_width',
