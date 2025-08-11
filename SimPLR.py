@@ -323,11 +323,6 @@ class SimPLR(LightningModule):
             assert len(p)==len(z)
         return f0_, p, z
 
-    def on_save_checkpoint(self, checkpoint):
-        if self.ema_v2 or self.JS:
-            del checkpoint['state_dict']['embedding']
-            del checkpoint['state_dict']['embedding_var']
-
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
             self.first_epoch = False
