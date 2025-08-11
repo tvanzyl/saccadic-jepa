@@ -256,7 +256,7 @@ class SimPLR(LightningModule):
                     if self.fwd_2 and self.mem_bank:
                         ze_ = (self.embedding[idx] + ze2_)/2.0
                     elif self.mem_bank:
-                        ze_ = self.embedding[idx]
+                        ze_ = self.embedding[idx].clone()
                     elif self.fwd_2:
                         ze_ = ze2_
 
@@ -271,6 +271,9 @@ class SimPLR(LightningModule):
                     sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
                     
                     sigma_ = (sigma0_+sigma1_)/2.0
+                    zic_ = (zic0_+zic1_)/2.0                    
+                    self.embedding[idx] = (ze_ + zic_)
+                    self.embedding_var[idx] = sigma_
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
@@ -287,10 +290,7 @@ class SimPLR(LightningModule):
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
-                
-                    zic_ = (zic0_+zic1_)/2.0
-                    self.embedding[idx] = (ze_ + zic_)
-                    self.embedding_var[idx] = sigma_
+                    
 
             if self.ema_v2:
                 n = cosine_schedule(self.global_step, 
