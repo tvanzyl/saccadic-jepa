@@ -179,7 +179,8 @@ class SimPLR(LightningModule):
                                 nn.BatchNorm1d(upd_width, 
                                 affine=False, 
                                 momentum=self.running_stats, 
-                                track_running_stats=(self.running_stats>0)),                                
+                                track_running_stats=(self.running_stats>0)),
+                                nn.Linear(upd_width, upd_width, False),
                         )
         else:
             self.buttress =  nn.Sequential(                                
@@ -187,7 +188,8 @@ class SimPLR(LightningModule):
                                 affine=False, 
                                 momentum=self.running_stats, 
                                 track_running_stats=(self.running_stats>0)),
-                                nn.ReLU()
+                                nn.ReLU(),
+                                nn.Linear(upd_width, upd_width, False),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
