@@ -279,14 +279,12 @@ class SimPLR(LightningModule):
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2
                     
-                    sigma_ = (self.prd_width-2.0)*sigma_
-
-                    self.log_dict({"JS_s":sigma_.mean()})
-                    self.log_dict({"JS_n":norm0_.mean()})
-                    self.log_dict({"JS_r":(sigma_/norm0_).mean()})                    
+                    sigma_ = (self.prd_width-2.0)*sigma_                    
                     
                     n0 = torch.maximum(1.0 - sigma_/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - sigma_/norm1_, torch.tensor(0.0))
+
+                    self.log_dict({"JS_n0_n1":0.5*n0.mean() + 0.5*n1.mean()})
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
@@ -515,6 +513,7 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
 
 
 
