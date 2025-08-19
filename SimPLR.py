@@ -146,7 +146,7 @@ class SimPLR(LightningModule):
             upd_width = self.emb_width
         else:
             upd_width = self.emb_width*4
-        print(upd_width)
+        
         self.prd_width = prd_width
 
         if no_projection_head:
@@ -512,10 +512,3 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
-
-
-
-
-
-
-
