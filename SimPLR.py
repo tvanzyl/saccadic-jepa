@@ -152,15 +152,15 @@ class SimPLR(LightningModule):
         if no_projection_head:
             self.projection_head = nn.Sequential()
         elif L2:
-            self.projection_head = nn.Sequential(                
+            self.projection_head = nn.Sequential(          
+                L2NormalizationLayer(),      
                 nn.Linear(emb_width, upd_width, False),
+                # nn.BatchNorm1d(upd_width),
+                # nn.ReLU(),
+                # nn.Linear(upd_width, upd_width, False),
                 nn.BatchNorm1d(upd_width),
                 nn.ReLU(),
-                nn.Linear(upd_width, upd_width, False),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, upd_width),
-                L2NormalizationLayer(),
+                nn.Linear(upd_width, upd_width),                
             )
         else:
             self.projection_head = nn.Sequential(                    
