@@ -56,6 +56,8 @@ parser.add_argument("--n0", type=float, default=1.00)
 parser.add_argument("--n1", type=float, default=1.00)
 parser.add_argument("--linear-lr", type=float, default=0.1)
 parser.add_argument("--prd-width", type=int, default=256)
+parser.add_argument("--prd-depth", type=int, default=2)
+parser.add_argument("--upd-width", type=int, default=2048)
 parser.add_argument("--L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
@@ -158,6 +160,8 @@ def main(
     n0: float,    n1: float,    
     linear_lr: float,
     prd_width: int,
+    prd_depth: int,
+    upd_width: int,
     L2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
@@ -196,6 +200,8 @@ def main(
             alpha=alpha,
             n0=n0, n1=n1,            
             prd_width=prd_width,
+            prd_depth=prd_depth,
+            upd_width=upd_width,
             L2=L2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,

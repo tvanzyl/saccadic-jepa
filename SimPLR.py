@@ -89,6 +89,8 @@ class SimPLR(LightningModule):
                  alpha:float = 0.65,
                  n0:float = 1.00, n1:float = 1.00,                 
                  prd_width:int = 256,
+                 prd_depth:int = 2,
+                 upd_width:int = 2048,
                  L2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
@@ -144,33 +146,33 @@ class SimPLR(LightningModule):
 
         if no_projection_head:
             upd_width = self.emb_width
-        else:
-            upd_width = self.emb_width*4
         
         self.prd_width = prd_width
 
+        if prd_depth == 2:
+            projection_head = [nn.Linear(emb_width, upd_width, False),
+                            nn.BatchNorm1d(upd_width),
+                            nn.ReLU(),
+                            nn.Linear(upd_width, upd_width, False),
+                            nn.BatchNorm1d(upd_width),
+                            nn.ReLU(),
+                            nn.Linear(upd_width, upd_width),]
+        elif prd_depth == 1:
+            projection_head = [nn.Linear(emb_width, upd_width, False),
+                            nn.BatchNorm1d(upd_width),
+                            nn.ReLU(),
+                            nn.Linear(upd_width, upd_width),]
+        else:
+            raise Exception("Selected rediction Depth Not Supported")
+            
+        if L2:
+            projection_head.insert(0, L2NormalizationLayer())
+
         if no_projection_head:
             self.projection_head = nn.Sequential()
-        elif L2:
-            self.projection_head = nn.Sequential(          
-                L2NormalizationLayer(),      
-                nn.Linear(emb_width, upd_width, False),
-                # nn.BatchNorm1d(upd_width),
-                # nn.ReLU(),
-                # nn.Linear(upd_width, upd_width, False),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, upd_width),                
-            )
         else:
-            self.projection_head = nn.Sequential(                    
-                nn.Linear(emb_width, upd_width, False),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, upd_width, False),
-                nn.BatchNorm1d(upd_width),
-                nn.ReLU(),
-                nn.Linear(upd_width, upd_width),
+            self.projection_head = nn.Sequential(          
+                *projection_head
             )
         
         #Use Batchnorm none-affine for centering
@@ -492,7 +494,7 @@ transforms = {
                           local_crop_scale=(0.05, 0.2),),
 "Im100":    DINOTransform(global_crop_scale=(0.2, 1), 
                           local_crop_scale=(0.05, 0.2)),
-"Im100-2":  DINOTransform(global_crop_scale=(0.2, 1.0),
+"Im100-2":  DINOTransform(global_crop_scale=(0.25, 1.0),
                           n_local_views=0),
 "Im100-4":  DINOTransform(global_crop_scale=(0.2, 1.0),
                           local_crop_scale=(0.2, 1.0),
