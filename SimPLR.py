@@ -203,7 +203,7 @@ class SimPLR(LightningModule):
                     nn.AdaptiveAvgPool1d(self.prd_width),
                     nn.Linear(self.prd_width, self.prd_width),
                 )
-                nn.init.eye_( self.merge_head[1].weight )                
+                nn.init.eye_( self.merge_head[1].weight )
             else:
                 raise Exception("Invalid Arguments, can't select prd width larger than upd width")
         else:
