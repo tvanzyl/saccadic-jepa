@@ -149,28 +149,28 @@ class SimPLR(LightningModule):
         
         self.prd_width = prd_width
 
-        if prd_depth == 2:
-            projection_head = [nn.Linear(emb_width, upd_width, False),
-                            nn.BatchNorm1d(upd_width),
-                            nn.ReLU(),
-                            nn.Linear(upd_width, upd_width, False),
-                            nn.BatchNorm1d(upd_width),
-                            nn.ReLU(),
-                            nn.Linear(upd_width, upd_width),]
-        elif prd_depth == 1:
-            projection_head = [nn.Linear(emb_width, upd_width, False),
-                            nn.BatchNorm1d(upd_width),
-                            nn.ReLU(),
-                            nn.Linear(upd_width, upd_width),]
-        else:
-            raise Exception("Selected rediction Depth Not Supported")
-            
-        if L2:
-            projection_head.insert(0, L2NormalizationLayer())
-
         if no_projection_head:
             self.projection_head = nn.Sequential()
         else:
+            if prd_depth == 2:
+                projection_head = [nn.Linear(emb_width, upd_width, False),
+                                nn.BatchNorm1d(upd_width),
+                                nn.ReLU(),
+                                nn.Linear(upd_width, upd_width, False),
+                                nn.BatchNorm1d(upd_width),
+                                nn.ReLU(),
+                                nn.Linear(upd_width, upd_width),]
+            elif prd_depth == 1:
+                projection_head = [nn.Linear(emb_width, upd_width, False),
+                                nn.BatchNorm1d(upd_width),
+                                nn.ReLU(),
+                                nn.Linear(upd_width, upd_width),]
+            else:
+                raise Exception("Selected Prediction Depth Not Supported")
+                
+            if L2:
+                projection_head.insert(0, L2NormalizationLayer())
+
             self.projection_head = nn.Sequential(          
                 *projection_head
             )
