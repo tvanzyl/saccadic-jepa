@@ -154,17 +154,17 @@ class SimPLR(LightningModule):
         else:
             if prd_depth == 2:
                 projection_head = [nn.Linear(emb_width, upd_width, False),
-                                nn.BatchNorm1d(upd_width),
-                                nn.ReLU(),
-                                nn.Linear(upd_width, upd_width, False),
-                                nn.BatchNorm1d(upd_width),
-                                nn.ReLU(),
-                                nn.Linear(upd_width, upd_width),]
+                                   nn.BatchNorm1d(upd_width),
+                                   nn.ReLU(),
+                                   nn.Linear(upd_width, upd_width, False),
+                                   nn.BatchNorm1d(upd_width),
+                                   nn.ReLU(),
+                                   nn.Linear(upd_width, upd_width),]
             elif prd_depth == 1:
                 projection_head = [nn.Linear(emb_width, upd_width, False),
-                                nn.BatchNorm1d(upd_width),
-                                nn.ReLU(),
-                                nn.Linear(upd_width, upd_width),]
+                                   nn.BatchNorm1d(upd_width),
+                                   nn.ReLU(),
+                                   nn.Linear(upd_width, upd_width),]
             else:
                 raise Exception("Selected Prediction Depth Not Supported")
                 
