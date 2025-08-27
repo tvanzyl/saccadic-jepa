@@ -49,12 +49,7 @@ class L2NormalizationLayer(nn.Module):
 
 
 def backbones(name):
-    if name in ["resnetjie-9","resnetjie-18"]: 
-        # resnet = ResNetGenerator({"resnetjie-9":"resnet-9","resnetjie-18":"resnet-18"}[name])
-        # emb_width = resnet.linear.in_features        
-        # resnet = nn.Sequential(
-        #     *list(resnet.children())[:-1], nn.AdaptiveAvgPool2d(1)
-        # )        
+    if name in ["resnetjie-9","resnetjie-18"]:             
         resnet = {"resnetjie-9" :resnet18, 
                   "resnetjie-18":resnet18}[name]()
         emb_width = resnet.fc.in_features
@@ -173,8 +168,8 @@ class SimPLR(LightningModule):
                 projection_head.insert(0, L2NormalizationLayer())
 
             self.projection_head = nn.Sequential(          
-                *projection_head
-            )
+                                    *projection_head
+                                )
         
         #Use Batchnorm none-affine for centering
         if no_ReLU_buttress:
