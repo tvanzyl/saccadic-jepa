@@ -232,9 +232,8 @@ class SimPLR(LightningModule):
                     
             if self.JS:
                 # For James-Stein                
-                zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
-                    self.embedding[idx] = zg_
+                    self.embedding[idx] = 0.5*(zg0_+zg1_)
                 else:                    
                     if self.fwd_2 and self.mem_bank:
                         ze_ = (self.embedding[idx] + ze2_)/2.0
@@ -437,7 +436,7 @@ transforms = {
                           n_local_views=0,
                           gaussian_blur=(0.0, 0.0, 0.0),),
 "Cifar100": DINOTransform(global_crop_size=32,
-                          global_crop_scale=(0.2, 1.0),
+                          global_crop_scale=(0.14, 1.0),
                           n_local_views=0,
                           gaussian_blur=(0.0, 0.0, 0.0),),
 "Tiny":     DINOTransform(global_crop_size=64,
@@ -474,9 +473,8 @@ transforms = {
                           global_crop_scale=(0.2, 1.0),
                           local_crop_size=64,
                           local_crop_scale=(0.05, 0.2),),
-"Im100":    DINOTransform(global_crop_scale=(0.2, 1), 
-                          local_crop_scale=(0.05, 0.2)),
-
+"Im100":    DINOTransform(global_crop_scale=(0.14, 1), 
+                          local_crop_scale=(0.05, 0.14)),
 "Im100-2-20":  DINOTransform(global_crop_scale=(0.20, 1.0),
                           n_local_views=0),
 "Im100-2-14":  DINOTransform(global_crop_scale=(0.14, 1.0),
@@ -485,13 +483,12 @@ transforms = {
                           n_local_views=0),
 "Im100-2-05":  DINOTransform(global_crop_scale=(0.05, 1.0),
                           n_local_views=0),
-
-"Im100-4":  DINOTransform(global_crop_scale=(0.2, 1.0),
-                          local_crop_scale=(0.2, 1.0),
+"Im100-4":  DINOTransform(global_crop_scale=(0.14, 1.0),
+                          local_crop_scale =(0.14, 1.0),
                           n_local_views=2,),
-"Im1k":     DINOTransform(global_crop_scale=(0.2, 1), 
+"Im1k":     DINOTransform(global_crop_scale=(0.14, 1), 
                           local_crop_scale=(0.05, 0.2)),
-"Im1k-2":   DINOTransform(global_crop_scale=(0.05, 1.0),
+"Im1k-2":   DINOTransform(global_crop_scale=(0.14, 1.0),
                           n_local_views=0),
 }
 
