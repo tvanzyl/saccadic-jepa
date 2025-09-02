@@ -234,6 +234,7 @@ class SimPLR(LightningModule):
                 # For James-Stein                
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
+                    self.embedding[idx] = 0.5*(zg0_+zg1_)
                 else:                    
                     if self.fwd_2 and self.mem_bank:
                         ze_ = (self.embedding[idx] + ze2_)/2.0
@@ -475,6 +476,8 @@ transforms = {
                           local_crop_scale=(0.05, 0.2),),
 "Im100":    DINOTransform(global_crop_scale=(0.14, 1), 
                           local_crop_scale=(0.05, 0.14)),
+"Im100":    DINOTransform(global_crop_scale=(0.14, 1), 
+                          local_crop_scale=(0.05, 0.14)),
 "Im100-2-20":  DINOTransform(global_crop_scale=(0.20, 1.0),
                           n_local_views=0),
 "Im100-2-14":  DINOTransform(global_crop_scale=(0.14, 1.0),
@@ -486,9 +489,9 @@ transforms = {
 "Im100-4":  DINOTransform(global_crop_scale=(0.14, 1.0),
                           local_crop_scale =(0.14, 1.0),
                           n_local_views=2,),
-"Im1k":     DINOTransform(global_crop_scale=(0.14, 1), 
+"Im1k":     DINOTransform(global_crop_scale=(0.2, 1), 
                           local_crop_scale=(0.05, 0.2)),
-"Im1k-2":   DINOTransform(global_crop_scale=(0.14, 1.0),
+"Im1k-2":   DINOTransform(global_crop_scale=(0.05, 1.0),
                           n_local_views=0),
 }
 
