@@ -489,8 +489,8 @@ transforms = {
 "Im100-4":  DINOTransform(global_crop_scale=(0.14, 1.0),
                           local_crop_scale =(0.14, 1.0),
                           n_local_views=2,),
-"Im1k":     DINOTransform(global_crop_scale=(0.14, 1), 
-                          local_crop_scale=(0.05, 0.14)),
+"Im1k":     DINOTransform(global_crop_scale=(0.14, 1.00), 
+                          local_crop_scale =(0.05, 0.14)),
 "Im1k-2":   DINOTransform(global_crop_scale=(0.14, 1.0),
                           n_local_views=0),
 }
