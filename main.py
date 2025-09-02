@@ -46,7 +46,6 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn-k", type=int, nargs="+")
 parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
-parser.add_argument("--running-stats", type=float, default=0.0)
 parser.add_argument("--ema-v2", action="store_true")
 parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
@@ -56,8 +55,8 @@ parser.add_argument("--n0", type=float, default=1.00)
 parser.add_argument("--n1", type=float, default=1.00)
 parser.add_argument("--linear-lr", type=float, default=0.1)
 parser.add_argument("--prd-width", type=int, default=256)
-parser.add_argument("--prd-depth", type=int, default=2)
-parser.add_argument("--upd-width", type=int, default=2048)
+parser.add_argument("--prj-depth", type=int, default=2)
+parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
@@ -164,8 +163,7 @@ def main(
     ckpt_path: Union[Path, None],
     knn_k: Union[Sequence[int], int],
     lr: float,
-    decay: float,
-    running_stats: float,
+    decay: float,    
     ema_v2: bool,
     momentum_head: bool,
     identity_head: bool,
@@ -174,8 +172,8 @@ def main(
     n0: float,    n1: float,    
     linear_lr: float,
     prd_width: int,
-    prd_depth: int,
-    upd_width: int,
+    prj_depth: int,
+    prj_width: int,
     L2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
@@ -205,8 +203,7 @@ def main(
             backbone=backbone,
             n_local_views=METHODS[method]["n_local_views"],
             lr=lr,
-            decay=decay,
-            running_stats=running_stats,
+            decay=decay,            
             ema_v2=ema_v2,
             momentum_head=momentum_head,
             identity_head=identity_head,
@@ -214,8 +211,8 @@ def main(
             alpha=alpha,
             n0=n0, n1=n1,            
             prd_width=prd_width,
-            prd_depth=prd_depth,
-            upd_width=upd_width,
+            prj_depth=prj_depth,
+            prj_width=prj_width,
             L2=L2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,

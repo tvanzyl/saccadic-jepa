@@ -75,8 +75,7 @@ class SimPLR(LightningModule):
                  backbone:str = "resnet-50",
                  n_local_views:int = 6,
                  lr:float = 0.15,
-                 decay:float=1e-4,
-                 running_stats:float=0.0,
+                 decay:float=1e-4,                 
                  ema_v2:bool=False,
                  momentum_head:bool=False,
                  identity_head:bool=False,
@@ -84,8 +83,8 @@ class SimPLR(LightningModule):
                  alpha:float = 0.65,
                  n0:float = 1.00, n1:float = 1.00,                 
                  prd_width:int = 256,
-                 prd_depth:int = 2,
-                 upd_width:int = 2048,
+                 prj_depth:int = 2,
+                 prj_width:int = 2048,
                  L2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
@@ -98,8 +97,7 @@ class SimPLR(LightningModule):
                                   'backbone',
                                   'n_local_views',
                                   'lr',
-                                  'decay',
-                                  'running_stats',
+                                  'decay',                                  
                                   'ema_v2', 'JS',
                                   'momentum_head',
                                   'identity_head',
@@ -107,8 +105,8 @@ class SimPLR(LightningModule):
                                   'no_prediction_head',
                                   'alpha',
                                   'n0', 'n1',                                  
-                                  'prd_width', "prd_depth",
-                                  "upd_width",
+                                  'prd_width', 
+                                  "prj_depth", "prj_width",
                                   'L2',
                                   'no_ReLU_buttress',
                                   'no_mem_bank',
@@ -116,8 +114,7 @@ class SimPLR(LightningModule):
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
-        self.batch_size_per_device = batch_size_per_device
-        self.running_stats = running_stats
+        self.batch_size_per_device = batch_size_per_device        
         self.ema_v2 = ema_v2
         self.JS = JS
         self.mem_bank = not no_mem_bank        
@@ -141,26 +138,26 @@ class SimPLR(LightningModule):
         self.backbone = resnet
 
         if no_projection_head:
-            upd_width = self.emb_width
+            prj_width = self.emb_width
         
         self.prd_width = prd_width
 
         if no_projection_head:
             self.projection_head = nn.Sequential()
         else:
-            if prd_depth == 2:
-                projection_head = [nn.Linear(emb_width, upd_width, False),
-                                   nn.BatchNorm1d(upd_width),
+            if prj_depth == 2:
+                projection_head = [nn.Linear(emb_width, prj_width, False),
+                                   nn.BatchNorm1d(prj_width),
                                    nn.ReLU(),
-                                   nn.Linear(upd_width, upd_width, False),
-                                   nn.BatchNorm1d(upd_width),
+                                   nn.Linear(prj_width, prj_width, False),
+                                   nn.BatchNorm1d(prj_width),
                                    nn.ReLU(),
-                                   nn.Linear(upd_width, upd_width),]
-            elif prd_depth == 1:
-                projection_head = [nn.Linear(emb_width, upd_width, False),
-                                   nn.BatchNorm1d(upd_width),
+                                   nn.Linear(prj_width, prj_width),]
+            elif prj_depth == 1:
+                projection_head = [nn.Linear(emb_width, prj_width, False),
+                                   nn.BatchNorm1d(prj_width),
                                    nn.ReLU(),
-                                   nn.Linear(upd_width, upd_width),]
+                                   nn.Linear(prj_width, prj_width),]
             else:
                 raise Exception("Selected Prediction Depth Not Supported")
                 
@@ -174,28 +171,24 @@ class SimPLR(LightningModule):
         #Use Batchnorm none-affine for centering
         if no_ReLU_buttress:
             self.buttress =  nn.Sequential(                                
-                                nn.BatchNorm1d(upd_width, 
-                                affine=False, 
-                                momentum=self.running_stats, 
-                                track_running_stats=(self.running_stats>0)),                                
+                                nn.BatchNorm1d(prj_width, 
+                                affine=False,),                                
                         )
         else:
             self.buttress =  nn.Sequential(                                
-                                nn.BatchNorm1d(upd_width, 
-                                affine=False, 
-                                momentum=self.running_stats, 
-                                track_running_stats=(self.running_stats>0)),
+                                nn.BatchNorm1d(prj_width, 
+                                affine=False),
                                 nn.ReLU(),                                
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
-            self.prediction_head = nn.Linear(upd_width, self.prd_width, False)
+            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)
         if identity_head:
-            if upd_width == prd_width:
+            if prj_width == prd_width:
                 self.merge_head = nn.Linear(self.prd_width, self.prd_width)
                 nn.init.eye_( self.merge_head.weight )
-            elif upd_width > prd_width:
+            elif prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
                 self.merge_head = nn.Sequential(
                     nn.AdaptiveAvgPool1d(self.prd_width),
@@ -203,9 +196,9 @@ class SimPLR(LightningModule):
                 )
                 nn.init.eye_( self.merge_head[1].weight )
             else:
-                raise Exception("Invalid Arguments, can't select prd width larger than upd width")
+                raise Exception("Invalid Arguments, can't select prd width larger than prj width")
         else:
-            self.merge_head = nn.Linear(upd_width, self.prd_width)
+            self.merge_head = nn.Linear(prj_width, self.prd_width)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
@@ -224,16 +217,9 @@ class SimPLR(LightningModule):
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
         p = [self.prediction_head( g_ ) for g_ in g]        
-        with torch.no_grad():
-            if self.running_stats > 0.0:
-                # Filthy hack to abuse the Batchnorm running stats
-                self.buttress[0].training = False
-                g0 = self.buttress( b[0] )
-                g1 = self.buttress( b[1] )
-                self.buttress[0].training = True
-            else:
-                g0 = g[0].detach()
-                g1 = g[1].detach()                
+        with torch.no_grad():            
+            g0 = g[0].detach()
+            g1 = g[1].detach()                
             zg0_ = self.merge_head( g0 )
             zg1_ = self.merge_head( g1 )
              
