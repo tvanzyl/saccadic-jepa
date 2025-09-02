@@ -217,7 +217,7 @@ class SimPLR(LightningModule):
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
         p = [self.prediction_head( g_ ) for g_ in g]        
-        with torch.no_grad():            
+        with torch.no_grad():
             g0 = g[0].detach()
             g1 = g[1].detach()                
             zg0_ = self.merge_head( g0 )
