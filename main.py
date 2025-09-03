@@ -4,7 +4,13 @@ from pathlib import Path
 from typing import Dict, Sequence, Union
 
 import SimPLR
-from SimPLR import train_transform, dataset_with_indices
+from SimPLR import (
+    dataset_with_indices,
+    CIFAR10_NORMALIZE,
+    CIFAR100_NORMALIZE,
+    TINYIMAGE_NORMALIZE,
+    STL10_NORMALIZE
+)
 import finetune_eval
 import knn_eval
 import linear_eval
@@ -20,7 +26,6 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
 from lightly.data import LightlyDataset
-from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.utils.benchmarking import MetricCallback
 from lightly.utils.dist import print_rank_zero
 
@@ -66,78 +71,60 @@ parser.add_argument("--fwd-2", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(32),
+                     "train_transform": SimPLR.train_transforms["Cifar10"],  
                      "val_transform": SimPLR.val_transforms["Cifar10"],  
                      "transform": SimPLR.transforms["Cifar10"],},
     "Cifar100":     {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(32),
+                     "train_transform": SimPLR.train_transforms["Cifar100"],  
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100"],},
 
-    "Tiny":         {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(64, (0.20,1.0)),
+    "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny"],},
-    "Tiny-W":       {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(64, (0.20,1.0)),
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-W"],},
-    "Tiny-S":       {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(64, (0.20,1.0)),
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-S"],},
+                     "transform": SimPLR.transforms["Tiny-2"],},
     "Tiny-4":       {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": train_transform(64, (0.20,1.0)),
+                     "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
                      "transform": SimPLR.transforms["Tiny-4"],},
+    "Tiny-8":       {"model": SimPLR.SimPLR, "n_local_views":6,
+                     "train_transform": SimPLR.train_transforms["Tiny"],  
+                     "val_transform": SimPLR.val_transforms["Tiny"],
+                     "transform": SimPLR.transforms["Tiny-8"],},
 
-    "STL":          {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(96),
-                     "val_transform": SimPLR.val_transforms["STL"],
-                     "transform": SimPLR.transforms["STL"],},
     "STL-2":        {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(96),
+                     "train_transform": SimPLR.train_transforms["STL"],  
                      "val_transform": SimPLR.val_transforms["STL"],
                      "transform": SimPLR.transforms["STL-2"],},
-
-    "Nette":        {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(128),
-                     "val_transform": SimPLR.val_transforms["Nette"],    
-                     "transform": SimPLR.transforms["Nette"],},
     
-    "Im100":        {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(224),
+    "Im100-8":      {"model": SimPLR.SimPLR, "n_local_views":6,
+                     "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100"],},
+                     "transform": SimPLR.transforms["Im100-8"],},
     "Im100-2-20":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(224),
+                     "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
                      "transform": SimPLR.transforms["Im100-2-20"],},
     "Im100-2-14":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(224),
+                     "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
                      "transform": SimPLR.transforms["Im100-2-14"],},
     "Im100-2-08":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(224),
+                     "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
                      "transform": SimPLR.transforms["Im100-2-08"],},
     "Im100-2-05":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(224),
+                     "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
                      "transform": SimPLR.transforms["Im100-2-05"],},
-
-    "Im100-4":      {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": train_transform(224),
-                     "val_transform": SimPLR.val_transforms["Im100"],  
-                     "transform": SimPLR.transforms["Im100-4"],},
-
-    "Im1k":         {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": train_transform(224),
-                     "val_transform": SimPLR.val_transforms["Im1k"],     
-                     "transform": SimPLR.transforms["Im1k"],},
+    
+    "Im1k-8":       {"model": SimPLR.SimPLR, "n_local_views":6,
+                     "train_transform": SimPLR.train_transforms["Im1k"],
+                     "val_transform": SimPLR.val_transforms["Im1k"],
+                     "transform": SimPLR.transforms["Im1k-8"],},
     "Im1k-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": train_transform(224),
-                     "val_transform": SimPLR.val_transforms["Im1k"],   
+                     "train_transform": SimPLR.train_transforms["Im1k"],
+                     "val_transform": SimPLR.val_transforms["Im1k"],
                      "transform": SimPLR.transforms["Im1k-2"],},
 }
 

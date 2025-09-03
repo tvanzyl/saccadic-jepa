@@ -132,9 +132,8 @@ class SimPLR(LightningModule):
             raise Exception("Need One of Fwd 2 or Mem Bank")
 
         resnet, emb_width = backbones(backbone)
-        self.emb_width  = emb_width # Used by eval classes
+        self.emb_width  = emb_width # Used by eval classes        
         
-        self.ens_size = 2 + n_local_views
         self.backbone = resnet
 
         if no_projection_head:
@@ -170,15 +169,15 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         if no_ReLU_buttress:
-            self.buttress =  nn.Sequential(                                
-                                nn.BatchNorm1d(prj_width, 
-                                affine=False,),                                
-                        )
-        else:
-            self.buttress =  nn.Sequential(                                
+            self.buttress =  nn.Sequential(
                                 nn.BatchNorm1d(prj_width, 
                                 affine=False),
-                                nn.ReLU(),                                
+                        )
+        else:
+            self.buttress =  nn.Sequential(
+                                nn.BatchNorm1d(prj_width, 
+                                affine=False),
+                                nn.ReLU(),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
@@ -208,40 +207,46 @@ class SimPLR(LightningModule):
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
 
-    def forward_student(self, x: Tensor, idx: Tensor) -> Tensor:
+    def forward_student(self, x: List[Tensor], idx: Tensor) -> Tensor:
+        views = len(x)
+        x = torch.cat(x[:2])  #global views
+        fx = self.backbone( x ).flatten(start_dim=1)
+        f0_ = fx.chunk(2)[0].detach()
+        if views > 2:
+            y = torch.cat(x[2:])  #local views
+            fy = self.backbone( y ).flatten(start_dim=1)
+            f = torch.cat( [fx, fy] )
+        else:
+            f = fx
+        
+        b = self.projection_head( f )
+        g = self.buttress( b ).chunk( views )
+
         if self.fwd_2:
-            y = x[2:]
-            x = x[:2]
-        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in  x]
-        f0_ = f[0].detach()
-        b = [self.projection_head( f_ ) for f_ in f]
-        g = [self.buttress( b_ ) for b_ in b]
-        p = [self.prediction_head( g_ ) for g_ in g]        
-        with torch.no_grad():
-            g0 = g[0].detach()
-            g1 = g[1].detach()                
-            zg0_ = self.merge_head( g0 )
-            zg1_ = self.merge_head( g1 )
-             
-            if self.fwd_2:
-                fy = [self.backbone( y_ ).flatten(start_dim=1) for y_ in y]
-                by = [self.projection_head( fy_ ) for fy_ in fy]
-                gy = [self.buttress( by_ ) for by_ in by]
-                zy = [self.merge_head( gy_ ) for gy_ in gy]
-                ze2_ = (zy[0]+zy[1])/2.0
-                    
-            if self.JS:
-                # For James-Stein                
+            p = [self.prediction_head( g_ ) for g_ in g[:2]]
+        else:
+            p = [self.prediction_head( g_ ) for g_ in g]
+        
+        with torch.no_grad(): 
+            if self.fwd_2:                
+                z = [self.merge_head( g_ ) for g_ in g]
+                #TODO: replace with mean over all extra views
+                zg2_ = (z[2]+z[3])/2.0
+            else:            
+                z = [self.merge_head( g_ ) for g_ in g[:2]]
+            zg0_ = z[0]
+            zg1_ = z[1]
+
+            if self.JS: # For James-Stein                
                 if self.first_epoch:
-                    self.embedding[idx] = 0.5*(zg0_+zg1_)
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
                 else:                    
                     if self.fwd_2 and self.mem_bank:
-                        ze_ = (self.embedding[idx] + ze2_)/2.0
+                        ze_ = (self.embedding[idx] + zg2_)/2.0
                     elif self.mem_bank:
-                        ze_ = self.embedding[idx].clone()
+                        ze_ = self.embedding[idx]
                     elif self.fwd_2:
-                        ze_ = ze2_
+                        ze_ = zg2_
 
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     zvr_ = self.embedding_var[idx]
@@ -256,39 +261,38 @@ class SimPLR(LightningModule):
                     
                     sigma_ = (sigma0_+sigma1_)/2.0
                     zic_ = (zic0_+zic1_)/2.0                    
-                    self.embedding[idx] = (ze_ + zic_)
-                    self.embedding_var[idx] = sigma_
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2
                     
-                    sigma_ = (self.prd_width-2.0)*sigma_                    
+                    sigma__ = (self.prd_width-2.0)*sigma_
                     
-                    n0 = torch.maximum(1.0 - sigma_/norm0_, torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma_/norm1_, torch.tensor(0.0))
+                    n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - sigma__/norm1_, torch.tensor(0.0))
 
-                    self.log_dict({"JS_n0_n1":0.5*n0.mean() + 0.5*n1.mean()})
+                    self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                     
+                    self.embedding[idx] = ze_ + zic_
+                    self.embedding_var[idx] = sigma_
 
-            if self.ema_v2:
+            if self.ema_v2: #For EMA 2.0
                 n = cosine_schedule(self.global_step, 
                                     self.trainer.estimated_stepping_batches, 
                                     self.n0, self.n1)            
                 zg_ = 0.5*(zg0_+zg1_)
                 if self.first_epoch:
                     self.embedding[idx] = zg_.detach()
-                else:
-                    #For EMA 2.0
+                else:                    
                     if self.fwd_2 and self.mem_bank:
-                        ze_ = (self.embedding[idx] + ze2_)/2.0
+                        ze_ = (self.embedding[idx] + zg2_)/2.0
                     elif self.mem_bank:
                         ze_ = self.embedding[idx]
                     elif self.fwd_2:
-                        ze_ = ze2_
+                        ze_ = zg2_
 
                     #1 means only previous, 0 means only current
                     zg0_ = (n)*zg0_ + (1.-n)*ze_
@@ -299,10 +303,11 @@ class SimPLR(LightningModule):
                     else:
                         self.embedding[idx] = zg_
             z = [zg1_, zg0_]
-            if self.ens_size > 2 and not self.fwd_2:
+            if views > 2 and not self.fwd_2:
                 zg_ = 0.5*(zg0_+zg1_)
-                z.extend([zg_ for _ in range(self.ens_size-2)])
-            assert len(p)==len(z)
+                z.extend([zg_ for _ in range(views-2)])
+            
+            assert len(p)==len(z)            
         return f0_, p, z
 
     def on_train_epoch_end(self):
@@ -396,14 +401,12 @@ class SimPLR(LightningModule):
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
-                # warmup_epochs=0,
                 warmup_epochs=int(
                       self.trainer.estimated_stepping_batches
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
                 max_epochs=int(self.trainer.estimated_stepping_batches),
-                # end_value=0.1*self.lr
             ),
             "interval": "step",
         }
@@ -414,93 +417,91 @@ class SimPLR(LightningModule):
 # For ResNet50 we adjust crop scales as recommended by the authors:
 # https://github.com/facebookresearch/dino#resnet-50-and-other-convnets-trainings
 # transform = DINOTransform(global_crop_scale=(0.14, 1), local_crop_scale=(0.05, 0.14), n_local_views=n_local_views)
-def train_transform(size, scale=(0.2, 1.0)):
+def train_transform(size, scale=(0.08, 1.0), NORMALIZE=IMAGENET_NORMALIZE):
     return T.Compose([
                     T.RandomResizedCrop(size, scale=scale),
                     T.RandomHorizontalFlip(),
                     T.ToTensor(),
-                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                    T.Normalize(mean=NORMALIZE["mean"], std=NORMALIZE["std"]),
                 ])
-val_identity  = lambda size: T.Compose([
+val_identity  = lambda size, NORMALIZE: T.Compose([
                     T.Resize(size), T.ToTensor(),
-                    T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
+                    T.Normalize(mean=NORMALIZE["mean"], std=NORMALIZE["std"]),
                 ])
 val_transform = T.Compose([
                     T.Resize(256), T.CenterCrop(224), T.ToTensor(),
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
                 ])
 
+CIFAR100_NORMALIZE  = {'mean':(0.5071, 0.4867, 0.4408),'std':(0.2675, 0.2565, 0.2761)}
+CIFAR10_NORMALIZE   = {'mean':(0.4914, 0.4822, 0.4465),'std':(0.2470, 0.2435, 0.2616)}
+TINYIMAGE_NORMALIZE = {'mean':(0.4802, 0.4481, 0.3975),'std':(0.2302, 0.2265, 0.2262)}
+STL10_NORMALIZE     = {'mean':(0.4408, 0.4279, 0.3867),'std':(0.2682, 0.2610, 0.2686)}
 
 transforms = {
-"Cifar10":  DINOTransform(global_crop_size=32,
-                          global_crop_scale=(0.2, 1.0),
-                          n_local_views=0,
-                          gaussian_blur=(0.0, 0.0, 0.0),),
-"Cifar100": DINOTransform(global_crop_size=32,
-                          global_crop_scale=(0.14, 1.0),
-                          n_local_views=0,
-                          gaussian_blur=(0.0, 0.0, 0.0),),
-"Tiny":     DINOTransform(global_crop_size=64,
-                          global_crop_scale=(0.2, 1.0),
-                          local_crop_size=32,
-                          local_crop_scale=(0.05, 0.2),
-                          gaussian_blur=(0.5, 0.0, 0.0),),
-"Tiny-W":   DINOTransform(global_crop_size=64,
-                          global_crop_scale=(0.2, 1.0),
-                          n_local_views=0,
-                          cj_prob=0.0,
-                          random_gray_scale=0.0,
-                          solarization_prob=0.0,
-                          gaussian_blur=(0.0, 0.0, 0.0)),
-"Tiny-S":   DINOTransform(global_crop_size=64,
-                          n_local_views=0,
-                          global_crop_scale=(0.2, 1.0),
-                          gaussian_blur=(0.5, 0.0, 0.0),),
-"Tiny-4":   DINOTransform(global_crop_size=64,
-                          global_crop_scale=(0.2, 1.0),
-                          local_crop_size=64,
-                          local_crop_scale=(0.2, 1.0),
-                          n_local_views=2,                          
-                          gaussian_blur=(0.5, 0.0, 0.0),),
-"STL":      DINOTransform(global_crop_size=96,
-                          global_crop_scale=(0.2, 1.0),
-                          local_crop_size=48,
-                          local_crop_scale=(0.05, 0.2),
-                          gaussian_blur=(0.5, 0.0, 0.0),),
-"STL-2":    DINOTransform(global_crop_size=96,
-                          n_local_views=0,
-                          global_crop_scale=(0.2, 1.0),),
-"Nette":    DINOTransform(global_crop_size=128,
-                          global_crop_scale=(0.2, 1.0),
-                          local_crop_size=64,
-                          local_crop_scale=(0.05, 0.2),),
-"Im100":    DINOTransform(global_crop_scale=(0.14, 1), 
-                          local_crop_scale=(0.05, 0.14)),
-"Im100":    DINOTransform(global_crop_scale=(0.14, 1), 
-                          local_crop_scale=(0.05, 0.14)),
-"Im100-2-20":  DINOTransform(global_crop_scale=(0.20, 1.0),
-                          n_local_views=0),
-"Im100-2-14":  DINOTransform(global_crop_scale=(0.14, 1.0),
-                          n_local_views=0),
-"Im100-2-08":  DINOTransform(global_crop_scale=(0.08, 1.0),
-                          n_local_views=0),
-"Im100-2-05":  DINOTransform(global_crop_scale=(0.05, 1.0),
-                          n_local_views=0),
-"Im100-4":  DINOTransform(global_crop_scale=(0.14, 1.0),
-                          local_crop_scale =(0.14, 1.0),
-                          n_local_views=2,),
-"Im1k":     DINOTransform(global_crop_scale=(0.14, 1.00), 
-                          local_crop_scale =(0.05, 0.14)),
-"Im1k-2":   DINOTransform(global_crop_scale=(0.14, 1.0),
-                          n_local_views=0),
+"Cifar10":      DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR10_NORMALIZE),
+"Cifar100":     DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+"Tiny-8":       DINOTransform(global_crop_size=64,
+                            global_crop_scale=(0.2, 1.0),
+                            local_crop_size=32,
+                            local_crop_scale=(0.05, 0.2),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=TINYIMAGE_NORMALIZE),
+"Tiny-2":       DINOTransform(global_crop_size=64,                          
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=TINYIMAGE_NORMALIZE),
+"Tiny-4":       DINOTransform(global_crop_size=64,
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=2,
+                            local_crop_size=64,
+                            local_crop_scale=(0.20, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=TINYIMAGE_NORMALIZE),
+"STL-2":        DINOTransform(global_crop_size=96,
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=STL10_NORMALIZE),
+"Im100-8":      DINOTransform(global_crop_scale=(0.14, 1.00),
+                            local_crop_scale =(0.05, 0.14)),
+"Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
+                            n_local_views=0),
+"Im100-2-14":   DINOTransform(global_crop_scale=(0.14, 1.0),
+                            n_local_views=0),
+"Im100-2-08":   DINOTransform(global_crop_scale=(0.08, 1.0),
+                            n_local_views=0),
+"Im100-2-05":   DINOTransform(global_crop_scale=(0.05, 1.0),
+                            n_local_views=0),
+"Im1k-8":       DINOTransform(global_crop_scale=(0.14, 1.00),
+                            local_crop_scale =(0.05, 0.14)),
+"Im1k-2":       DINOTransform(global_crop_scale=(0.14, 1.00),
+                            n_local_views=0),
+}
+
+train_transforms = {
+"Cifar10":   train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
+"Cifar100":  train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
+"Tiny":      train_transform(64, NORMALIZE=TINYIMAGE_NORMALIZE),
+"STL":       train_transform(96, NORMALIZE=STL10_NORMALIZE),
+"Im100":     train_transform(224),
+"Im1k":      train_transform(224),
 }
 
 val_transforms = {
-"Cifar10":   val_identity(32),
-"Cifar100":  val_identity(32),
-"Tiny":      val_identity(64),
-"STL":       val_identity(96),
-"Nette":     val_identity(128),
+"Cifar10":   val_identity(32, CIFAR100_NORMALIZE),
+"Cifar100":  val_identity(32, CIFAR100_NORMALIZE),
+"Tiny":      val_identity(64, TINYIMAGE_NORMALIZE),
+"STL":       val_identity(96, STL10_NORMALIZE),
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
