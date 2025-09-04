@@ -162,6 +162,7 @@ class SimPLR(LightningModule):
                 
             if L2:
                 projection_head.insert(0, L2NormalizationLayer())
+                # projection_head.append(L2NormalizationLayer())
 
             self.projection_head = nn.Sequential(          
                                     *projection_head
@@ -473,7 +474,7 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=STL10_NORMALIZE),
 "Im100-8":      DINOTransform(global_crop_scale=(0.14, 1.00),
-                            local_crop_scale =(0.05, 0.14)),
+                            local_crop_scale=(0.05, 0.14)),
 "Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
                             n_local_views=0),
 "Im100-2-14":   DINOTransform(global_crop_scale=(0.14, 1.0),
@@ -490,7 +491,13 @@ transforms = {
 
 train_transforms = {
 "Cifar10":   train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
-"Cifar100":  train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
+# "Cifar100":  train_transform(32, scale=(0.6, 1.0), NORMALIZE=CIFAR100_NORMALIZE),
+"Cifar100": T.Compose([
+                    # T.RandomCrop(32, padding=4),
+                    T.RandomHorizontalFlip(),
+                    T.ToTensor(),
+                    T.Normalize(mean=CIFAR100_NORMALIZE["mean"], std=CIFAR100_NORMALIZE["std"]),
+                ]),
 "Tiny":      train_transform(64, NORMALIZE=TINYIMAGE_NORMALIZE),
 "STL":       train_transform(96, NORMALIZE=STL10_NORMALIZE),
 "Im100":     train_transform(224),
