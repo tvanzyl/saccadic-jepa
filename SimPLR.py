@@ -25,6 +25,8 @@ from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
+from action_transform import JSREPATransform
+
 def dataset_with_indices(cls):
     """
     Modifies the given Dataset class to return a tuple data, target, index
@@ -157,6 +159,8 @@ class SimPLR(LightningModule):
                                    nn.BatchNorm1d(prj_width),
                                    nn.ReLU(),
                                    nn.Linear(prj_width, prj_width),]
+            elif prj_depth == 0:
+                projection_head = [nn.Linear(emb_width, prj_width),]
             else:
                 raise Exception("Selected Prediction Depth Not Supported")
                 
@@ -445,11 +449,20 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR10_NORMALIZE),
+
 "Cifar100":     DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
+"Cifar100-4":   DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.05, 1.0),
+                            n_local_views=2,
+                            local_crop_size=32,
+                            local_crop_scale=(0.20, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+
 "Tiny-8":       DINOTransform(global_crop_size=64,
                             global_crop_scale=(0.2, 1.0),
                             local_crop_size=32,
