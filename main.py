@@ -29,7 +29,7 @@ from lightly.data import LightlyDataset
 from lightly.utils.benchmarking import MetricCallback
 from lightly.utils.dist import print_rank_zero
 
-parser = ArgumentParser("ImageNet ResNet50 Benchmarks")
+parser = ArgumentParser("ImageNet ResNet Benchmarks")
 parser.add_argument("--train-dir", type=Path, default="/media/tvanzyl/data/imagenet/train")
 parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data/imagenet/val")
 parser.add_argument("--log-dir", type=Path, default="benchmark_logs")
