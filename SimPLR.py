@@ -58,6 +58,7 @@ def backbones(name):
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         resnet.maxpool = nn.Sequential()
         resnet.fc = Identity()
+        # resnet.fc = nn.BatchNorm1d(emb_width)
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
@@ -87,12 +88,14 @@ class SimPLR(LightningModule):
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
-                 L2:bool=False,
+                 L2:bool=False,M2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
                  JS:bool=False,
                  no_mem_bank:bool=False,
-                 fwd_2:bool=False) -> None:
+                 only_fwd_bank:bool=False,
+                 fwd:int=0,
+                 asm:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -109,18 +112,22 @@ class SimPLR(LightningModule):
                                   'n0', 'n1',                                  
                                   'prd_width', 
                                   "prj_depth", "prj_width",
-                                  'L2',
+                                  'L2','M2',
                                   'no_ReLU_buttress',
                                   'no_mem_bank',
-                                  'fwd_2')
+                                  'only_fwd_bank',
+                                  'fwd',
+                                  'asm')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device        
         self.ema_v2 = ema_v2
         self.JS = JS
-        self.mem_bank = not no_mem_bank        
-        self.fwd_2 = fwd_2
+        self.mem_bank = not no_mem_bank   
+        self.only_fwd_bank = only_fwd_bank     
+        self.fwd = fwd
+        self.asm = asm
         self.momentum_head = momentum_head                
         self.alpha = alpha
         self.n0 = n0
@@ -130,8 +137,10 @@ class SimPLR(LightningModule):
             raise Exception("Invalid Arguments, can't select identity and momentum")
         if JS and ema_v2:
             raise Exception("Invalid Arguments, can't select JS and EMA")
-        if JS and no_mem_bank and not fwd_2:
-            raise Exception("Need One of Fwd 2 or Mem Bank")
+        if JS and no_mem_bank and fwd == 0:
+            raise Exception("Need One of Fwd or Mem Bank with JS")
+        if self.only_fwd_bank and no_mem_bank and fwd == 0:
+            raise Exception("Need Fwd and Mem Bank with Only Fwd Bank")
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes        
@@ -166,7 +175,9 @@ class SimPLR(LightningModule):
                 
             if L2:
                 projection_head.insert(0, L2NormalizationLayer())
-                # projection_head.append(L2NormalizationLayer())
+            if M2:
+                # projection_head.insert(0, nn.BatchNorm1d(self.emb_width))
+                projection_head.append(L2NormalizationLayer())
 
             self.projection_head = nn.Sequential(          
                                     *projection_head
@@ -214,30 +225,30 @@ class SimPLR(LightningModule):
 
     def forward_student(self, x: List[Tensor], idx: Tensor) -> Tensor:
         views = len(x)
-        x = torch.cat(x[:2])  #global views
-        fx = self.backbone( x ).flatten(start_dim=1)
+        x_ = torch.cat(x[:2])  #global views
+        fx = self.backbone( x_ ).flatten(start_dim=1)
         f0_ = fx.chunk(2)[0].detach()
-        if views > 2:
+        if views > 2: #TODO: Fwd and MultiCrop Combo Not Supported Yet
             y = torch.cat(x[2:])  #local views
             fy = self.backbone( y ).flatten(start_dim=1)
             f = torch.cat( [fx, fy] )
         else:
             f = fx
         
-        b = self.projection_head( f )
-        g = self.buttress( b ).chunk( views )
+        b = self.projection_head( f ).chunk( views )
+        g = [self.buttress( b_ ) for b_ in b]
 
-        if self.fwd_2:
+        if self.fwd > 0:
             p = [self.prediction_head( g_ ) for g_ in g[:2]]
         else:
             p = [self.prediction_head( g_ ) for g_ in g]
         
         with torch.no_grad(): 
-            if self.fwd_2:                
+            if self.fwd > 0:
+                #TODO: Fwd and MultiCrop Combo Not Supported Yet
                 z = [self.merge_head( g_ ) for g_ in g]
-                #TODO: replace with mean over all extra views
-                zg2_ = (z[2]+z[3])/2.0
-            else:            
+                zg2_ = torch.mean(torch.stack(z[2:], dim=0), dim=0)
+            else:
                 z = [self.merge_head( g_ ) for g_ in g[:2]]
             zg0_ = z[0]
             zg1_ = z[1]
@@ -245,16 +256,24 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein                
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
-                else:                    
-                    if self.fwd_2 and self.mem_bank:
+                else:
+                    # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
+                    if self.only_fwd_bank:
+                        ze2_ = self.embedding[idx]
+                        zdf2_ = zg2_ - ze2_
+                        zic2_ = self.alpha * zdf2_
+                        zvr2_ = self.embedding_var[idx]
+                        zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)                        
+                        ze_ = ze2_ + zic2_ 
+                    elif self.fwd > 0 and self.mem_bank:
                         ze_ = (self.embedding[idx] + zg2_)/2.0
+                        zvr_ = self.embedding_var[idx]
                     elif self.mem_bank:
                         ze_ = self.embedding[idx]
-                    elif self.fwd_2:
+                        zvr_ = self.embedding_var[idx]
+                    elif self.fwd > 0:
                         ze_ = zg2_
-
-                    # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    zvr_ = self.embedding_var[idx]
+                        zvr_ = self.embedding_var[idx]
 
                     zdf0_ = zg0_ - ze_
                     zic0_ = self.alpha * zdf0_
@@ -265,7 +284,7 @@ class SimPLR(LightningModule):
                     sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
                     
                     sigma_ = (sigma0_+sigma1_)/2.0
-                    zic_ = (zic0_+zic1_)/2.0                    
+                    zic_ = (zic0_+zic1_)/2.0
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
@@ -281,8 +300,15 @@ class SimPLR(LightningModule):
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                     
-                    self.embedding[idx] = ze_ + zic_
-                    self.embedding_var[idx] = sigma_
+                    if self.only_fwd_bank:
+                        self.embedding[idx] = ze_
+                        self.embedding_var[idx] = zvr_
+                    elif self.asm:
+                        self.embedding[idx] = ze_ + zic1_
+                        self.embedding_var[idx] = sigma1_
+                    else:
+                        self.embedding[idx] = ze_ + zic_                    
+                        self.embedding_var[idx] = sigma_
 
             if self.ema_v2: #For EMA 2.0
                 n = cosine_schedule(self.global_step, 
@@ -292,11 +318,11 @@ class SimPLR(LightningModule):
                 if self.first_epoch:
                     self.embedding[idx] = zg_.detach()
                 else:                    
-                    if self.fwd_2 and self.mem_bank:
+                    if self.fwd > 0 and self.mem_bank:
                         ze_ = (self.embedding[idx] + zg2_)/2.0
                     elif self.mem_bank:
                         ze_ = self.embedding[idx]
-                    elif self.fwd_2:
+                    elif self.fwd > 0:
                         ze_ = zg2_
 
                     #1 means only previous, 0 means only current
@@ -308,7 +334,7 @@ class SimPLR(LightningModule):
                     else:
                         self.embedding[idx] = zg_
             z = [zg1_, zg0_]
-            if views > 2 and not self.fwd_2:
+            if views > 2 and self.fwd == 0:
                 zg_ = 0.5*(zg0_+zg1_)
                 z.extend([zg_ for _ in range(views-2)])
             
@@ -438,10 +464,10 @@ val_transform = T.Compose([
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
                 ])
 
-CIFAR100_NORMALIZE  = {'mean':(0.5071, 0.4867, 0.4408),'std':(0.2675, 0.2565, 0.2761)}
-CIFAR10_NORMALIZE   = {'mean':(0.4914, 0.4822, 0.4465),'std':(0.2470, 0.2435, 0.2616)}
-TINYIMAGE_NORMALIZE = {'mean':(0.4802, 0.4481, 0.3975),'std':(0.2302, 0.2265, 0.2262)}
-STL10_NORMALIZE     = {'mean':(0.4408, 0.4279, 0.3867),'std':(0.2682, 0.2610, 0.2686)}
+CIFAR100_NORMALIZE  = {'mean':(0.5071, 0.4867, 0.4408), 'std':(0.2675, 0.2565, 0.2761)}
+CIFAR10_NORMALIZE   = {'mean':(0.4914, 0.4822, 0.4465), 'std':(0.2470, 0.2435, 0.2616)}
+TINYIMAGE_NORMALIZE = {'mean':(0.4802, 0.4481, 0.3975), 'std':(0.2302, 0.2265, 0.2262)}
+STL10_NORMALIZE     = {'mean':(0.4408, 0.4279, 0.3867), 'std':(0.2682, 0.2610, 0.2686)}
 
 transforms = {
 "Cifar10":      DINOTransform(global_crop_size=32,
@@ -450,16 +476,29 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR10_NORMALIZE),
 
+"Cifar100-asm": JSREPATransform(global_crop_size=32,
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),                            
+                            normalize=CIFAR100_NORMALIZE),
+
 "Cifar100":     DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
-"Cifar100-4":   DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.05, 1.0),
-                            n_local_views=2,
+"Cifar100-3":   DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.2, 1.0),
+                            n_local_views=1,
                             local_crop_size=32,
                             local_crop_scale=(0.20, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+"Cifar100-4":   DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.14, 1.0),
+                            n_local_views=2,
+                            local_crop_size=32,
+                            local_crop_scale=(0.2, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
@@ -481,11 +520,13 @@ transforms = {
                             local_crop_scale=(0.20, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=TINYIMAGE_NORMALIZE),
+
 "STL-2":        DINOTransform(global_crop_size=96,
                             global_crop_scale=(0.20, 1.0),
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=STL10_NORMALIZE),
+
 "Im100-8":      DINOTransform(global_crop_scale=(0.14, 1.00),
                             local_crop_scale=(0.05, 0.14)),
 "Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
@@ -496,6 +537,7 @@ transforms = {
                             n_local_views=0),
 "Im100-2-05":   DINOTransform(global_crop_scale=(0.05, 1.0),
                             n_local_views=0),
+
 "Im1k-8":       DINOTransform(global_crop_scale=(0.14, 1.00),
                             local_crop_scale =(0.05, 0.14)),
 "Im1k-2":       DINOTransform(global_crop_scale=(0.14, 1.00),
@@ -506,7 +548,7 @@ train_transforms = {
 "Cifar10":   train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
 # "Cifar100":  train_transform(32, scale=(0.6, 1.0), NORMALIZE=CIFAR100_NORMALIZE),
 "Cifar100": T.Compose([
-                    # T.RandomCrop(32, padding=4),
+                    T.RandomCrop(32, padding=4),
                     T.RandomHorizontalFlip(),
                     T.ToTensor(),
                     T.Normalize(mean=CIFAR100_NORMALIZE["mean"], std=CIFAR100_NORMALIZE["std"]),

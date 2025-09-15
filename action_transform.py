@@ -16,6 +16,7 @@ import numpy as np
 
 import PIL
 
+from lightly.transforms.dino_transform import DINOViewTransform
 from lightly.transforms.solarize import RandomSolarization
 from lightly.transforms.torchvision_v2_compatibility import torchvision_transforms as T
 
@@ -659,9 +660,31 @@ class JSREPATransform(MultiViewTransform):
         normalize: Union[None, Dict[str, List[float]]] = IMAGENET_NORMALIZE,
     ):
         # raw image
-        identity_transform = T.Compose([T.ToTensor(),
-                                        T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
-                                                    std=IMAGENET_NORMALIZE["std"])])
+        # identity_transform = T.Compose([T.Resize((global_crop_size,global_crop_size)),
+        #                                 T.ToTensor(),
+        #                                 T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
+        #                                             std=IMAGENET_NORMALIZE["std"])])
+        identity_transform = DINOViewTransform(
+            crop_size=global_crop_size,
+            crop_scale=(global_crop_scale),
+            hf_prob=hf_prob,
+            vf_prob=vf_prob,
+            rr_prob=rr_prob,
+            rr_degrees=rr_degrees,
+            cj_prob=0.0,
+            cj_bright=cj_bright,
+            cj_contrast=cj_contrast,
+            cj_hue=cj_hue,
+            cj_sat=cj_sat,
+            random_gray_scale=0.0,
+            gaussian_blur=0.0,
+            kernel_size=kernel_size,
+            kernel_scale=kernel_scale,
+            sigmas=sigmas,
+            solarization_prob=0.0,
+            normalize=normalize,
+        )
+
         # first global crop
         global_transform_0 = DINOViewTransform(
             crop_size=global_crop_size,
@@ -681,7 +704,7 @@ class JSREPATransform(MultiViewTransform):
             kernel_size=kernel_size,
             kernel_scale=kernel_scale,
             sigmas=sigmas,
-            solarization_prob=0,
+            solarization_prob=0.0,
             normalize=normalize,
         )
 
@@ -730,81 +753,7 @@ class JSREPATransform(MultiViewTransform):
             normalize=normalize,
         )
         local_transforms = [local_transform] * n_local_views
-        transforms = [identity_transform, global_transform_0, global_transform_1]
+        transforms = [global_transform_0, global_transform_1, identity_transform]
+        # transforms = [global_transform_0, global_transform_1]
         transforms.extend(local_transforms)
         super().__init__(transforms)
-
-
-class DINOViewTransform:
-    def __init__(
-        self,
-        crop_size: int = 224,
-        crop_scale: Tuple[float, float] = (0.4, 1.0),
-        hf_prob: float = 0.5,
-        vf_prob: float = 0,
-        rr_prob: float = 0,
-        rr_degrees: Optional[Union[float, Tuple[float, float]]] = None,
-        cj_prob: float = 0.8,
-        cj_strength: float = 0.5,
-        cj_bright: float = 0.8,
-        cj_contrast: float = 0.8,
-        cj_sat: float = 0.4,
-        cj_hue: float = 0.2,
-        random_gray_scale: float = 0.2,
-        gaussian_blur: float = 1.0,
-        kernel_size: Optional[float] = None,
-        kernel_scale: Optional[float] = None,
-        sigmas: Tuple[float, float] = (0.1, 2),
-        solarization_prob: float = 0.2,
-        normalize: Union[None, Dict[str, List[float]]] = IMAGENET_NORMALIZE,
-    ):
-        transform = [
-            T.RandomResizedCrop(
-                size=crop_size,
-                scale=crop_scale,
-                # Type ignore needed because BICUBIC is not recognized as an attribute.
-                interpolation=PIL.Image.BICUBIC,  # type: ignore[attr-defined]
-            ),
-            T.RandomHorizontalFlip(p=hf_prob),
-            T.RandomVerticalFlip(p=vf_prob),
-            random_rotation_transform(rr_prob=rr_prob, rr_degrees=rr_degrees),
-            T.RandomApply(
-                [
-                    T.ColorJitter(
-                        brightness=cj_strength * cj_bright,
-                        contrast=cj_strength * cj_contrast,
-                        saturation=cj_strength * cj_sat,
-                        hue=cj_strength * cj_hue,
-                    )
-                ],
-                p=cj_prob,
-            ),
-            T.RandomGrayscale(p=random_gray_scale),
-            GaussianBlur(
-                kernel_size=kernel_size,
-                scale=kernel_scale,
-                sigmas=sigmas,
-                prob=gaussian_blur,
-            ),
-            RandomSolarization(prob=solarization_prob),
-            T.ToTensor(),
-        ]
-
-        if normalize:
-            transform += [T.Normalize(mean=normalize["mean"], std=normalize["std"])]
-        self.transform = T.Compose(transform)
-
-    def __call__(self, image: Union[Tensor, Image]) -> Tensor:
-        """
-        Applies the transforms to the input image.
-
-        Args:
-            image:
-                The input image to apply the transforms to.
-
-        Returns:
-            The transformed image.
-
-        """
-        transformed: Tensor = self.transform(image)
-        return transformed

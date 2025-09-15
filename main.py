@@ -63,21 +63,37 @@ parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--L2", action="store_true")
+parser.add_argument("--M2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-mem-bank", action="store_true")
-parser.add_argument("--fwd-2", action="store_true")
+parser.add_argument("--only-fwd-bank", action="store_true")
+parser.add_argument("--fwd", type=int, default=0)
+parser.add_argument("--asm", action="store_true")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Cifar10"],  
                      "val_transform": SimPLR.val_transforms["Cifar10"],  
                      "transform": SimPLR.transforms["Cifar10"],},
+
     "Cifar100":     {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Cifar100"],  
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100"],},
+    "Cifar100-asm": {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Cifar100"],  
+                     "val_transform": SimPLR.val_transforms["Cifar100"], 
+                     "transform": SimPLR.transforms["Cifar100-asm"],},
+    "Cifar100-3":   {"model": SimPLR.SimPLR, "n_local_views":1,
+                     "train_transform": SimPLR.train_transforms["Cifar100"],  
+                     "val_transform": SimPLR.val_transforms["Cifar100"], 
+                     "transform": SimPLR.transforms["Cifar100-4"],},
+    "Cifar100-4":   {"model": SimPLR.SimPLR, "n_local_views":2,
+                     "train_transform": SimPLR.train_transforms["Cifar100"],  
+                     "val_transform": SimPLR.val_transforms["Cifar100"], 
+                     "transform": SimPLR.transforms["Cifar100-4"],},
 
     "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Tiny"],  
@@ -160,12 +176,14 @@ def main(
     prd_width: int,
     prj_depth: int,
     prj_width: int,
-    L2: bool,
+    L2: bool,M2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
     JS: bool,
     no_mem_bank: bool,
-    fwd_2: bool,
+    only_fwd_bank: bool,
+    fwd: int,
+    asm: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -199,12 +217,14 @@ def main(
             prd_width=prd_width,
             prj_depth=prj_depth,
             prj_width=prj_width,
-            L2=L2,
+            L2=L2,M2=M2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
             JS=JS,
             no_mem_bank=no_mem_bank,
-            fwd_2=fwd_2
+            only_fwd_bank=only_fwd_bank,
+            fwd=fwd,
+            asm=asm,
         )
 
         if compile_model and hasattr(torch, "compile"):
@@ -399,4 +419,5 @@ def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
 if __name__ == "__main__":
     args = parser.parse_args()
     main(**vars(args))
+
 
