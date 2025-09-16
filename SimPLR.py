@@ -473,7 +473,7 @@ transforms = {
                             normalize=CIFAR10_NORMALIZE),
 
 "Cifar100-asm": JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.14, 1.0),
                             n_global_views=1,
                             n_weak_views=1,                         
                             n_local_views=0,
