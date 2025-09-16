@@ -224,18 +224,11 @@ class SimPLR(LightningModule):
         return self.backbone(x)
 
     def forward_student(self, x: List[Tensor], idx: Tensor) -> Tensor:
-        views = len(x)
-        x_ = torch.cat(x[:2])  #global views
-        fx = self.backbone( x_ ).flatten(start_dim=1)
-        f0_ = fx.chunk(2)[0].detach()
-        if views > 2: #TODO: Fwd and MultiCrop Combo Not Supported Yet
-            y = torch.cat(x[2:])  #local views
-            fy = self.backbone( y ).flatten(start_dim=1)
-            f = torch.cat( [fx, fy] )
-        else:
-            f = fx
+        views = len(x)        
         
-        b = self.projection_head( f ).chunk( views )
+        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x]
+        f0_ = f[0].detach()
+        b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
 
         if self.fwd > 0:
@@ -244,14 +237,17 @@ class SimPLR(LightningModule):
             p = [self.prediction_head( g_ ) for g_ in g]
         
         with torch.no_grad(): 
-            if self.fwd > 0:
+            if self.fwd > 0 or self.asm:
                 #TODO: Fwd and MultiCrop Combo Not Supported Yet
                 z = [self.merge_head( g_ ) for g_ in g]
                 zg2_ = torch.mean(torch.stack(z[2:], dim=0), dim=0)
             else:
                 z = [self.merge_head( g_ ) for g_ in g[:2]]
             zg0_ = z[0]
-            zg1_ = z[1]
+            if self.asm:
+                zg1_ = z[2]
+            else:
+                zg1_ = z[1]
 
             if self.JS: # For James-Stein                
                 if self.first_epoch:
@@ -307,7 +303,7 @@ class SimPLR(LightningModule):
                         self.embedding[idx] = ze_ + zic1_
                         self.embedding_var[idx] = sigma1_
                     else:
-                        self.embedding[idx] = ze_ + zic_                    
+                        self.embedding[idx] = ze_ + zic_
                         self.embedding_var[idx] = sigma_
 
             if self.ema_v2: #For EMA 2.0
@@ -338,7 +334,10 @@ class SimPLR(LightningModule):
                 zg_ = 0.5*(zg0_+zg1_)
                 z.extend([zg_ for _ in range(views-2)])
             
-            assert len(p)==len(z)            
+            if self.asm:
+                p = p[:1]
+                z = z[:1]
+            assert len(p)==len(z)
         return f0_, p, z
 
     def on_train_epoch_end(self):
