@@ -244,7 +244,7 @@ def main(
             # Compile model if PyTorch supports it.
             print_rank_zero("Compiling model...")
             model = torch.compile(model)
-
+        
         if epochs <= 0:
             print_rank_zero("Epochs <= 0, skipping pretraining.")
             if ckpt_path is not None:

@@ -480,7 +480,7 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.14, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0,
@@ -566,7 +566,7 @@ transforms = {
 
 train_transforms = {
 "Cifar10":   train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
-"Cifar100": T.Compose([
+"Cifar100":  T.Compose([
                     T.RandomHorizontalFlip(),
                     T.ToTensor(),
                     T.Normalize(mean=CIFAR100_NORMALIZE["mean"], std=CIFAR100_NORMALIZE["std"]),
