@@ -661,17 +661,13 @@ class JSREPATransform(MultiViewTransform):
         solarization_prob: float = 0.2,
         normalize: Union[None, Dict[str, List[float]]] = IMAGENET_NORMALIZE,
     ):
-        # raw image
-        # identity_transform = T.Compose([T.Resize((global_crop_size,global_crop_size)),
-        #                                 T.ToTensor(),
-        #                                 T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
-        #                                             std=IMAGENET_NORMALIZE["std"])])
+        # weak crop
         weak_transform = DINOViewTransform(
             crop_size=global_crop_size,
-            crop_scale=(global_crop_scale),
+            crop_scale=global_crop_scale,
             hf_prob=hf_prob,
             vf_prob=vf_prob,
-            rr_prob=rr_prob,
+            rr_prob=0.0,
             rr_degrees=rr_degrees,
             cj_prob=0.0,
             cj_bright=cj_bright,
