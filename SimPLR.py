@@ -237,7 +237,7 @@ class SimPLR(LightningModule):
             p = [self.prediction_head( g_ ) for g_ in g]
         
         with torch.no_grad(): 
-            if self.fwd > 0 or self.asm:
+            if self.fwd > 0:
                 #TODO: Fwd and MultiCrop Combo Not Supported Yet
                 z = [self.merge_head( g_ ) for g_ in g]
                 zg2_ = torch.mean(torch.stack(z[2:], dim=0), dim=0)
