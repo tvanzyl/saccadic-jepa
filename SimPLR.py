@@ -478,8 +478,17 @@ transforms = {
 
 "Cifar100-asm": JSREPATransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
+                            n_global_views=1,
+                            n_weak_views=1,                         
                             n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),                            
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+"Cifar100-weak":JSREPATransform(global_crop_size=32,
+                            global_crop_scale=(0.20, 1.0),
+                            n_global_views=2,
+                            n_weak_views=1,
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
 "Cifar100":     DINOTransform(global_crop_size=32,
@@ -502,10 +511,9 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
-"Tiny-8":       DINOTransform(global_crop_size=64,
-                            global_crop_scale=(0.2, 1.0),
-                            local_crop_size=32,
-                            local_crop_scale=(0.05, 0.2),
+"Tiny-asm":     JSREPATransform(global_crop_size=64,                          
+                            global_crop_scale=(0.20, 1.0),
+                            n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=TINYIMAGE_NORMALIZE),
 "Tiny-2":       DINOTransform(global_crop_size=64,                          
@@ -518,6 +526,12 @@ transforms = {
                             n_local_views=2,
                             local_crop_size=64,
                             local_crop_scale=(0.20, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=TINYIMAGE_NORMALIZE),
+"Tiny-8":       DINOTransform(global_crop_size=64,
+                            global_crop_scale=(0.2, 1.0),
+                            local_crop_size=32,
+                            local_crop_scale=(0.05, 0.2),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=TINYIMAGE_NORMALIZE),
 
@@ -546,9 +560,7 @@ transforms = {
 
 train_transforms = {
 "Cifar10":   train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
-# "Cifar100":  train_transform(32, scale=(0.6, 1.0), NORMALIZE=CIFAR100_NORMALIZE),
 "Cifar100": T.Compose([
-                    T.RandomCrop(32, padding=4),
                     T.RandomHorizontalFlip(),
                     T.ToTensor(),
                     T.Normalize(mean=CIFAR100_NORMALIZE["mean"], std=CIFAR100_NORMALIZE["std"]),

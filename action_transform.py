@@ -639,8 +639,10 @@ class JSREPATransform(MultiViewTransform):
         global_crop_size: int = 224,
         global_crop_scale: Tuple[float, float] = (0.4, 1.0),
         local_crop_size: int = 96,
-        local_crop_scale: Tuple[float, float] = (0.05, 0.4),
-        n_local_views: int = 6,
+        local_crop_scale: Tuple[float, float] = (0.05, 0.4),        
+        n_local_views: int = 0,
+        n_weak_views: int = 1,
+        n_global_views: int = 2,
         hf_prob: float = 0.5,
         vf_prob: float = 0,
         rr_prob: float = 0,
@@ -664,7 +666,7 @@ class JSREPATransform(MultiViewTransform):
         #                                 T.ToTensor(),
         #                                 T.Normalize(mean=IMAGENET_NORMALIZE["mean"],
         #                                             std=IMAGENET_NORMALIZE["std"])])
-        identity_transform = DINOViewTransform(
+        weak_transform = DINOViewTransform(
             crop_size=global_crop_size,
             crop_scale=(global_crop_scale),
             hf_prob=hf_prob,
@@ -752,8 +754,14 @@ class JSREPATransform(MultiViewTransform):
             solarization_prob=0,
             normalize=normalize,
         )
-        local_transforms = [local_transform] * n_local_views
-        transforms = [global_transform_0, global_transform_1, identity_transform]
-        # transforms = [global_transform_0, global_transform_1]
+        weak_transforms = [weak_transform] * n_weak_views
+        local_transforms = [local_transform] * n_local_views        
+        if n_global_views == 1:
+            transforms = [global_transform_0, global_transform_1]
+        elif n_global_views == 2:
+            transforms = [global_transform_0, global_transform_1]
+        else:
+            raise NotImplementedError("Only Support Max Two Flobal Views")
+        transforms.extend(weak_transforms)
         transforms.extend(local_transforms)
         super().__init__(transforms)

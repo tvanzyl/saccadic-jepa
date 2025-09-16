@@ -95,6 +95,10 @@ METHODS = {
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100-4"],},
 
+    "Tiny-asm":     {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Tiny"],  
+                     "val_transform": SimPLR.val_transforms["Tiny"],
+                     "transform": SimPLR.transforms["Tiny-asm"],},
     "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
