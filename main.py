@@ -103,6 +103,11 @@ METHODS = {
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
                      "transform": SimPLR.transforms["Tiny-asm"],},
+    "Tiny-weak":    {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Tiny"],  
+                     "val_transform": SimPLR.val_transforms["Tiny"],
+                     "transform": SimPLR.transforms["Tiny-weak"],},
+
     "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
