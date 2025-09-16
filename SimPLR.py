@@ -244,10 +244,7 @@ class SimPLR(LightningModule):
             else:
                 z = [self.merge_head( g_ ) for g_ in g[:2]]
             zg0_ = z[0]
-            if self.asm:
-                zg1_ = z[2]
-            else:
-                zg1_ = z[1]
+            zg1_ = z[1]
 
             if self.JS: # For James-Stein                
                 if self.first_epoch:
@@ -510,11 +507,21 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
-"Tiny-asm":     JSREPATransform(global_crop_size=64,                          
+"Tiny-asm":     JSREPATransform(global_crop_size=64,                    
                             global_crop_scale=(0.20, 1.0),
+                            n_global_views=1,
+                            n_weak_views=1,                         
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=TINYIMAGE_NORMALIZE),
+"Tiny-weak":    JSREPATransform(global_crop_size=64,                    
+                            global_crop_scale=(0.20, 1.0),
+                            n_global_views=2,
+                            n_weak_views=1,
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=TINYIMAGE_NORMALIZE),
+
 "Tiny-2":       DINOTransform(global_crop_size=64,                          
                             global_crop_scale=(0.20, 1.0),
                             n_local_views=0,
