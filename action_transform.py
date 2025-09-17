@@ -638,6 +638,7 @@ class JSREPATransform(MultiViewTransform):
         self,
         global_crop_size: int = 224,
         global_crop_scale: Tuple[float, float] = (0.4, 1.0),
+        weak_crop_scale: Tuple[float, float] = (0.4, 1.0),
         local_crop_size: int = 96,
         local_crop_scale: Tuple[float, float] = (0.05, 0.4),        
         n_local_views: int = 0,
@@ -664,7 +665,7 @@ class JSREPATransform(MultiViewTransform):
         # weak crop
         weak_transform = DINOViewTransform(
             crop_size=global_crop_size,
-            crop_scale=global_crop_scale,
+            crop_scale=weak_crop_scale,
             hf_prob=hf_prob,
             vf_prob=vf_prob,
             rr_prob=0.0,
