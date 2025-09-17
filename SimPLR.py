@@ -92,8 +92,7 @@ class SimPLR(LightningModule):
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
                  JS:bool=False,
-                 no_mem_bank:bool=False,
-                 only_fwd_bank:bool=False,
+                 emm:bool=False,                 
                  fwd:int=0,
                  asm:bool=False) -> None:
         super().__init__()
@@ -114,8 +113,7 @@ class SimPLR(LightningModule):
                                   "prj_depth", "prj_width",
                                   'L2','M2',
                                   'no_ReLU_buttress',
-                                  'no_mem_bank',
-                                  'only_fwd_bank',
+                                  'emm',                                  
                                   'fwd',
                                   'asm')
         self.warmup = warmup
@@ -124,8 +122,7 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device        
         self.ema_v2 = ema_v2
         self.JS = JS
-        self.mem_bank = not no_mem_bank   
-        self.only_fwd_bank = only_fwd_bank     
+        self.emm = emm
         self.fwd = fwd
         self.asm = asm
         self.momentum_head = momentum_head                
@@ -137,10 +134,12 @@ class SimPLR(LightningModule):
             raise Exception("Invalid Arguments, can't select identity and momentum")
         if JS and ema_v2:
             raise Exception("Invalid Arguments, can't select JS and EMA")
-        if JS and no_mem_bank and fwd == 0:
-            raise Exception("Need One of Fwd or Mem Bank with JS")
-        if self.only_fwd_bank and no_mem_bank and fwd == 0:
-            raise Exception("Need Fwd and Mem Bank with Only Fwd Bank")
+        if JS and not emm and fwd == 0:
+            raise Exception("Invalid Arguments, Need One of Fwd or EMM with JS")
+        if self.asm and not self.emm:
+            raise Exception("Invalid Arguments, Need EMM with Asm")
+        if self.asm and self.fwd > 0:
+            raise Exception("Invalid Arguments, can't have Asm with Fwd")
 
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes        
@@ -251,22 +250,25 @@ class SimPLR(LightningModule):
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    if self.only_fwd_bank:
-                        ze2_ = self.embedding[idx]
-                        zdf2_ = zg2_ - ze2_
-                        zic2_ = self.alpha * zdf2_
-                        zvr2_ = self.embedding_var[idx]
-                        zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)                        
-                        ze_ = ze2_ + zic2_ 
-                    elif self.fwd > 0 and self.mem_bank:
-                        ze_ = (self.embedding[idx] + zg2_)/2.0
-                        zvr_ = self.embedding_var[idx]
-                    elif self.mem_bank:
-                        ze_ = self.embedding[idx]
-                        zvr_ = self.embedding_var[idx]
+                    if self.emm:                        
+                        # if self.emm_all_crops:
+                        #     ze_ = (self.embedding[idx] + zg2_)/2.0
+                        #     zvr_ = self.embedding_var[idx]
+                        if self.fwd > 0:
+                            ze2_ = self.embedding[idx]
+                            zdf2_ = zg2_ - ze2_
+                            zic2_ = self.alpha * zdf2_
+                            zvr2_ = self.embedding_var[idx]
+                            zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)                        
+                            ze_ = ze2_ + zic2_
+                        else:
+                            ze_ = self.embedding[idx]
+                            zvr_ = self.embedding_var[idx]
                     elif self.fwd > 0:
                         ze_ = zg2_
                         zvr_ = self.embedding_var[idx]
+                    else:
+                        ze_ = self.embedding[idx]                        
 
                     zdf0_ = zg0_ - ze_
                     zic0_ = self.alpha * zdf0_
@@ -293,12 +295,14 @@ class SimPLR(LightningModule):
                     zg0_ = n0*zg0_ + (1.-n0)*ze_
                     zg1_ = n1*zg1_ + (1.-n1)*ze_
                     
-                    if self.only_fwd_bank:
+                    if self.emm and self.fwd > 0:
                         self.embedding[idx] = ze_
                         self.embedding_var[idx] = zvr_
                     elif self.asm:
                         self.embedding[idx] = ze_ + zic1_
                         self.embedding_var[idx] = sigma1_
+                    elif self.fwd > 0:
+                        self.embedding_var[idx] = sigma_
                     else:
                         self.embedding[idx] = ze_ + zic_
                         self.embedding_var[idx] = sigma_
@@ -311,9 +315,9 @@ class SimPLR(LightningModule):
                 if self.first_epoch:
                     self.embedding[idx] = zg_.detach()
                 else:                    
-                    if self.fwd > 0 and self.mem_bank:
+                    if self.fwd > 0 and self.emm:
                         ze_ = (self.embedding[idx] + zg2_)/2.0
-                    elif self.mem_bank:
+                    elif self.emm:
                         ze_ = self.embedding[idx]
                     elif self.fwd > 0:
                         ze_ = zg2_

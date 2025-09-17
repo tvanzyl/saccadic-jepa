@@ -67,8 +67,7 @@ parser.add_argument("--M2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
-parser.add_argument("--no-mem-bank", action="store_true")
-parser.add_argument("--only-fwd-bank", action="store_true")
+parser.add_argument("--emm", action="store_true")
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--asm", action="store_true")
 
@@ -193,8 +192,7 @@ def main(
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
     JS: bool,
-    no_mem_bank: bool,
-    only_fwd_bank: bool,
+    emm: bool,    
     fwd: int,
     asm: bool,
 ) -> None:
@@ -234,8 +232,7 @@ def main(
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
             JS=JS,
-            no_mem_bank=no_mem_bank,
-            only_fwd_bank=only_fwd_bank,
+            emm=emm,            
             fwd=fwd,
             asm=asm,
         )
