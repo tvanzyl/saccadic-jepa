@@ -569,13 +569,22 @@ transforms = {
 }
 
 train_transforms = {
-"Cifar10":   train_transform(32, NORMALIZE=CIFAR100_NORMALIZE),
-"Cifar100":  T.Compose([
+"Cifar10":   T.Compose([                    
+                    T.RandomHorizontalFlip(),
+                    T.ToTensor(),
+                    T.Normalize(mean=CIFAR10_NORMALIZE["mean"], std=CIFAR10_NORMALIZE["std"]),
+                ]),
+"Cifar100":  T.Compose([                    
                     T.RandomHorizontalFlip(),
                     T.ToTensor(),
                     T.Normalize(mean=CIFAR100_NORMALIZE["mean"], std=CIFAR100_NORMALIZE["std"]),
                 ]),
-"Tiny":      train_transform(64, NORMALIZE=TINYIMAGE_NORMALIZE),
+"Tiny":      T.Compose([
+                    T.RandomHorizontalFlip(),
+                    T.ToTensor(),
+                    T.Normalize(mean=TINYIMAGE_NORMALIZE["mean"], std=TINYIMAGE_NORMALIZE["std"]),
+                ]),
+# "Tiny":      train_transform(64, NORMALIZE=TINYIMAGE_NORMALIZE),
 "STL":       train_transform(96, NORMALIZE=STL10_NORMALIZE),
 "Im100":     train_transform(224),
 "Im1k":      train_transform(224),
