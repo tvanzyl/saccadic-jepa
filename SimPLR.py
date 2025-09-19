@@ -403,24 +403,26 @@ class SimPLR(LightningModule):
         return cls_loss
 
     def configure_optimizers(self):
-        params, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.prediction_head,] #  self.projection_head]
+        params_weight_decay, params_no_weight_decay = get_weight_decay_parameters(
+                    [self.backbone, self.prediction_head, self.projection_head]
                 )
-        optimizer = SGD(        
+        optimizer = SGD(
             [
-                {"name": "simplr", "params": params},
-                {
-                    "name": "proj", 
-                    "params": self.projection_head.parameters(),
+                {   "name": "params_weight_decay", 
+                    "params": params_weight_decay,
                 },
                 {
-                    "name": "simplr_no_weight_decay",
+                    "name": "params_no_weight_decay", 
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
-                },     
+                },
+                # {
+                #     "name": "proj",
+                #     "params": self.projection_head.parameters(),                    
+                # },     
                 {
                     "name": "online_classifier",
-                    "params": self.online_classifier.parameters(),                    
+                    "params": self.online_classifier.parameters(),
                     "weight_decay": 0.0,
                     "lr": 0.1
                 },
@@ -437,6 +439,7 @@ class SimPLR(LightningModule):
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
+                end_value=0.001,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
