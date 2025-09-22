@@ -439,7 +439,7 @@ class SimPLR(LightningModule):
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
-                end_value=0.001,
+                end_value=0.0001,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
