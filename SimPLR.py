@@ -231,50 +231,47 @@ class SimPLR(LightningModule):
         g = [self.buttress( b_ ) for b_ in b]
 
         if self.fwd > 0:
-            p = [self.prediction_head( g_ ) for g_ in g[:2]]
+            #TODO: Fwd and MultiCrop Combo Not Supported Yet
+            p = [self.prediction_head( g_ ) for g_ in g[:2]]            
         else:
             p = [self.prediction_head( g_ ) for g_ in g]
         
         with torch.no_grad(): 
-            if self.fwd > 0:
-                #TODO: Fwd and MultiCrop Combo Not Supported Yet
-                z = [self.merge_head( g_ ) for g_ in g]
-                zg2_ = torch.mean(torch.stack(z[2:], dim=0), dim=0)
-            else:
-                z = [self.merge_head( g_ ) for g_ in g[:2]]
+            z = [self.merge_head( g_ ) for g_ in g[:2+self.fwd]]
             zg0_ = z[0]
             zg1_ = z[1]
 
-            if self.JS: # For James-Stein                
+            if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    if self.emm:                        
-                        # if self.emm_all_crops:
-                        #     ze_ = (self.embedding[idx] + zg2_)/2.0
-                        #     zvr_ = self.embedding_var[idx]
+                    if self.emm:
                         if self.fwd > 0:
+                            zg2_ = torch.mean(torch.stack(z[2:], dim=0), dim=0)
                             ze2_ = self.embedding[idx]
                             zdf2_ = zg2_ - ze2_
                             zic2_ = self.alpha * zdf2_
                             zvr2_ = self.embedding_var[idx]
                             zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)                        
                             ze_ = ze2_ + zic2_
-                        else:
-                            ze_ = self.embedding[idx]
+                        else: #EMM or EMM+ASM
                             zvr_ = self.embedding_var[idx]
+                            ze_ = self.embedding[idx]
+                        ze0_ = ze_
+                        ze1_ = ze_
                     elif self.fwd > 0:
-                        ze_ = zg2_
+                        ze0_ = z[2]                        
+                        ze1_ = z[3] if self.fwd == 2 else z[2]
                         zvr_ = self.embedding_var[idx]
                     else:
-                        ze_ = self.embedding[idx]                        
+                        raise Exception("Not Valid Combo")
 
-                    zdf0_ = zg0_ - ze_
+                    zdf0_ = zg0_ - ze0_
                     zic0_ = self.alpha * zdf0_
                     sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
 
-                    zdf1_ = zg1_ - ze_
+                    zdf1_ = zg1_ - ze1_
                     zic1_ = self.alpha * zdf1_
                     sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
                     
@@ -282,8 +279,8 @@ class SimPLR(LightningModule):
                     zic_ = (zic0_+zic1_)/2.0
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                    norm0_ = torch.linalg.vector_norm(zg0_-ze_, dim=1, keepdim=True)**2
-                    norm1_ = torch.linalg.vector_norm(zg1_-ze_, dim=1, keepdim=True)**2
+                    norm0_ = torch.linalg.vector_norm(zg0_-ze0_, dim=1, keepdim=True)**2
+                    norm1_ = torch.linalg.vector_norm(zg1_-ze1_, dim=1, keepdim=True)**2
                     
                     sigma__ = (self.prd_width-2.0)*sigma_
                     
@@ -292,44 +289,49 @@ class SimPLR(LightningModule):
 
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
-                    zg0_ = n0*zg0_ + (1.-n0)*ze_
-                    zg1_ = n1*zg1_ + (1.-n1)*ze_
+                    zg0_ = n0*zg0_ + (1.-n0)*ze0_
+                    zg1_ = n1*zg1_ + (1.-n1)*ze1_
                     
                     if self.emm and self.fwd > 0:
                         self.embedding[idx] = ze_
                         self.embedding_var[idx] = zvr_
-                    elif self.asm:
+                    elif self.emm and self.asm:
                         self.embedding[idx] = ze_ + zic1_
                         self.embedding_var[idx] = sigma1_
+                    elif self.emm:
+                        self.embedding[idx] = ze_ + zic_
+                        self.embedding_var[idx] = sigma_                        
                     elif self.fwd > 0:
                         self.embedding_var[idx] = sigma_
                     else:
-                        self.embedding[idx] = ze_ + zic_
-                        self.embedding_var[idx] = sigma_
+                        raise Exception("Not Valid Combo")
+                        
 
             if self.ema_v2: #For EMA 2.0
-                n = cosine_schedule(self.global_step, 
-                                    self.trainer.estimated_stepping_batches, 
-                                    self.n0, self.n1)            
-                zg_ = 0.5*(zg0_+zg1_)
-                if self.first_epoch:
-                    self.embedding[idx] = zg_.detach()
-                else:                    
-                    if self.fwd > 0 and self.emm:
-                        ze_ = (self.embedding[idx] + zg2_)/2.0
-                    elif self.emm:
-                        ze_ = self.embedding[idx]
-                    elif self.fwd > 0:
-                        ze_ = zg2_
+                pass
+                # n = cosine_schedule(self.global_step, 
+                #                     self.trainer.estimated_stepping_batches, 
+                #                     self.n0, self.n1)            
+                # zg_ = 0.5*(zg0_+zg1_)
+                # if self.first_epoch:
+                #     self.embedding[idx] = zg_.detach()
+                # else:                    
+                #     if self.fwd > 0 and self.emm:
+                #         ze_ = (self.embedding[idx] + zg2_)/2.0
+                #     elif self.emm:
+                #         ze_ = self.embedding[idx]
+                #     elif self.fwd > 0:
+                #         ze_ = zg2_
 
-                    #1 means only previous, 0 means only current
-                    zg0_ = (n)*zg0_ + (1.-n)*ze_
-                    zg1_ = (n)*zg1_ + (1.-n)*ze_
+                #     #1 means only previous, 0 means only current
+                #     zg0_ = (n)*zg0_ + (1.-n)*ze_
+                #     zg1_ = (n)*zg1_ + (1.-n)*ze_
 
-                    if self.alpha < 1.0:
-                        self.embedding[idx] = (self.alpha)*zg_ + (1.-self.alpha)*ze_
-                    else:
-                        self.embedding[idx] = zg_
+                #     if self.alpha < 1.0:
+                #         self.embedding[idx] = (self.alpha)*zg_ + (1.-self.alpha)*ze_
+                #     else:
+                #         self.embedding[idx] = zg_
+            
             z = [zg1_, zg0_]
             if views > 2 and self.fwd == 0:
                 zg_ = 0.5*(zg0_+zg1_)
@@ -439,7 +441,7 @@ class SimPLR(LightningModule):
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
-                end_value=0.0001,
+                end_value=0.001,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
@@ -491,7 +493,7 @@ transforms = {
                             global_crop_scale=(0.14, 1.0),
                             weak_crop_scale=(0.14, 1.0),
                             n_global_views=2,
-                            n_weak_views=1,
+                            n_weak_views=2,
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
@@ -502,9 +504,9 @@ transforms = {
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-4":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.14, 1.0),
-                            n_local_views=2,
+                            n_local_views=6,
                             local_crop_size=32,
-                            local_crop_scale=(0.2, 1.0),
+                            local_crop_scale=(0.14, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
@@ -560,6 +562,12 @@ transforms = {
                             n_local_views=0),
 "Im100-2-05":   DINOTransform(global_crop_scale=(0.05, 1.0),
                             n_local_views=0),
+"Im100-weak":   JSREPATransform(global_crop_scale=(0.14, 1.0),
+                            weak_crop_scale=(0.14, 1.0),
+                            n_global_views=2,
+                            n_weak_views=1,
+                            n_local_views=0),
+
 
 "Im1k-8":       DINOTransform(global_crop_scale=(0.14, 1.00),
                             local_crop_scale =(0.05, 0.14)),
