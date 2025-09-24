@@ -511,8 +511,8 @@ transforms = {
                             normalize=CIFAR100_NORMALIZE),
 
 "Tiny-asm":     JSREPATransform(global_crop_size=64,                    
-                            global_crop_scale=(0.20, 1.0),
-                            weak_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.14, 1.0),
+                            weak_crop_scale=(0.14, 1.0),
                             n_global_views=1,
                             n_weak_views=1,                         
                             n_local_views=0,
@@ -526,12 +526,12 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=TINYIMAGE_NORMALIZE),
-
 "Tiny-2":       DINOTransform(global_crop_size=64,                          
-                            global_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.14, 1.0),
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=TINYIMAGE_NORMALIZE),
+
 "Tiny-4":       DINOTransform(global_crop_size=64,
                             global_crop_scale=(0.20, 1.0),
                             n_local_views=2,
