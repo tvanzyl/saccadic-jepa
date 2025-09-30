@@ -237,7 +237,7 @@ class SimPLR(LightningModule):
             p = [self.prediction_head( g_ ) for g_ in g]
         
         with torch.no_grad(): 
-            z = [self.merge_head( g_ ) for g_ in g[:2+self.fwd]]
+            z = [self.merge_head( g_.detach() ) for g_ in g[:2+self.fwd]]
             zg0_ = z[0]
             zg1_ = z[1]
 
@@ -308,7 +308,7 @@ class SimPLR(LightningModule):
                         
 
             if self.ema_v2: #For EMA 2.0
-                pass
+                raise NotImplementedError("ema v2")
                 # n = cosine_schedule(self.global_step, 
                 #                     self.trainer.estimated_stepping_batches, 
                 #                     self.n0, self.n1)            
