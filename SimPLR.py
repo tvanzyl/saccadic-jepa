@@ -17,6 +17,7 @@ from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.models._momentum import _do_momentum_update
 from lightly.models import ResNetGenerator
 from lightly.loss import NegativeCosineSimilarity
+from lightly.loss.hypersphere_loss import HypersphereLoss
 from lightly.models.utils import (
     get_weight_decay_parameters,
 )
@@ -215,7 +216,8 @@ class SimPLR(LightningModule):
             self.merge_head = nn.Linear(prj_width, self.prd_width)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
-        self.criterion = NegativeCosineSimilarity()
+        # self.criterion = NegativeCosineSimilarity()
+        self.criterion = HypersphereLoss()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -223,21 +225,27 @@ class SimPLR(LightningModule):
         return self.backbone(x)
 
     def forward_student(self, x: List[Tensor], idx: Tensor) -> Tensor:
-        views = len(x)        
-        
-        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x]
-        f0_ = f[0].detach()
+        views = len(x)
+
+        # Two globals
+        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
+        f0_ = f[0].detach()        
+        if views > self.fwd + 2: # MultiCrops
+            f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
+        p = [self.prediction_head( g_ ) for g_ in g]
 
+        # Fwds Only
         if self.fwd > 0:
-            #TODO: Fwd and MultiCrop Combo Not Supported Yet
-            p = [self.prediction_head( g_ ) for g_ in g[:2]]            
-        else:
-            p = [self.prediction_head( g_ ) for g_ in g]
-        
+            with torch.no_grad():
+                f_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
+                b_fwd = [self.projection_head( f_ ) for f_ in f_fwd]
+                g_fwd = [self.buttress( b_ ) for b_ in b_fwd]
+                z_fwd = [self.merge_head( g_ ) for g_ in g_fwd]
+
         with torch.no_grad(): 
-            z = [self.merge_head( g_.detach() ) for g_ in g[:2+self.fwd]]
+            z = [self.merge_head( g_.detach() ) for g_ in g]
             zg0_ = z[0]
             zg1_ = z[1]
 
@@ -248,7 +256,7 @@ class SimPLR(LightningModule):
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
                         if self.fwd > 0:
-                            zg2_ = torch.mean(torch.stack(z[2:], dim=0), dim=0)
+                            zg2_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                             ze2_ = self.embedding[idx]
                             zdf2_ = zg2_ - ze2_
                             zic2_ = self.alpha * zdf2_
@@ -261,8 +269,8 @@ class SimPLR(LightningModule):
                         ze0_ = ze_
                         ze1_ = ze_
                     elif self.fwd > 0:
-                        ze0_ = z[2]                        
-                        ze1_ = z[3] if self.fwd == 2 else z[2]
+                        ze0_ = z_fwd[0]
+                        ze1_ = z_fwd[1] if self.fwd == 2 else z_fwd[0]
                         zvr_ = self.embedding_var[idx]
                     else:
                         raise Exception("Not Valid Combo")
@@ -333,9 +341,9 @@ class SimPLR(LightningModule):
                 #         self.embedding[idx] = zg_
             
             z = [zg1_, zg0_]
-            if views > 2 and self.fwd == 0:
+            if views > self.fwd + 2:
                 zg_ = 0.5*(zg0_+zg1_)
-                z.extend([zg_ for _ in range(views-2)])
+                z.extend([zg_ for _ in range(views-2-self.fwd)])
             
             if self.asm:
                 p = p[:1]
