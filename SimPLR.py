@@ -17,6 +17,7 @@ from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.models._momentum import _do_momentum_update
 from lightly.models import ResNetGenerator
 from lightly.loss import NegativeCosineSimilarity
+from lightly.loss.ntx_ent_loss import NTXentLoss
 from lightly.loss.hypersphere_loss import HypersphereLoss
 from lightly.models.utils import (
     get_weight_decay_parameters,
@@ -216,8 +217,8 @@ class SimPLR(LightningModule):
             self.merge_head = nn.Linear(prj_width, self.prd_width)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
-        # self.criterion = NegativeCosineSimilarity()
-        self.criterion = HypersphereLoss()
+        self.criterion = NegativeCosineSimilarity()
+        # self.criterion = NTXentLoss(memory_bank_size=0)
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -361,10 +362,10 @@ class SimPLR(LightningModule):
             self.first_epoch = True            
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float16,
+                                        dtype=torch.float,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, 1), 
-                                        dtype=torch.float16,
+                                        dtype=torch.float,
                                         device=self.device)            
         return super().on_train_start()
 

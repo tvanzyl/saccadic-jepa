@@ -29,6 +29,12 @@ from lightly.data import LightlyDataset
 from lightly.utils.benchmarking import MetricCallback
 from lightly.utils.dist import print_rank_zero
 
+# Double precision (64, '64' or '64-true'), 
+# full precision (32, '32' or '32-true'), 
+# 16bit mixed precision (16, '16', '16-mixed') or 
+# bfloat16 mixed precision ('bf16', 'bf16-mixed'). 
+# Can be used on CPU, GPU, TPUs, or HPUs. Default: '32-true'.
+
 parser = ArgumentParser("ImageNet ResNet Benchmarks")
 parser.add_argument("--train-dir", type=Path, default="/media/tvanzyl/data/imagenet/train")
 parser.add_argument("--val-dir", type=Path, default="/media/tvanzyl/data/imagenet/val")
@@ -201,7 +207,7 @@ def main(
     fwd: int,
     asm: bool,
 ) -> None:
-    torch.set_float32_matmul_precision("high")
+    # torch.set_float32_matmul_precision("high")
 
     method_names = methods or METHODS.keys()
     knn_k = knn_k or [1, 2, 5, 10, 20, 50, 100, 200]
