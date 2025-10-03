@@ -172,7 +172,7 @@ class SimPLR(LightningModule):
             elif prj_depth == 0:
                 projection_head = [nn.Linear(emb_width, prj_width),]
             else:
-                raise Exception("Selected Prediction Depth Not Supported")
+                raise NotImplementedError("Selected Prediction Depth Not Supported")
                 
             if L2:
                 projection_head.insert(0, L2NormalizationLayer())
@@ -212,7 +212,7 @@ class SimPLR(LightningModule):
                 )
                 nn.init.eye_( self.merge_head[1].weight )
             else:
-                raise Exception("Invalid Arguments, can't select prd width larger than prj width")
+                raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
