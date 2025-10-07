@@ -215,6 +215,7 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)
+            nn.init.kaiming_normal_(self.prediction_head.weight, mode='fan_out', nonlinearity='relu')
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = NegativeCosineSimilarity()
@@ -278,11 +279,11 @@ class SimPLR(LightningModule):
 
                     zdf0_ = zg0_ - ze0_
                     zic0_ = self.alpha * zdf0_
-                    sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
+                    sigma0_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True).values
 
                     zdf1_ = zg1_ - ze1_
                     zic1_ = self.alpha * zdf1_
-                    sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                    sigma1_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True).values
                     
                     sigma_ = (sigma0_+sigma1_)/2.0
                     zic_ = (zic0_+zic1_)/2.0
@@ -309,7 +310,7 @@ class SimPLR(LightningModule):
                         self.embedding_var[idx] = sigma1_
                     elif self.emm:
                         self.embedding[idx] = ze_ + zic_
-                        self.embedding_var[idx] = sigma_                        
+                        self.embedding_var[idx] = sigma_
                     elif self.fwd > 0:
                         self.embedding_var[idx] = sigma_
                     else:
@@ -362,10 +363,10 @@ class SimPLR(LightningModule):
             self.first_epoch = True            
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float,
+                                        dtype=torch.float16,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, 1), 
-                                        dtype=torch.float,
+                                        dtype=torch.float16,
                                         device=self.device)            
         return super().on_train_start()
 
@@ -571,8 +572,8 @@ transforms = {
                             n_local_views=0),
 "Im100-2-05":   DINOTransform(global_crop_scale=(0.05, 1.0),
                             n_local_views=0),
-"Im100-weak":   JSREPATransform(global_crop_scale=(0.14, 1.0),
-                            weak_crop_scale=(0.14, 1.0),
+"Im100-weak":   JSREPATransform(global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0),

@@ -207,7 +207,7 @@ def main(
     fwd: int,
     asm: bool,
 ) -> None:
-    # torch.set_float32_matmul_precision("high")
+    torch.set_float32_matmul_precision("high")
 
     method_names = methods or METHODS.keys()
     knn_k = knn_k or [1, 2, 5, 10, 20, 50, 100, 200]
