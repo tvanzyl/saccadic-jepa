@@ -220,6 +220,7 @@ class SimPLR(LightningModule):
         
         self.criterion = NegativeCosineSimilarity()
         # self.criterion = NTXentLoss(memory_bank_size=0)
+        # self.criterion = HypersphereLoss()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
