@@ -280,11 +280,13 @@ class SimPLR(LightningModule):
 
                     zdf0_ = zg0_ - ze0_
                     zic0_ = self.alpha * zdf0_
-                    sigma0_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True).values
+                    # sigma0_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True).values
+                    sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
 
                     zdf1_ = zg1_ - ze1_
                     zic1_ = self.alpha * zdf1_
-                    sigma1_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True).values
+                    # sigma1_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True).values
+                    sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
                     
                     sigma_ = (sigma0_+sigma1_)/2.0
                     zic_ = (zic0_+zic1_)/2.0
