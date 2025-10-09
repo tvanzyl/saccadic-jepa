@@ -255,6 +255,7 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
+                    self.embedding_diff[idx] = 0.5*(zg0_+zg1_)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
@@ -366,6 +367,9 @@ class SimPLR(LightningModule):
             self.first_epoch = True            
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
+                                        dtype=torch.float16,
+                                        device=self.device)
+            self.embedding_diff = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, 1), 
