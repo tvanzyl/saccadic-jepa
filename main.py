@@ -74,6 +74,7 @@ parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--emm", action="store_true")
+parser.add_argument("--emm-v0", action="store_true")
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--asm", action="store_true")
 
@@ -203,7 +204,7 @@ def main(
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
     JS: bool,
-    emm: bool,    
+    emm: bool, emm_v0: bool,
     fwd: int,
     asm: bool,
 ) -> None:
@@ -243,7 +244,7 @@ def main(
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
             JS=JS,
-            emm=emm,            
+            emm=emm, emm_v0=emm_v0,
             fwd=fwd,
             asm=asm,
         )
