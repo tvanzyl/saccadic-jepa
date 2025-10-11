@@ -73,10 +73,13 @@ parser.add_argument("--M2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
+parser.add_argument("--JS-INV", action="store_true")
 parser.add_argument("--emm", action="store_true")
-parser.add_argument("--emm-v0", action="store_true")
+parser.add_argument("--emm-v", type=int, default=0)
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--asm", action="store_true")
+parser.add_argument("--loss", type=str, default="negcosine")
+parser.add_argument("--nn-init", type=str, default="fan-in")
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -203,10 +206,12 @@ def main(
     L2: bool,M2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
-    JS: bool,
-    emm: bool, emm_v0: bool,
+    JS: bool, JS_INV: bool,
+    emm: bool, emm_v: int,
     fwd: int,
     asm: bool,
+    loss: str,
+    nn_init: str,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -243,10 +248,12 @@ def main(
             L2=L2,M2=M2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
-            JS=JS,
-            emm=emm, emm_v0=emm_v0,
+            JS=JS, JS_INV=JS_INV,
+            emm=emm, emm_v=emm_v,
             fwd=fwd,
             asm=asm,
+            loss=loss,
+            nn_init=nn_init,
         )
 
         if compile_model and hasattr(torch, "compile"):
@@ -441,5 +448,6 @@ def eval_metrics_to_markdown(metrics: Dict[str, Dict[str, float]]) -> str:
 if __name__ == "__main__":
     args = parser.parse_args()
     main(**vars(args))
+
 
 

@@ -1,4 +1,5 @@
 import copy
+import math
 from typing import List, Tuple, Union
 
 import torch
@@ -93,10 +94,12 @@ class SimPLR(LightningModule):
                  L2:bool=False,M2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
-                 JS:bool=False,
-                 emm:bool=False, emm_v0:bool=False,
+                 JS:bool=False, JS_INV:bool=False,
+                 emm:bool=False, emm_v:int=0,
                  fwd:int=0,
-                 asm:bool=False) -> None:
+                 asm:bool=False,
+                 loss:str="negcosine",
+                 nn_init:str="fan-in") -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -115,17 +118,20 @@ class SimPLR(LightningModule):
                                   "prj_depth", "prj_width",
                                   'L2','M2',
                                   'no_ReLU_buttress',
-                                  'emm', 'emm_v0',
+                                  'emm', 'emm_v',
                                   'fwd',
-                                  'asm')
+                                  'asm', 
+                                  'loss',
+                                  'nn_init')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device        
         self.ema_v2 = ema_v2
         self.JS = JS
+        self.JS_INV = JS_INV
         self.emm = emm
-        self.emm_v0 = emm_v0
+        self.emm_v = emm_v
         self.fwd = fwd
         self.asm = asm
         self.momentum_head = momentum_head                
@@ -137,7 +143,7 @@ class SimPLR(LightningModule):
             raise Exception("Invalid Arguments, can't select identity and momentum")
         if JS and ema_v2:
             raise Exception("Invalid Arguments, can't select JS and EMA")
-        if JS and not (emm or emm_v0) and fwd == 0:
+        if JS and not emm and fwd == 0:
             raise Exception("Invalid Arguments, Need One of Fwd or EMM with JS")
         if self.asm and not self.emm:
             raise Exception("Invalid Arguments, Need EMM with Asm")
@@ -216,12 +222,16 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)
-            nn.init.kaiming_normal_(self.prediction_head.weight, mode='fan_out', nonlinearity='relu')
+            if nn_init == "fan-in":
+                bound = 1 / math.sqrt(self.prediction_head.weight.size(1))
+            elif nn_init == "fan-out":
+                bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
+            nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
-        self.criterion = NegativeCosineSimilarity()
-        # self.criterion = NTXentLoss(memory_bank_size=0)
-        # self.criterion = HypersphereLoss()
+        self.criterion = {"negcosine":NegativeCosineSimilarity(),   
+                          "nxtent":NTXentLoss(memory_bank_size=0),
+                          "hypersphere":HypersphereLoss()}[loss]
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -256,17 +266,17 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
-                    self.embedding_diff[idx] = 0.5*(zg0_+zg1_)
+                    # self.embedding_diff[idx] = 0.5*(zg0_+zg1_)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    if self.emm or self.emm_v0:
+                    if self.emm:
                         if self.fwd > 0:
                             zg2_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                             ze2_ = self.embedding[idx]
                             zdf2_ = zg2_ - ze2_
                             zic2_ = self.alpha * zdf2_
                             zvr2_ = self.embedding_var[idx]
-                            zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)                        
+                            zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)
                             ze_ = ze2_ + zic2_
                         else: #EMM or EMM+ASM
                             zvr_ = self.embedding_var[idx]
@@ -282,12 +292,10 @@ class SimPLR(LightningModule):
 
                     zdf0_ = zg0_ - ze0_
                     zic0_ = self.alpha * zdf0_
-                    # sigma0_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True).values
                     sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
 
                     zdf1_ = zg1_ - ze1_
                     zic1_ = self.alpha * zdf1_
-                    # sigma1_ = torch.max((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True).values
                     sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
                     
                     sigma_ = (sigma0_+sigma1_)/2.0
@@ -297,9 +305,9 @@ class SimPLR(LightningModule):
                     norm0_ = torch.linalg.vector_norm(zg0_-ze0_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze1_, dim=1, keepdim=True)**2
                     
-                    if self.emm_v0:
+                    if self.emm_v == 1:
                         sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2))
-                    else:
+                    if self.emm_v == 0:
                         sigma__ = (self.prd_width-2.0)*sigma_
                     
                     n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
@@ -307,8 +315,12 @@ class SimPLR(LightningModule):
 
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
-                    zg0_ = n0*zg0_ + (1.-n0)*ze0_
-                    zg1_ = n1*zg1_ + (1.-n1)*ze1_
+                    if self.JS_INV:
+                        zg0_ = (1.-n0)*zg0_ + n0*ze0_
+                        zg1_ = (1.-n1)*zg1_ + n1*ze1_
+                    else:
+                        zg0_ = n0*zg0_ + (1.-n0)*ze0_
+                        zg1_ = n1*zg1_ + (1.-n1)*ze1_
                     
                     if self.emm and self.fwd > 0:
                         self.embedding[idx] = ze_
@@ -316,7 +328,7 @@ class SimPLR(LightningModule):
                     elif self.emm and self.asm:
                         self.embedding[idx] = ze_ + zic1_
                         self.embedding_var[idx] = sigma1_
-                    elif self.emm or self.emm_v0:
+                    elif self.emm:
                         self.embedding[idx] = ze_ + zic_
                         self.embedding_var[idx] = sigma_
                     elif self.fwd > 0:
@@ -373,9 +385,9 @@ class SimPLR(LightningModule):
             self.embedding      = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
-            self.embedding_diff = torch.empty((N, self.prd_width),
-                                        dtype=torch.float16,
-                                        device=self.device)
+            # self.embedding_diff = torch.empty((N, self.prd_width),
+            #                             dtype=torch.float16,
+            #                             device=self.device)
             self.embedding_var  = torch.zeros((N, 1), 
                                         dtype=torch.float16,
                                         device=self.device)            
