@@ -224,9 +224,13 @@ class SimPLR(LightningModule):
             self.merge_head = nn.Linear(prj_width, self.prd_width)
             if nn_init == "fan-in":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(1))
+                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "fan-out":
+                bound = 1 / math.sqrt(self.prediction_head.weight.size(0))                
+                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
+            elif nn_init == "gauss-out":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
-            nn.init.uniform_(self.prediction_head.weight, -bound, bound)
+                nn.init.normal_(self.prediction_head.weight, 0, bound)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
@@ -305,6 +309,8 @@ class SimPLR(LightningModule):
                     norm0_ = torch.linalg.vector_norm(zg0_-ze0_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze1_, dim=1, keepdim=True)**2
                     
+                    if self.emm_v == 3:
+                        sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True))
                     if self.emm_v == 1:
                         sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2))
                     if self.emm_v == 0:
