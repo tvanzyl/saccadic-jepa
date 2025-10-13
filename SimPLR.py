@@ -221,7 +221,7 @@ class SimPLR(LightningModule):
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
-            self.merge_head = nn.Linear(prj_width, self.prd_width)
+            self.merge_head = nn.Linear(prj_width, self.prd_width)            
             if nn_init == "fan-in":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(1))
                 nn.init.uniform_(self.prediction_head.weight, -bound, bound)
@@ -311,9 +311,11 @@ class SimPLR(LightningModule):
                     
                     if self.emm_v == 3:
                         sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True))
+                    if self.emm_v == 2:
+                        sigma__ = (self.prd_width-2.0)*(0.5*torch.var(zg0_, dim=1, keepdim=True)+0.5*torch.var(zg1_, dim=1, keepdim=True))
                     if self.emm_v == 1:
                         sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2))
-                    if self.emm_v == 0:
+                    elif self.emm_v == 0:
                         sigma__ = (self.prd_width-2.0)*sigma_
                     
                     n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
@@ -391,9 +393,6 @@ class SimPLR(LightningModule):
             self.embedding      = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
-            # self.embedding_diff = torch.empty((N, self.prd_width),
-            #                             dtype=torch.float16,
-            #                             device=self.device)
             self.embedding_var  = torch.zeros((N, 1), 
                                         dtype=torch.float16,
                                         device=self.device)            
@@ -457,10 +456,6 @@ class SimPLR(LightningModule):
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
                 },
-                # {
-                #     "name": "proj",
-                #     "params": self.projection_head.parameters(),                    
-                # },     
                 {
                     "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
