@@ -226,7 +226,7 @@ class SimPLR(LightningModule):
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(1))
                 nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "fan-out":
-                bound = 1 / math.sqrt(self.prediction_head.weight.size(0))                
+                bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
                 nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "gauss-out":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
@@ -292,30 +292,38 @@ class SimPLR(LightningModule):
                         ze1_ = z_fwd[1] if self.fwd == 2 else z_fwd[0]
                         zvr_ = self.embedding_var[idx]
                     else:
-                        raise Exception("Not Valid Combo")
-
-                    zdf0_ = zg0_ - ze0_
-                    zic0_ = self.alpha * zdf0_
-                    sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
-
-                    zdf1_ = zg1_ - ze1_
-                    zic1_ = self.alpha * zdf1_
-                    sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
-                    
-                    sigma_ = (sigma0_+sigma1_)/2.0
-                    zic_ = (zic0_+zic1_)/2.0
+                        raise Exception("Not Valid Combo")                    
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm(zg0_-ze0_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze1_, dim=1, keepdim=True)**2
                     
-                    if self.emm_v == 3:
-                        sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True))
-                    if self.emm_v == 2:
-                        sigma__ = (self.prd_width-2.0)*(0.5*torch.var(zg0_, dim=1, keepdim=True)+0.5*torch.var(zg1_, dim=1, keepdim=True))
-                    if self.emm_v == 1:
-                        sigma__ = (self.prd_width-2.0)*(torch.mean((0.5*(zg0_-zg1_))**2))
+                    # if self.emm_v == 2:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.alpha * zdf_
+                    #     sigma_ = (0.5*torch.var(zg0_, dim=1, keepdim=True)+0.5*torch.var(zg1_, dim=1, keepdim=True))
+                    #     sigma__ = (self.prd_width-2.0)*sigma_
+                    if self.emm_v == 4:
+                        zdf_ = zg0_ - zg1_
+                        zic_ = self.alpha * zdf_
+                        sigma_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf_ * zic_), dim=1, keepdim=True)
+                        sigma__ = (self.prd_width-2.0)*sigma_
+                    elif self.emm_v == 3:
+                        zdf_ = zg0_ - zg1_
+                        zic_ = self.alpha * zdf_
+                        sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)*2.0/3.0
+                        sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 0:
+                        zdf0_ = zg0_ - ze0_
+                        zic0_ = self.alpha * zdf0_
+                        sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
+
+                        zdf1_ = zg1_ - ze1_
+                        zic1_ = self.alpha * zdf1_
+                        sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                        
+                        sigma_ = (sigma0_+sigma1_)/2.0
+                        zic_ = (zic0_+zic1_)/2.0
                         sigma__ = (self.prd_width-2.0)*sigma_
                     
                     n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
