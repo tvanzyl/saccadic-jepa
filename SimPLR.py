@@ -106,14 +106,14 @@ class SimPLR(LightningModule):
                                   'backbone',
                                   'n_local_views',
                                   'lr',
-                                  'decay',                                  
+                                  'decay',
                                   'ema_v2', 'JS',
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
                                   'no_prediction_head',
                                   'alpha',
-                                  'n0', 'n1',                                  
+                                  'n0', 'n1',
                                   'prd_width', 
                                   "prj_depth", "prj_width",
                                   'L2','M2',
@@ -228,9 +228,15 @@ class SimPLR(LightningModule):
             elif nn_init == "fan-out":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
                 nn.init.uniform_(self.prediction_head.weight, -bound, bound)
-            elif nn_init == "gauss-out":
-                bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
-                nn.init.normal_(self.prediction_head.weight, 0, bound)
+            elif nn_init == "he-in":
+                bound = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
+                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
+            elif nn_init == "he-out":
+                bound = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
+                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
+            elif nn_init == "xavier":
+                bound = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
@@ -311,7 +317,7 @@ class SimPLR(LightningModule):
                     elif self.emm_v == 3:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
-                        sigma_ = torch.mean(2.0/3.0*(0.5*(zg0_-zg1_))**2, dim=1, keepdim=True, dtype=torch.float16)
+                        sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
                         sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - ze0_
@@ -402,7 +408,7 @@ class SimPLR(LightningModule):
                                         dtype=torch.float16,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, 1), 
-                                        dtype=torch.float16,
+                                        dtype=torch.float32,
                                         device=self.device)            
         return super().on_train_start()
 
