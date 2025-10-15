@@ -224,19 +224,16 @@ class SimPLR(LightningModule):
             self.merge_head = nn.Linear(prj_width, self.prd_width)            
             if nn_init == "fan-in":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(1))
-                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "fan-out":
                 bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
-                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "he-in":
                 bound = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
-                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "he-out":
                 bound = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
-                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
             elif nn_init == "xavier":
                 bound = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
-                nn.init.uniform_(self.prediction_head.weight, -bound, bound)
+            nn.init.uniform_(self.prediction_head.weight, -bound, bound)
+            nn.init.uniform_(self.prediction_head.bias, -bound, bound)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
