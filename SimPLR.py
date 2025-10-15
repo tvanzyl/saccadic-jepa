@@ -311,7 +311,7 @@ class SimPLR(LightningModule):
                     elif self.emm_v == 3:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
-                        sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)*2.0/3.0
+                        sigma_ = torch.mean(2.0/3.0*(0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
                         sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - ze0_
