@@ -308,11 +308,6 @@ class SimPLR(LightningModule):
                     norm0_ = torch.linalg.vector_norm(zg0_-ze0_, dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm(zg1_-ze1_, dim=1, keepdim=True)**2
                     
-                    # if self.emm_v == 2:
-                    #     zdf_ = zg0_ - zg1_
-                    #     zic_ = self.alpha * zdf_
-                    #     sigma_ = (0.5*torch.var(zg0_, dim=1, keepdim=True)+0.5*torch.var(zg1_, dim=1, keepdim=True))
-                    #     sigma__ = (self.prd_width-2.0)*sigma_
                     if self.emm_v == 4:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
@@ -322,6 +317,16 @@ class SimPLR(LightningModule):
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
                         sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
+                        sigma__ = (self.prd_width-2.0)*sigma_
+                    # elif self.emm_v == 2:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.alpha * zdf_
+                    #     sigma_ = (0.5*torch.var(zg0_, dim=1, keepdim=True)+0.5*torch.var(zg1_, dim=1, keepdim=True))
+                    #     sigma__ = (self.prd_width-2.0)*sigma_
+                    elif self.emm_v == 1:
+                        zdf_ = zg0_ - zg1_
+                        zic_ = self.alpha * zdf_
+                        sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, keepdim=True)
                         sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - ze0_
@@ -338,7 +343,7 @@ class SimPLR(LightningModule):
                     
                     n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - sigma__/norm1_, torch.tensor(0.0))
-
+                    self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
                     if self.JS_INV:
