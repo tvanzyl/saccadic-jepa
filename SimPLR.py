@@ -222,18 +222,25 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)            
+            
             if nn_init == "fan-in":
-                bound = 1 / math.sqrt(self.prediction_head.weight.size(1))
+                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
+                bound_b = bound_w
             elif nn_init == "fan-out":
-                bound = 1 / math.sqrt(self.prediction_head.weight.size(0))
+                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
+                bound_b = bound_w
             elif nn_init == "he-in":
-                bound = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
+                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
+                bound_b = 1 / math.sqrt(self.prediction_head.weight.size(1))
             elif nn_init == "he-out":
-                bound = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
+                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
+                bound_b = 1 / math.sqrt(self.prediction_head.weight.size(0))
             elif nn_init == "xavier":
-                bound = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
-            nn.init.uniform_(self.prediction_head.weight, -bound, bound)
-            nn.init.uniform_(self.prediction_head.bias, -bound, bound)
+                bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+                bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+            nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
+            nn.init.normal_(self.merge_head.bias, 0, bound_b)
+
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
