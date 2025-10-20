@@ -239,8 +239,10 @@ class SimPLR(LightningModule):
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
                 bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
+            # nn.init.uniform_(self.merge_head.bias, -bound_b, bound_b)
             nn.init.normal_(self.merge_head.bias, 0, bound_b)
-
+            self.bound_b  = bound_b
+            self.merge_head_bias = self.merge_head.bias.data.clone()
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
@@ -326,7 +328,7 @@ class SimPLR(LightningModule):
                     elif self.emm_v == 1:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
-                        sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2)
+                        sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
                         sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - ze0_
@@ -342,7 +344,7 @@ class SimPLR(LightningModule):
                         sigma__ = (self.prd_width-2.0)*sigma_
                     
                     n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma__/norm1_, torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - sigma__/norm1_, torch.tensor(0.0))                    
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
@@ -407,11 +409,17 @@ class SimPLR(LightningModule):
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
             self.first_epoch = False
+            # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.001, 1.0)
+            # with torch.no_grad():
+                # nn.init.normal_(self.merge_head.bias, 0, self.bound_b*bias_decay)
+                # self.merge_head.bias.data = self.merge_head_bias*bias_decay
+            # self.log_dict({"bias":bias_decay})
         return super().on_train_epoch_end()
 
     def on_train_start(self):                
         if self.ema_v2 or self.JS:
-            self.first_epoch = True            
+            self.first_epoch = True
+            self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
@@ -452,6 +460,9 @@ class SimPLR(LightningModule):
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
             _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
+        with torch.no_grad():
+            nn.init.normal_(self.merge_head.bias, 0, self.bound_b)            
+
         return loss + cls_loss
 
     def validation_step(
@@ -479,6 +490,11 @@ class SimPLR(LightningModule):
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
                 },
+                # {
+                #     "name": "projection_head", 
+                #     "params": self.projection_head.parameters(),
+                #     "weight_decay": 0.0,
+                # },
                 {
                     "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
