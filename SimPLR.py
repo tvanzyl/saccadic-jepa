@@ -414,7 +414,11 @@ class SimPLR(LightningModule):
                         self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid Combo")
-                        
+            
+                    with torch.no_grad():
+                        # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
+                        nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
+
 
             if self.ema_v2: #For EMA 2.0
                 raise NotImplementedError("ema v2")
@@ -505,9 +509,6 @@ class SimPLR(LightningModule):
         if self.momentum_head:
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
             _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
-
-        with torch.no_grad():
-            nn.init.normal_(self.merge_head.bias, 0, self.bound_b)            
 
         return loss + cls_loss
 
