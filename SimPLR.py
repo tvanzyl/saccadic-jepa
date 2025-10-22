@@ -93,8 +93,13 @@ class ReSALoss(nn.Module):
         f_m: Tensor,
 
     ) -> Tensor:
+        emb = F.normalize(emb)
+        emb_m = F.normalize(emb_m)
+        f = F.normalize(f)
+        f_m = F.normalize(f_m)
+
         with torch.no_grad():
-            assign = self.sinkhorn_knopp(f @ f_m.T, self.temp, self.n_iterations)
+            assign = self.sinkhorn_knopp(f @ f_m.T, self.temp, self.n_iterations)        
         emb_sim = emb @ emb_m.T / self.temp
         loss = self.cross_entropy(emb_sim, assign)
         return loss
