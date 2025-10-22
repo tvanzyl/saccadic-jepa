@@ -21,6 +21,9 @@ from lightly.loss import NegativeCosineSimilarity
 from lightly.loss.ntx_ent_loss import NTXentLoss
 from lightly.loss.hypersphere_loss import HypersphereLoss
 from lightly.loss.msn_loss import MSNLoss
+from lightly.loss.barlow_twins_loss import BarlowTwinsLoss
+from lightly.loss.vicreg_loss import VICRegLoss
+from lightly.loss.wmse_loss import Whitening2d
 from lightly.models.utils import (
     get_weight_decay_parameters,
 )
@@ -45,48 +48,56 @@ def dataset_with_indices(cls):
     })
 
 
-# class MSNLoss(nn.Module):
-#     def __init__(
-#         self,
-#         temperature: float = 0.1,
-#         sinkhorn_iterations: int = 3,                
-#     ):
-#         super().__init__()
+class ReSALoss(nn.Module):
+    def __init__(
+        self,
+        temperature: float = 0.1,
+        sinkhorn_iterations: int = 3,                
+    ):
+        self.temp = temperature
+        self.n_iterations = sinkhorn_iterations
+        super().__init__()
 
 
-#     def cross_entropy(self, s, q):
-#         return - torch.sum(q * F.log_softmax(s, dim=1), dim=-1).mean()
+    def cross_entropy(self, s, q):
+        return - torch.sum(q * F.log_softmax(s, dim=1), dim=-1).mean()
 
-#     @torch.no_grad()
-#     def sinkhorn_knopp(self, scores, temp=0.05, n_iterations=3):
-#         Q = torch.exp(scores / temp).t()  # Q is K-by-B for consistency with notations from our paper
-#         B = Q.shape[1]  # number of samples to assign
-#         K = Q.shape[0]  # how many prototypes
+    @torch.no_grad()
+    def sinkhorn_knopp(self, scores, temp=0.05, n_iterations=3):
+        Q = torch.exp(scores / temp).t()  # Q is K-by-B for consistency with notations from our paper
+        B = Q.shape[1]  # number of samples to assign
+        K = Q.shape[0]  # how many prototypes
 
-#         # make the matrix sums to 1
-#         sum_Q = torch.sum(Q)
-#         Q /= sum_Q
+        # make the matrix sums to 1
+        sum_Q = torch.sum(Q)
+        Q /= sum_Q
 
-#         for it in range(n_iterations):
-#             # normalize each row: total weight per prototype must be 1/K
-#             sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
-#             Q /= sum_of_rows
-#             Q /= K
+        for it in range(n_iterations):
+            # normalize each row: total weight per prototype must be 1/K
+            sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
+            Q /= sum_of_rows
+            Q /= K
 
-#             # normalize each column: total weight per sample must be 1/B
-#             Q /= torch.sum(Q, dim=0, keepdim=True)
-#             Q /= B
+            # normalize each column: total weight per sample must be 1/B
+            Q /= torch.sum(Q, dim=0, keepdim=True)
+            Q /= B
 
-#         Q *= B  # the columns must sum to 1 so that Q is an assignment
-#         return Q.t()
+        Q *= B  # the columns must sum to 1 so that Q is an assignment
+        return Q.t()
 
-#     def forward(
-#         self,
-#         anchors: Tensor,
-#         targets: Tensor,
-#     ) -> Tensor:
-        
-#         return loss
+    def forward(
+        self,        
+        emb: Tensor,
+        emb_m: Tensor,
+        f: Tensor,
+        f_m: Tensor,
+
+    ) -> Tensor:
+        with torch.no_grad():
+            assign = self.sinkhorn_knopp(f @ f_m.T, self.temp, self.n_iterations)
+        emb_sim = emb @ emb_m.T / self.temp
+        loss = self.cross_entropy(emb_sim, assign)
+        return loss
         
 
 class L2NormalizationLayer(nn.Module):
@@ -291,9 +302,13 @@ class SimPLR(LightningModule):
             self.merge_head_bias = self.merge_head.bias.data.clone()
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
+        self.loss = loss
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
                           "nxtent":NTXentLoss(memory_bank_size=0),
-                          "hypersphere":HypersphereLoss(),}[loss]
+                          "hypersphere":HypersphereLoss(),
+                          "barlowtwins":BarlowTwinsLoss(),
+                          "vicreg":VICRegLoss(),
+                          "resa":ReSALoss()}[loss]
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -305,7 +320,8 @@ class SimPLR(LightningModule):
 
         # Two globals
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-        f0_ = f[0].detach()        
+        f0_ = f[0].detach()
+        f1_ = f[1].detach()
         if views > self.fwd + 2: # MultiCrops
             f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
         b = [self.projection_head( f_ ) for f_ in f]
@@ -454,7 +470,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 z = z[:1]
             assert len(p)==len(z)
-        return f0_, p, z
+        return f0_, f1_, p, z
 
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
@@ -484,13 +500,16 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f0_, p, z = self.forward_student( x, idx )
+        f0_, f1_, p, z = self.forward_student( x, idx )
         
         loss = 0
         for xi in range(len(z)):
             p_ = p[xi]
             z_ = z[xi]
-            loss += self.criterion( p_, z_ ) / len(z)
+            if self.loss == "resa":
+                loss += self.criterion( p_, z_, f0_, f1_ ) / len(z)
+            else:
+                loss += self.criterion( p_, z_ ) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
