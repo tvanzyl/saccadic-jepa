@@ -257,7 +257,7 @@ class SimPLR(LightningModule):
                           "barlowtwins":BarlowTwinsLoss(0.0),
                           "vicreg":VICRegLoss(),
                           "resa":ReSALoss(),
-                          "js":JSLoss(0.1)}[loss]
+                          "js":JSLoss(0.0)}[loss]
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 

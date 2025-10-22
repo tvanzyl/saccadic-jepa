@@ -106,7 +106,7 @@ class JSLoss(torch.nn.Module):
         cov_loss = covariance_loss(x=z_a) + covariance_loss(x=z_b)
 
         # Total VICReg loss
-        loss = self.lambda_param * inv_loss + cov_loss
+        loss = inv_loss + self.lambda_param*cov_loss
 
         return loss
 
@@ -122,7 +122,7 @@ def invariance_loss(x: Tensor, y: Tensor) -> Tensor:
     Returns:
         The computed VICReg invariance loss.
     """
-    return F.mse_loss(F.normalize(x), F.normalize(y))
+    return -F.cosine_similarity(F.normalize(x), F.normalize(y)).mean()
 
 
 def covariance_loss(x: Tensor) -> Tensor:
