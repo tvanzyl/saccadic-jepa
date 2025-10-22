@@ -33,6 +33,7 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
 from action_transform import JSREPATransform
+from loss import ReSALoss, JSLoss
 
 def dataset_with_indices(cls):
     """
@@ -310,9 +311,10 @@ class SimPLR(LightningModule):
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
                           "nxtent":NTXentLoss(memory_bank_size=0),
                           "hypersphere":HypersphereLoss(),
-                          "barlowtwins":BarlowTwinsLoss(),
+                          "barlowtwins":BarlowTwinsLoss(0.0),
                           "vicreg":VICRegLoss(),
-                          "resa":ReSALoss()}[loss]
+                          "resa":ReSALoss(),
+                          "js":JSLoss(0)}[loss]
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -479,11 +481,6 @@ class SimPLR(LightningModule):
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
             self.first_epoch = False
-            # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.001, 1.0)
-            # with torch.no_grad():
-                # nn.init.normal_(self.merge_head.bias, 0, self.bound_b*bias_decay)
-                # self.merge_head.bias.data = self.merge_head_bias*bias_decay
-            # self.log_dict({"bias":bias_decay})
         return super().on_train_epoch_end()
 
     def on_train_start(self):                
@@ -560,11 +557,6 @@ class SimPLR(LightningModule):
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
                 },
-                # {
-                #     "name": "projection_head", 
-                #     "params": self.projection_head.parameters(),
-                #     "weight_decay": 0.0,
-                # },
                 {
                     "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
