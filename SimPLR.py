@@ -51,13 +51,12 @@ def dataset_with_indices(cls):
 class ReSALoss(nn.Module):
     def __init__(
         self,
-        temperature: float = 0.1,
+        temperature: float = 0.4,
         sinkhorn_iterations: int = 3,                
     ):
         self.temp = temperature
         self.n_iterations = sinkhorn_iterations
         super().__init__()
-
 
     def cross_entropy(self, s, q):
         return - torch.sum(q * F.log_softmax(s, dim=1), dim=-1).mean()
@@ -99,7 +98,7 @@ class ReSALoss(nn.Module):
         f_m = F.normalize(f_m)
 
         with torch.no_grad():
-            assign = self.sinkhorn_knopp(f @ f_m.T, self.temp, self.n_iterations)        
+            assign = self.sinkhorn_knopp(f @ f_m.T)
         emb_sim = emb @ emb_m.T / self.temp
         loss = self.cross_entropy(emb_sim, assign)
         return loss
@@ -436,9 +435,9 @@ class SimPLR(LightningModule):
                     else:
                         raise Exception("Not Valid Combo")
             
-                    with torch.no_grad():
-                        # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
-                        nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
+                    # with torch.no_grad():
+                    #     # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
+                    #     nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
 
 
             if self.ema_v2: #For EMA 2.0
