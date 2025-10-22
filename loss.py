@@ -64,7 +64,7 @@ class JSLoss(torch.nn.Module):
 
     def __init__(
         self,
-        lambda_param: float = 0.0,
+        lambda_param: float = 0.1,
         gather_distributed: bool = False,
         eps: float = 0.0001,
     ):
@@ -107,7 +107,7 @@ class JSLoss(torch.nn.Module):
 
         # Total VICReg loss
         loss = self.lambda_param * inv_loss + cov_loss
-        
+
         return loss
 
 def invariance_loss(x: Tensor, y: Tensor) -> Tensor:
