@@ -293,7 +293,7 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
-                    self.embedding_diff[idx] = (0.5*(zg0_-zg1_))**2.0
+                    self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
