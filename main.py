@@ -73,7 +73,7 @@ parser.add_argument("--M2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
-parser.add_argument("--JS-INV", action="store_true")
+parser.add_argument("--cycle-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
 parser.add_argument("--emm-v", type=int, default=0)
 parser.add_argument("--fwd", type=int, default=0)
@@ -206,7 +206,8 @@ def main(
     L2: bool,M2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
-    JS: bool, JS_INV: bool,
+    JS: bool, 
+    cycle_bias: bool,
     emm: bool, emm_v: int,
     fwd: int,
     asm: bool,
@@ -248,7 +249,8 @@ def main(
             L2=L2,M2=M2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
-            JS=JS, JS_INV=JS_INV,
+            JS=JS, 
+            cycle_bias=cycle_bias,
             emm=emm, emm_v=emm_v,
             fwd=fwd,
             asm=asm,

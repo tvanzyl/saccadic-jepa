@@ -99,7 +99,8 @@ class SimPLR(LightningModule):
                  L2:bool=False,M2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
-                 JS:bool=False, JS_INV:bool=False,
+                 JS:bool=False, 
+                 cycle_bias:bool=False,
                  emm:bool=False, emm_v:int=0,
                  fwd:int=0,
                  asm:bool=False,
@@ -123,7 +124,7 @@ class SimPLR(LightningModule):
                                   "prj_depth", "prj_width",
                                   'L2','M2',
                                   'no_ReLU_buttress',
-                                  'emm', 'emm_v',
+                                  'emm', 'emm_v', 'cycle_bias',
                                   'fwd',
                                   'asm', 
                                   'loss',
@@ -134,7 +135,7 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device        
         self.ema_v2 = ema_v2
         self.JS = JS
-        self.JS_INV = JS_INV
+        self.cycle_bias = cycle_bias
         self.emm = emm
         self.emm_v = emm_v
         self.fwd = fwd
@@ -298,16 +299,13 @@ class SimPLR(LightningModule):
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
                         if self.fwd > 0:
-                            zg2_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                            ze2_ = self.embedding[idx]
-                            zdf2_ = zg2_ - ze2_
-                            zic2_ = self.alpha * zdf2_
-                            zvr2_ = self.embedding_var[idx]
-                            zvars_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)
-                            zmean_ = ze2_ + zic2_
-                        else: #EMM or EMM+ASM
+                            zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
+                            zmean1_ = self.embedding[idx]
+                            zmean_ = (zmean0_ + zmean1_)/2.0
                             zvars_ = self.embedding_var[idx]
+                        else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
+                            zvars_ = self.embedding_var[idx]                            
                     elif self.fwd > 0:
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                         zvars_ = self.embedding_var[idx]
@@ -319,45 +317,37 @@ class SimPLR(LightningModule):
                         zdiff1_ = zg1_  - zmean_
                         zincr0_ = self.alpha * zdiff0_
                         zincr1_ = self.alpha * zdiff1_
-                        zmean_ = zmean_ + (zincr0_ + zincr1_)/2.0
+                        zic_ = (zincr0_ + zincr1_)/2.0
                         sigma_  = (1.0 - self.alpha) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                     elif self.emm_v == 5:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
-                        zmean_ = zmean_ + zic_
+                        zic_ = self.alpha * zdf_                        
                         sigma_ = (1.0 - self.alpha) * (zvars_ + zdf_ * zic_)
                     elif self.emm_v == 4:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
-                        zmean_ = zmean_ + zic_
+                        zic_ = self.alpha * zdf_                        
                         sigma_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf_ * zic_), dim=1, keepdim=True)
                     elif self.emm_v == 3:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_        
-                        zmean_ = zmean_ + zic_                
+                        zic_ = self.alpha * zdf_                                              
                         sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
                     elif self.emm_v == 2:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
-                        zmean_ = zmean_ + zic_
+                        zic_ = self.alpha * zdf_                        
                         sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
                     elif self.emm_v == 1:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
-                        zmean_ = zmean_ + zic_
+                        zic_ = self.alpha * zdf_                        
                         sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - zmean_
-                        zic0_ = self.alpha * zdf0_
-                        sigma0_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
-
                         zdf1_ = zg1_ - zmean_
+                        zic0_ = self.alpha * zdf0_
                         zic1_ = self.alpha * zdf1_
+                        sigma0_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
                         sigma1_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf1_ * zic1_), dim=1, keepdim=True)
-                        
                         sigma_ = (sigma0_+sigma1_)/2.0
-                        zic_ = (zic0_+zic1_)/2.0
-                        zmean_ = zmean_ + zic_
+                        zic_ = (zic0_+zic1_)/2.0                        
         
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
@@ -369,22 +359,23 @@ class SimPLR(LightningModule):
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
                     if self.emm and self.fwd > 0:
-                        self.embedding[idx] = zmean_
+                        self.embedding[idx] = zmean_ + zic_
                         self.embedding_var[idx] = sigma_
-                    elif self.emm and self.asm: #TODO: Deal with ASMS
-                        self.embedding[idx] = zmean_
+                    elif self.emm and self.asm: #TODO: Deal with ASM
+                        self.embedding[idx] = zmean_ + zic_
                         self.embedding_var[idx] = sigma_
                     elif self.emm:
-                        self.embedding[idx] = zmean_
+                        self.embedding[idx] = zmean_ + zic_
                         self.embedding_var[idx] = sigma_
                     elif self.fwd > 0:
                         self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid Combo")
-            
-                    # with torch.no_grad():
-                    #     # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
-                    #     nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
+
+                    if self.cycle_bias:
+                        with torch.no_grad():
+                            # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
+                            nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
 
 
             if self.ema_v2: #For EMA 2.0
