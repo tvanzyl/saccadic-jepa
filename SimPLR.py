@@ -293,7 +293,7 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
-                    # self.embedding_diff[idx] = 0.5*(zg0_+zg1_)
+                    self.embedding_diff[idx] = (0.5*(zg0_-zg1_))**2.0
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
@@ -303,77 +303,79 @@ class SimPLR(LightningModule):
                             zdf2_ = zg2_ - ze2_
                             zic2_ = self.alpha * zdf2_
                             zvr2_ = self.embedding_var[idx]
-                            zvr_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)
-                            ze_ = ze2_ + zic2_
+                            zvars_ = torch.mean((1.0 - self.alpha) * (zvr2_ + zdf2_ * zic2_), dim=1, keepdim=True)
+                            zmean_ = ze2_ + zic2_
                         else: #EMM or EMM+ASM
-                            zvr_ = self.embedding_var[idx]
-                            ze_ = self.embedding[idx]
-                        ze0_ = ze_
-                        ze1_ = ze_
+                            zvars_ = self.embedding_var[idx]
+                            zmean_ = self.embedding[idx]
                     elif self.fwd > 0:
-                        ze0_ = z_fwd[0]
-                        ze1_ = z_fwd[1] if self.fwd == 2 else z_fwd[0]
-                        zvr_ = self.embedding_var[idx]
+                        zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
+                        zvars_ = self.embedding_var[idx]
                     else:
-                        raise Exception("Not Valid Combo")                    
+                        raise Exception("Not Valid Combo")
 
-                    # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                    norm0_ = torch.linalg.vector_norm(zg0_-ze0_, dim=1, keepdim=True)**2
-                    norm1_ = torch.linalg.vector_norm(zg1_-ze1_, dim=1, keepdim=True)**2
-                    
-                    if self.emm_v == 4:
+                    if self.emm_v == 6:
+                        zdiff0_ = zg0_  - zmean_
+                        zdiff1_ = zg1_  - zmean_
+                        zincr0_ = self.alpha * zdiff0_
+                        zincr1_ = self.alpha * zdiff1_
+                        zmean_ = zmean_ + (zincr0_ + zincr1_)/2.0
+                        sigma_  = (1.0 - self.alpha) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                    elif self.emm_v == 5:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
-                        sigma_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf_ * zic_), dim=1, keepdim=True)
-                        sigma__ = (self.prd_width-2.0)*sigma_
+                        zmean_ = zmean_ + zic_
+                        sigma_ = (1.0 - self.alpha) * (zvars_ + zdf_ * zic_)
+                    elif self.emm_v == 4:
+                        zdf_ = zg0_ - zg1_
+                        zic_ = self.alpha * zdf_
+                        zmean_ = zmean_ + zic_
+                        sigma_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf_ * zic_), dim=1, keepdim=True)
                     elif self.emm_v == 3:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
+                        zic_ = self.alpha * zdf_        
+                        zmean_ = zmean_ + zic_                
                         sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
-                        sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 2:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
+                        zmean_ = zmean_ + zic_
                         sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
-                        sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 1:
                         zdf_ = zg0_ - zg1_
                         zic_ = self.alpha * zdf_
+                        zmean_ = zmean_ + zic_
                         sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
-                        sigma__ = (self.prd_width-2.0)*sigma_
                     elif self.emm_v == 0:
-                        zdf0_ = zg0_ - ze0_
+                        zdf0_ = zg0_ - zmean_
                         zic0_ = self.alpha * zdf0_
-                        sigma0_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf0_ * zic0_), dim=1, keepdim=True)
+                        sigma0_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
 
-                        zdf1_ = zg1_ - ze1_
+                        zdf1_ = zg1_ - zmean_
                         zic1_ = self.alpha * zdf1_
-                        sigma1_ = torch.mean((1.0 - self.alpha) * (zvr_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                        sigma1_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf1_ * zic1_), dim=1, keepdim=True)
                         
                         sigma_ = (sigma0_+sigma1_)/2.0
                         zic_ = (zic0_+zic1_)/2.0
-                        sigma__ = (self.prd_width-2.0)*sigma_
-                    
-                    n0 = torch.maximum(1.0 - sigma__/norm0_, torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - sigma__/norm1_, torch.tensor(0.0))                    
+                        zmean_ = zmean_ + zic_
+        
+                    # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
+                    norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
+                    norm1_ = torch.linalg.vector_norm((zg1_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
+
+                    n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))                    
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
-                    if self.JS_INV:
-                        zg0_ = (1.-n0)*zg0_ + n0*ze0_
-                        zg1_ = (1.-n1)*zg1_ + n1*ze1_
-                    else:
-                        zg0_ = n0*zg0_ + (1.-n0)*ze0_
-                        zg1_ = n1*zg1_ + (1.-n1)*ze1_
-                    
                     if self.emm and self.fwd > 0:
-                        self.embedding[idx] = ze_
-                        self.embedding_var[idx] = zvr_
-                    elif self.emm and self.asm:
-                        self.embedding[idx] = ze_ + zic1_
-                        self.embedding_var[idx] = sigma1_
+                        self.embedding[idx] = zmean_
+                        self.embedding_var[idx] = sigma_
+                    elif self.emm and self.asm: #TODO: Deal with ASMS
+                        self.embedding[idx] = zmean_
+                        self.embedding_var[idx] = sigma_
                     elif self.emm:
-                        self.embedding[idx] = ze_ + zic_
+                        self.embedding[idx] = zmean_
                         self.embedding_var[idx] = sigma_
                     elif self.fwd > 0:
                         self.embedding_var[idx] = sigma_
@@ -434,7 +436,7 @@ class SimPLR(LightningModule):
             self.embedding      = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
-            self.embedding_var  = torch.zeros((N, 1), 
+            self.embedding_var  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float32,
                                         device=self.device)            
         return super().on_train_start()
@@ -683,3 +685,5 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
+

@@ -669,26 +669,6 @@ class JSREPATransform(MultiViewTransform):
                     T.ToTensor(),
                     T.Normalize(mean=normalize["mean"], std=normalize["std"]),
                 ])
-        # weak_transform = DINOViewTransform(
-        #     crop_size=global_crop_size,
-        #     crop_scale=weak_crop_scale,
-        #     hf_prob=hf_prob,
-        #     vf_prob=vf_prob,
-        #     rr_prob=0.0,
-        #     rr_degrees=rr_degrees,
-        #     cj_prob=0.0,
-        #     cj_bright=cj_bright,
-        #     cj_contrast=cj_contrast,
-        #     cj_hue=cj_hue,
-        #     cj_sat=cj_sat,
-        #     random_gray_scale=0.0,
-        #     gaussian_blur=0.0,
-        #     kernel_size=kernel_size,
-        #     kernel_scale=kernel_scale,
-        #     sigmas=sigmas,
-        #     solarization_prob=0.0,
-        #     normalize=normalize,
-        # )
 
         # first global crop
         global_transform_0 = DINOViewTransform(
