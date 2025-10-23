@@ -145,7 +145,7 @@ def covariance_loss(x: Tensor) -> Tensor:
     nondiag_mask = ~torch.eye(dim, device=x.device, dtype=torch.bool)
 
     # cov has shape (..., dim, dim)
-    cov = torch.einsum("b...c,b...d->...cd", x, x).pow(2) / (batch_size - 1)    
+    cov = torch.einsum("b...c,b...d->...cd", x, x) / (batch_size - 1)
     # var = torch.diag(cov_matrix)
     # inv_std = 1.0/torch.sqrt(var)
     # inv_std_matrix = torch.diag(inv_std)
