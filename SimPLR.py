@@ -258,6 +258,7 @@ class SimPLR(LightningModule):
                           "barlowtwins":BarlowTwinsLoss(0.0),
                           "vicreg":VICRegLoss(),
                           "resa":ReSALoss(),
+                          "mse":F.mse_loss,
                           "js":JSLoss(0.001)}[loss]
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
@@ -561,8 +562,8 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.14, 1.0),
-                            weak_crop_scale=(0.14, 1.0),
+                            global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0,
