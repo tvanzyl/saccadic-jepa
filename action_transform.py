@@ -739,7 +739,9 @@ class JSREPATransform(MultiViewTransform):
         )
         weak_transforms = [weak_transform] * n_weak_views
         local_transforms = [local_transform] * n_local_views        
-        if n_global_views == 1:
+        if n_global_views == 0:
+            transforms = []
+        elif n_global_views == 1:
             transforms = [global_transform_0]
         elif n_global_views == 2:
             transforms = [global_transform_0, global_transform_1]

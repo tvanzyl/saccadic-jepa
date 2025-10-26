@@ -255,7 +255,7 @@ class SimPLR(LightningModule):
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
                           "nxtent":NTXentLoss(memory_bank_size=0),
                           "hypersphere":HypersphereLoss(),
-                          "barlowtwins":BarlowTwinsLoss(0.0),
+                          "barlowtwins":BarlowTwinsLoss(),
                           "vicreg":VICRegLoss(),
                           "resa":ReSALoss(),
                           "mse":F.mse_loss,
@@ -326,7 +326,7 @@ class SimPLR(LightningModule):
                         sigma_ = (1.0 - self.alpha) * (zvars_ + zdf_ * zic_)
                     elif self.emm_v == 4:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_                        
+                        zic_ = self.alpha * zdf_
                         sigma_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf_ * zic_), dim=1, keepdim=True)
                     elif self.emm_v == 3:
                         zdf_ = zg0_ - zg1_
@@ -338,7 +338,7 @@ class SimPLR(LightningModule):
                         sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
                     elif self.emm_v == 1:
                         zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_                        
+                        zic_ = self.alpha * zdf_
                         sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - zmean_
@@ -348,7 +348,7 @@ class SimPLR(LightningModule):
                         sigma0_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
                         sigma1_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf1_ * zic1_), dim=1, keepdim=True)
                         sigma_ = (sigma0_+sigma1_)/2.0
-                        zic_ = (zic0_+zic1_)/2.0                        
+                        zic_ = (zic0_+zic1_)/2.0
         
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
@@ -569,6 +569,15 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
+"Cifar100-resa":JSREPATransform(global_crop_size=32,
+                            global_crop_scale=(0.14, 1.0),
+                            weak_crop_scale=(0.14, 1.0),
+                            n_global_views=0,
+                            n_weak_views=3,
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+
 "Cifar100-2":     DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.14, 1.0),
                             n_local_views=0,
