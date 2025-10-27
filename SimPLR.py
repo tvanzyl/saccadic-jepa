@@ -307,12 +307,10 @@ class SimPLR(LightningModule):
                             zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                             zmean_ = self.embedding[idx]
                             zdiff_ = zmean0_ - zmean_
+                            self.log_dict({"e2":torch.mean(zdiff_**2)})
                             zincr_ = self.alpha * zdiff_
                             self.embedding[idx] = zmean_ + zincr_
-                            self.embedding_dif[idx] = self.alpha * self.embedding[idx] + (1.0-self.alpha)*self.embedding_dif[idx]
-                            a = 2*self.embedding[idx] - self.embedding_dif[idx]
-                            b = (self.alpha)/(1.0-self.alpha)*(self.embedding[idx] - self.embedding_dif[idx])
-                            zmean_ = a + b
+                            zmean_ = self.embedding[idx]
                             zvars_ = self.embedding_var[idx]
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
@@ -330,10 +328,15 @@ class SimPLR(LightningModule):
                         zincr1_ = self.gamma * zdiff1_
                         zic_ = (zincr0_ + zincr1_)/2.0
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
-                    # elif self.emm_v == 5:
-                    #     zdf_ = zg0_ - zg1_
-                    #     zic_ = self.gamma * zdf_                        
-                    #     sigma_ = (1.0 - self.gamma) * (zvars_ + zdf_ * zic_)
+                    elif self.emm_v == 5:
+                        zdf0_ = zg0_ - zmean_
+                        zdf1_ = zg1_ - zmean_
+                        zic0_ = self.gamma * zdf0_
+                        zic1_ = self.gamma * zdf1_
+                        sigma0_ = (1.0 - self.gamma) * (zvars_ + zdf0_ * zic0_)
+                        sigma1_ = (1.0 - self.gamma) * (zvars_ + zdf1_ * zic1_)
+                        sigma_ = (sigma0_+sigma1_)/2.0
+                        zic_ = (zic0_+zic1_)/2.0
                     # elif self.emm_v == 4:
                     #     zdf_ = zg0_ - zg1_
                     #     zic_ = self.gamma * zdf_
@@ -436,9 +439,6 @@ class SimPLR(LightningModule):
             self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float16,
-                                        device=self.device)
-            self.embedding_dif  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, self.prd_width),
