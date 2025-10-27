@@ -59,14 +59,13 @@ class L2NormalizationLayer(nn.Module):
 
 
 def backbones(name):
-    if name in ["resnetjie-9","resnetjie-18"]:             
+    if name in ["resnetjie-9","resnetjie-18"]:
         resnet = {"resnetjie-9" :resnet18, 
                   "resnetjie-18":resnet18}[name]()
         emb_width = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         resnet.maxpool = nn.Sequential()
         resnet.fc = Identity()
-        # resnet.fc = nn.BatchNorm1d(emb_width)
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
@@ -100,7 +99,7 @@ class SimPLR(LightningModule):
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
                  JS:bool=False, 
-                 cycle_bias:bool=False,
+                 cycle_bias:bool=False, no_bias:bool=False,
                  emm:bool=False, emm_v:int=0,
                  fwd:int=0,
                  asm:bool=False,
@@ -124,7 +123,8 @@ class SimPLR(LightningModule):
                                   "prj_depth", "prj_width",
                                   'L2','M2',
                                   'no_ReLU_buttress',
-                                  'emm', 'emm_v', 'cycle_bias',
+                                  'emm', 'emm_v', 
+                                  'cycle_bias', 'no_bias',
                                   'fwd',
                                   'asm', 
                                   'loss',
@@ -247,7 +247,10 @@ class SimPLR(LightningModule):
                 bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
             # nn.init.uniform_(self.merge_head.bias, -bound_b, bound_b)
-            nn.init.normal_(self.merge_head.bias, 0, bound_b)
+            if no_bias:
+                nn.init.zeros_(self.merge_head.bias)
+            else:
+                nn.init.normal_(self.merge_head.bias, 0, bound_b)
             self.bound_b  = bound_b
             self.merge_head_bias = self.merge_head.bias.data.clone()
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
