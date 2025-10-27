@@ -91,7 +91,7 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 alpha:float = 0.65,
+                 alpha:float = 0.65, gamma:float = 0.65,
                  n0:float = 1.00, n1:float = 1.00,                 
                  prd_width:int = 256,
                  prj_depth:int = 2,
@@ -118,7 +118,7 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_prediction_head',
-                                  'alpha',
+                                  'alpha', 'gamma',
                                   'n0', 'n1',
                                   'prd_width', 
                                   "prj_depth", "prj_width",
@@ -142,6 +142,7 @@ class SimPLR(LightningModule):
         self.asm = asm
         self.momentum_head = momentum_head                
         self.alpha = alpha
+        self.gamma = gamma
         self.n0 = n0
         self.n1 = n1        
 
@@ -294,19 +295,25 @@ class SimPLR(LightningModule):
 
             if self.JS: # For James-Stein
                 if self.first_epoch:
-                    self.embedding[idx] = 0.5*(zg0_+zg1_)
+                    self.embedding[idx] = 0.5*(zg0_+zg1_)                    
                     self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
                         if self.fwd > 0:
                             zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                            zmean1_ = self.embedding[idx]
-                            zmean_ = (zmean0_ + zmean1_)/2.0
+                            zmean_ = self.embedding[idx]
+                            zdiff_ = zmean0_ - zmean_
+                            zincr_ = self.alpha * zdiff_
+                            self.embedding[idx] = zmean_ + zincr_
+                            self.embedding_dif[idx] = self.alpha * self.embedding[idx] + (1.0-self.alpha)*self.embedding_dif[idx]
+                            a = 2*self.embedding[idx] - self.embedding_dif[idx]
+                            b = (self.alpha)/(1.0-self.alpha)*(self.embedding[idx] - self.embedding_dif[idx])
+                            zmean_ = a + b
                             zvars_ = self.embedding_var[idx]
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
-                            zvars_ = self.embedding_var[idx]                            
+                            zvars_ = self.embedding_var[idx]
                     elif self.fwd > 0:
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                         zvars_ = self.embedding_var[idx]
@@ -316,37 +323,37 @@ class SimPLR(LightningModule):
                     if self.emm_v == 6:
                         zdiff0_ = zg0_  - zmean_
                         zdiff1_ = zg1_  - zmean_
-                        zincr0_ = self.alpha * zdiff0_
-                        zincr1_ = self.alpha * zdiff1_
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
                         zic_ = (zincr0_ + zincr1_)/2.0
-                        sigma_  = (1.0 - self.alpha) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
-                    elif self.emm_v == 5:
-                        zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_                        
-                        sigma_ = (1.0 - self.alpha) * (zvars_ + zdf_ * zic_)
-                    elif self.emm_v == 4:
-                        zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
-                        sigma_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf_ * zic_), dim=1, keepdim=True)
-                    elif self.emm_v == 3:
-                        zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_                                              
-                        sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
-                    elif self.emm_v == 2:
-                        zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_                        
-                        sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
-                    elif self.emm_v == 1:
-                        zdf_ = zg0_ - zg1_
-                        zic_ = self.alpha * zdf_
-                        sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
+                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                    # elif self.emm_v == 5:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.gamma * zdf_                        
+                    #     sigma_ = (1.0 - self.gamma) * (zvars_ + zdf_ * zic_)
+                    # elif self.emm_v == 4:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.gamma * zdf_
+                    #     sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdf_ * zic_), dim=1, keepdim=True)
+                    # elif self.emm_v == 3:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.gamma * zdf_                                              
+                    #     sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
+                    # elif self.emm_v == 2:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.gamma * zdf_                        
+                    #     sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
+                    # elif self.emm_v == 1:
+                    #     zdf_ = zg0_ - zg1_
+                    #     zic_ = self.gamma * zdf_
+                    #     sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
                     elif self.emm_v == 0:
                         zdf0_ = zg0_ - zmean_
                         zdf1_ = zg1_ - zmean_
-                        zic0_ = self.alpha * zdf0_
-                        zic1_ = self.alpha * zdf1_
-                        sigma0_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
-                        sigma1_ = torch.mean((1.0 - self.alpha) * (zvars_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                        zic0_ = self.gamma * zdf0_
+                        zic1_ = self.gamma * zdf1_
+                        sigma0_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
+                        sigma1_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdf1_ * zic1_), dim=1, keepdim=True)
                         sigma_ = (sigma0_+sigma1_)/2.0
                         zic_ = (zic0_+zic1_)/2.0
         
@@ -360,7 +367,7 @@ class SimPLR(LightningModule):
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
                     if self.emm and self.fwd > 0:
-                        self.embedding[idx] = zmean_ + zic_
+                        # self.embedding[idx] = zmean_ + zic_
                         self.embedding_var[idx] = sigma_
                     elif self.emm and self.asm: #TODO: Deal with ASM
                         self.embedding[idx] = zmean_ + zic_
@@ -426,6 +433,9 @@ class SimPLR(LightningModule):
             self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
+                                        dtype=torch.float16,
+                                        device=self.device)
+            self.embedding_dif  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float16,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, self.prd_width),
@@ -563,7 +573,7 @@ transforms = {
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak":JSREPATransform(global_crop_size=32,
                             global_crop_scale=(0.08, 1.0),
-                            weak_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.14, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0,
@@ -686,5 +696,6 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
 
 
