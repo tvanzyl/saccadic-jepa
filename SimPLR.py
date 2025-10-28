@@ -231,8 +231,8 @@ class SimPLR(LightningModule):
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
-            self.merge_head = nn.Linear(prj_width, self.prd_width)            
-            
+            self.merge_head = nn.Linear(prj_width, self.prd_width)
+
             if nn_init == "fan-in":
                 bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
                 bound_b = bound_w
@@ -249,7 +249,7 @@ class SimPLR(LightningModule):
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
                 bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
-            # nn.init.uniform_(self.merge_head.bias, -bound_b, bound_b)
+            # nn.init.uniform_(self.merge_head.bias, -bound_w, bound_w)
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
             else:
@@ -343,7 +343,7 @@ class SimPLR(LightningModule):
                     norm1_ = torch.linalg.vector_norm((zg1_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))                    
+                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
