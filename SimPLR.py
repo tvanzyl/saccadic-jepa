@@ -332,17 +332,9 @@ class SimPLR(LightningModule):
                     zincr0_ = self.gamma * zdiff0_
                     zincr1_ = self.gamma * zdiff1_
                     if self.emm_v == 6:
-                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
-                    elif self.emm_v == 5:
-                        sigma0_ = (1.0 - self.gamma) * (zvars_ + zdiff0_ * zincr0_)
-                        sigma1_ = (1.0 - self.gamma) * (zvars_ + zdiff1_ * zincr1_)
-                        sigma_ = (sigma0_+sigma1_)/2.0                        
+                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)                    
                     elif self.emm_v == 1:
                         sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)                        
-                    elif self.emm_v == 0:
-                        sigma0_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdiff0_ * zincr0_), dim=1, keepdim=True)
-                        sigma1_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdiff1_ * zincr1_), dim=1, keepdim=True)
-                        sigma_ = (sigma0_+sigma1_)/2.0
                     else:
                         raise Exception("Not Valid EMM V")
         
