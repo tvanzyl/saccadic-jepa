@@ -73,6 +73,7 @@ parser.add_argument("--L2", action="store_true")
 parser.add_argument("--M2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
+parser.add_argument("--asym-centering", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--cycle-bias", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
@@ -203,6 +204,7 @@ def main(
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,
+    asym_centering: bool,
     alpha: float, gamma: float,
     n0: float,    n1: float,    
     linear_lr: float,
@@ -247,6 +249,7 @@ def main(
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,
+            asym_centering=asym_centering,
             alpha=alpha, gamma=gamma,
             n0=n0, n1=n1,            
             prd_width=prd_width,

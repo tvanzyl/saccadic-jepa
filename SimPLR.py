@@ -90,6 +90,7 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
+                 asym_centering:bool=False,
                  alpha:float = 0.65, gamma:float = 0.65,
                  n0:float = 1.00, n1:float = 1.00,                 
                  prd_width:int = 256,
@@ -117,6 +118,7 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_prediction_head',
+                                  'asym_centering',
                                   'alpha', 'gamma',
                                   'n0', 'n1',
                                   'prd_width', 
@@ -144,7 +146,8 @@ class SimPLR(LightningModule):
         self.alpha = alpha
         self.gamma = gamma
         self.n0 = n0
-        self.n1 = n1        
+        self.n1 = n1       
+        self.asym_centering = asym_centering 
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
@@ -281,7 +284,10 @@ class SimPLR(LightningModule):
             f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
-        p = [self.prediction_head( g_ ) for g_ in g]
+        if self.asym_centering:
+            p = [self.prediction_head( b_ ) for b_ in b]
+        else:
+            p = [self.prediction_head( g_ ) for g_ in g]
 
         # Fwds Only
         if self.fwd > 0:
@@ -371,6 +377,9 @@ class SimPLR(LightningModule):
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))                    
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
+
+                    zg0_ = n0*zg0_ + (1.-n0)*zmean_
+                    zg1_ = n1*zg1_ + (1.-n1)*zmean_
 
                     if self.emm and self.fwd > 0:
                         # self.embedding[idx] = zmean_ + zic_
@@ -575,7 +584,7 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.08, 1.0),
+                            global_crop_scale=(0.14, 1.0),
                             weak_crop_scale=(0.14, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
