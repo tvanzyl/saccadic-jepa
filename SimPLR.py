@@ -315,8 +315,8 @@ class SimPLR(LightningModule):
                             zdiff_ = zmean0_ - zmean_
                             self.log_dict({"e2":torch.mean(zdiff_**2)})
                             zincr_ = self.alpha * zdiff_
-                            self.embedding[idx] = zmean_ + zincr_
-                            zmean_ = self.embedding[idx]
+                            zmean_ = zmean_ + zincr_
+                            self.embedding[idx] = zmean_
                             zvars_ = self.embedding_var[idx]
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
@@ -327,47 +327,24 @@ class SimPLR(LightningModule):
                     else:
                         raise Exception("Not Valid Combo")
 
+                    zdiff0_ = zg0_  - zmean_
+                    zdiff1_ = zg1_  - zmean_
+                    zincr0_ = self.gamma * zdiff0_
+                    zincr1_ = self.gamma * zdiff1_
                     if self.emm_v == 6:
-                        zdiff0_ = zg0_  - zmean_
-                        zdiff1_ = zg1_  - zmean_
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
-                        zic_ = (zincr0_ + zincr1_)/2.0
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                     elif self.emm_v == 5:
-                        zdf0_ = zg0_ - zmean_
-                        zdf1_ = zg1_ - zmean_
-                        zic0_ = self.gamma * zdf0_
-                        zic1_ = self.gamma * zdf1_
-                        sigma0_ = (1.0 - self.gamma) * (zvars_ + zdf0_ * zic0_)
-                        sigma1_ = (1.0 - self.gamma) * (zvars_ + zdf1_ * zic1_)
-                        sigma_ = (sigma0_+sigma1_)/2.0
-                        zic_ = (zic0_+zic1_)/2.0
-                    # elif self.emm_v == 4:
-                    #     zdf_ = zg0_ - zg1_
-                    #     zic_ = self.gamma * zdf_
-                    #     sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdf_ * zic_), dim=1, keepdim=True)
-                    # elif self.emm_v == 3:
-                    #     zdf_ = zg0_ - zg1_
-                    #     zic_ = self.gamma * zdf_                                              
-                    #     sigma_ = 2.0/3.0*torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
-                    # elif self.emm_v == 2:
-                    #     zdf_ = zg0_ - zg1_
-                    #     zic_ = self.gamma * zdf_                        
-                    #     sigma_ = torch.mean((0.5*(zg0_-zg1_))**2, dim=1, keepdim=True)
-                    # elif self.emm_v == 1:
-                    #     zdf_ = zg0_ - zg1_
-                    #     zic_ = self.gamma * zdf_
-                    #     sigma_ = torch.mean((0.5*(zg0_-zg1_))**2)
+                        sigma0_ = (1.0 - self.gamma) * (zvars_ + zdiff0_ * zincr0_)
+                        sigma1_ = (1.0 - self.gamma) * (zvars_ + zdiff1_ * zincr1_)
+                        sigma_ = (sigma0_+sigma1_)/2.0                        
+                    elif self.emm_v == 1:
+                        sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)                        
                     elif self.emm_v == 0:
-                        zdf0_ = zg0_ - zmean_
-                        zdf1_ = zg1_ - zmean_
-                        zic0_ = self.gamma * zdf0_
-                        zic1_ = self.gamma * zdf1_
-                        sigma0_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdf0_ * zic0_), dim=1, keepdim=True)
-                        sigma1_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdf1_ * zic1_), dim=1, keepdim=True)
+                        sigma0_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdiff0_ * zincr0_), dim=1, keepdim=True)
+                        sigma1_ = torch.mean((1.0 - self.gamma) * (zvars_ + zdiff1_ * zincr1_), dim=1, keepdim=True)
                         sigma_ = (sigma0_+sigma1_)/2.0
-                        zic_ = (zic0_+zic1_)/2.0
+                    else:
+                        raise Exception("Not Valid EMM V")
         
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
@@ -381,17 +358,16 @@ class SimPLR(LightningModule):
                     zg0_ = n0*zg0_ + (1.-n0)*zmean_
                     zg1_ = n1*zg1_ + (1.-n1)*zmean_
 
-                    if self.emm and self.fwd > 0:
-                        # self.embedding[idx] = zmean_ + zic_
-                        self.embedding_var[idx] = sigma_
-                    elif self.emm and self.asm: #TODO: Deal with ASM
+                    self.embedding_var[idx] = sigma_
+
+                    if self.fwd > 0:
+                        pass
+                    elif self.asm: #TODO: Deal with ASM
+                        zic_ = (zincr0_+zincr1_)/2.0
                         self.embedding[idx] = zmean_ + zic_
-                        self.embedding_var[idx] = sigma_
                     elif self.emm:
+                        zic_ = (zincr0_+zincr1_)/2.0
                         self.embedding[idx] = zmean_ + zic_
-                        self.embedding_var[idx] = sigma_
-                    elif self.fwd > 0:
-                        self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid Combo")
 
@@ -399,7 +375,6 @@ class SimPLR(LightningModule):
                         with torch.no_grad():
                             # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
                             nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
-
 
             if self.ema_v2: #For EMA 2.0
                 raise NotImplementedError("ema v2")
