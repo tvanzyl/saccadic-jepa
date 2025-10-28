@@ -23,6 +23,7 @@ from lightly.loss.hypersphere_loss import HypersphereLoss
 from lightly.loss.msn_loss import MSNLoss
 from lightly.loss.barlow_twins_loss import BarlowTwinsLoss
 from lightly.loss.vicreg_loss import VICRegLoss
+from lightly.loss.koleo_loss import KoLeoLoss
 from lightly.loss.wmse_loss import Whitening2d
 from lightly.models.utils import (
     get_weight_decay_parameters,
@@ -105,7 +106,8 @@ class SimPLR(LightningModule):
                  fwd:int=0,
                  asm:bool=False,
                  loss:str="negcosine",
-                 nn_init:str="fan-in") -> None:
+                 nn_init:str="fan-in",
+                 whiten:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes',
@@ -130,7 +132,8 @@ class SimPLR(LightningModule):
                                   'fwd',
                                   'asm', 
                                   'loss',
-                                  'nn_init')
+                                  'nn_init',
+                                  'whiten')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
@@ -148,6 +151,7 @@ class SimPLR(LightningModule):
         self.n0 = n0
         self.n1 = n1       
         self.asym_centering = asym_centering 
+        self.whiten = whiten
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
@@ -257,6 +261,10 @@ class SimPLR(LightningModule):
             self.bound_b  = bound_b
             self.merge_head_bias = self.merge_head.bias.data.clone()
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
+            if self.whiten:
+                self.merge_head = nn.Sequential(
+                    self.merge_head, Whitening2d(track_running_stats=False)
+                )
         
         self.loss = loss
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
@@ -298,7 +306,7 @@ class SimPLR(LightningModule):
                 z_fwd = [self.merge_head( g_ ) for g_ in g_fwd]
 
         with torch.no_grad(): 
-            z = [self.merge_head( g_.detach() ) for g_ in g]
+            z = [self.merge_head( g_.detach() ) for g_ in g]            
             zg0_ = z[0]
             zg1_ = z[1]
 
