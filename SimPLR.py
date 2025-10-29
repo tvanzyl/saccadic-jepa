@@ -245,18 +245,18 @@ class SimPLR(LightningModule):
             elif nn_init == "xavier":
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
                 bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
-            nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
-            # nn.init.uniform_(self.merge_head.bias, -bound_w, bound_w)
+            nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)            
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
             else:
-                nn.init.normal_(self.merge_head.bias, 0, bound_b)
+                nn.init.uniform_(self.merge_head.bias, -bound_w, bound_w)
+                # nn.init.normal_(self.merge_head.bias, 0, bound_b)
             self.bound_b  = bound_b
             self.merge_head_bias = self.merge_head.bias.data.clone()
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
             if self.whiten:
                 self.merge_head = nn.Sequential(
-                    self.merge_head, Whitening2d(track_running_stats=False)
+                    self.merge_head, Whitening2d(self.prd_width, track_running_stats=False)
                 )
         
         if not no_ReLU_buttress:
@@ -289,9 +289,8 @@ class SimPLR(LightningModule):
         views = len(x)
 
         # Two globals
-        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-        f0_ = f[0].detach()
-        f1_ = f[1].detach()
+        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]        
+        
         if views > self.fwd + 2: # MultiCrops
             f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
         b = [self.projection_head( f_ ) for f_ in f]
@@ -320,6 +319,7 @@ class SimPLR(LightningModule):
                     self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
+                    pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                     if self.emm:
                         if self.fwd > 0:
                             zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
@@ -329,34 +329,43 @@ class SimPLR(LightningModule):
                             zincr_ = self.alpha * zdiff_
                             zmean_ = zmean_ + zincr_
                             self.embedding[idx] = zmean_
-                            zvars_ = self.embedding_var[idx]
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
-                            zvars_ = self.embedding_var[idx]
-                    elif self.fwd > 0:
+                    elif self.fwd > 0: #Use forwards as the mean
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                        zvars_ = self.embedding_var[idx]
-                    else:
-                        raise Exception("Not Valid Combo")
+                    else: #Use the student as the mean
+                        zmean_ = pmean_
 
+                    zvars_ = self.embedding_var[idx]
                     zdiff0_ = zg0_  - zmean_
                     zdiff1_ = zg1_  - zmean_
                     zincr0_ = self.gamma * zdiff0_
                     zincr1_ = self.gamma * zdiff1_
                     if self.emm_v == 6:
-                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)                    
+                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                    elif self.emm_v == 4:
+                        sigma_  = (zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0
+                        zvars_ = sigma_
+                    elif self.emm_v == 3:
+                        sigma_ = ((zg0_-zg1_)/2.0)**2.0
+                        zvars_ = sigma_
+                    elif self.emm_v == 2:
+                        sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)
+                        zvars_ = sigma_
                     elif self.emm_v == 1:
-                        sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)                        
+                        sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                     else:
                         raise Exception("Not Valid EMM V")
-        
+
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm((zg1_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
+                    # norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(zvars_**-0.5), dim=1, keepdim=True)**2
+                    # norm1_ = torch.linalg.vector_norm((zg1_-zmean_)*(zvars_**-0.5), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
-                    self.log_dict({"sigma":torch.mean(sigma_)})
+                    self.log_dict({"sigma":torch.mean(zvars_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
                     zg0_ = n0*zg0_ + (1.-n0)*zmean_
@@ -414,7 +423,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 z = z[:1]
             assert len(p)==len(z)
-        return f0_, f1_, p, z
+        return f, p, z
 
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
@@ -439,12 +448,14 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f0_, f1_, p, z = self.forward_student( x, idx )
-        
+        f, p, z = self.forward_student( x, idx )
+        f0_ = f[0].detach()
+        f1_ = f[1].detach()
+
         loss = 0
-        for xi in range(len(z)):
+        for xi in range(len(z)):            
             p_ = p[xi]
-            z_ = z[xi]
+            z_ = z[xi]            
             if self.loss == "resa":
                 loss += self.criterion( p_, z_, f0_, f1_ ) / len(z)
             else:
