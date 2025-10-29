@@ -249,8 +249,8 @@ class SimPLR(LightningModule):
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
             else:
-                nn.init.uniform_(self.merge_head.bias, -bound_w, bound_w)
-                # nn.init.normal_(self.merge_head.bias, 0, bound_b)
+                # nn.init.uniform_(self.merge_head.bias, -bound_w, bound_w)
+                nn.init.normal_(self.merge_head.bias, 0, bound_b)
             self.bound_b  = bound_b
             self.merge_head_bias = self.merge_head.bias.data.clone()
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
