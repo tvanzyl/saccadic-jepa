@@ -206,21 +206,14 @@ class SimPLR(LightningModule):
                                 )
         
         #Use Batchnorm none-affine for centering
-        if no_ReLU_buttress:
-            self.buttress =  nn.Sequential(
-                                nn.BatchNorm1d(prj_width, 
-                                affine=False),
-                        )
-        else:
-            self.buttress =  nn.Sequential(
-                                nn.BatchNorm1d(prj_width, 
-                                affine=False),
-                                nn.ReLU(),
+        self.buttress =  nn.Sequential(
+                            nn.BatchNorm1d(prj_width, 
+                            affine=False),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
-            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)
+            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)        
         if identity_head:
             if prj_width == prd_width:
                 self.merge_head = nn.Linear(self.prd_width, self.prd_width)
@@ -266,6 +259,16 @@ class SimPLR(LightningModule):
                     self.merge_head, Whitening2d(track_running_stats=False)
                 )
         
+        if not no_ReLU_buttress:
+            self.prediction_head = nn.Sequential(
+                                nn.ReLU(),
+                                self.prediction_head
+                            )
+            self.merge_head = nn.Sequential(
+                                nn.ReLU(),
+                                self.merge_head
+                            )
+
         self.loss = loss
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
                           "nxtent":NTXentLoss(memory_bank_size=0),
@@ -275,6 +278,7 @@ class SimPLR(LightningModule):
                           "resa":ReSALoss(),
                           "mse":F.mse_loss,
                           "js":JSLoss(0.001)}[loss]
+        self.koleos = KoLeoLoss()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -445,6 +449,7 @@ class SimPLR(LightningModule):
                 loss += self.criterion( p_, z_, f0_, f1_ ) / len(z)
             else:
                 loss += self.criterion( p_, z_ ) / len(z)
+            loss += 0.1 * self.koleos(p_) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
