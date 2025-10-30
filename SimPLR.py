@@ -73,6 +73,13 @@ def backbones(name):
                   "resnet-50":resnet50}[name]()
         emb_width = resnet.fc.in_features
         resnet.fc = Identity()
+    elif name in ["resnetjie-9L","resnetjie-18L"]:
+        resnet = {"resnetjie-9" :resnet18, 
+                  "resnetjie-18":resnet18}[name]()
+        emb_width = resnet.fc.in_features
+        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        resnet.maxpool = nn.Sequential()
+        resnet.fc = nn.Linear(emb_width, emb_width)
     else:
         raise NotImplemented("Backbone Not Supported")
     
@@ -152,6 +159,7 @@ class SimPLR(LightningModule):
         self.n1 = n1       
         self.asym_centering = asym_centering 
         self.whiten = whiten
+        self.no_ReLU_buttress = no_ReLU_buttress
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
@@ -271,6 +279,7 @@ class SimPLR(LightningModule):
 
         self.loss = loss
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
+                          "negcosine-k":NegativeCosineSimilarity(),
                           "nxtent":NTXentLoss(memory_bank_size=0),
                           "hypersphere":HypersphereLoss(),
                           "barlowtwins":BarlowTwinsLoss(),
@@ -384,11 +393,6 @@ class SimPLR(LightningModule):
                     else:
                         raise Exception("Not Valid Combo")
 
-                    if self.cycle_bias:
-                        with torch.no_grad():
-                            # bias_decay = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.01)
-                            nn.init.normal_(self.merge_head.bias, 0, self.bound_b*torch.mean(sigma_))
-
             if self.ema_v2: #For EMA 2.0
                 raise NotImplementedError("ema v2")
                 # n = cosine_schedule(self.global_step, 
@@ -455,12 +459,14 @@ class SimPLR(LightningModule):
         loss = 0
         for xi in range(len(z)):            
             p_ = p[xi]
-            z_ = z[xi]            
+            z_ = z[xi]
+            f_ = f[xi]            
             if self.loss == "resa":
                 loss += self.criterion( p_, z_, f0_, f1_ ) / len(z)
             else:
                 loss += self.criterion( p_, z_ ) / len(z)
-            loss += 0.1 * self.koleos(p_) / len(z)
+            if self.loss == "negcosine-k":
+                loss += 0.1 * self.koleos(f_) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
@@ -474,6 +480,12 @@ class SimPLR(LightningModule):
             (f0_, targets), batch_idx
         )        
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
+
+        with torch.no_grad():
+            if self.cycle_bias and self.no_ReLU_buttress:
+                nn.init.normal_(self.merge_head.bias, 0, self.bound_b)
+            elif self.cycle_bias:                            
+                nn.init.normal_(self.merge_head[1].bias, 0, self.bound_b)
 
         #These lines give us classical EMA v1
         if self.momentum_head:
