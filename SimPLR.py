@@ -74,8 +74,8 @@ def backbones(name):
         emb_width = resnet.fc.in_features
         resnet.fc = Identity()
     elif name in ["resnetjie-9L","resnetjie-18L"]:
-        resnet = {"resnetjie-9" :resnet18, 
-                  "resnetjie-18":resnet18}[name]()
+        resnet = {"resnetjie-9L" :resnet18, 
+                  "resnetjie-18L":resnet18}[name]()
         emb_width = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         resnet.maxpool = nn.Sequential()
@@ -427,7 +427,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 z = z[:1]
             assert len(p)==len(z)
-        return f, p, z
+        return f, b, p, z
 
     def on_train_epoch_end(self):
         if self.ema_v2 or self.JS:
@@ -452,7 +452,7 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f, p, z = self.forward_student( x, idx )
+        f, b, p, z = self.forward_student( x, idx )
         f0_ = f[0].detach()
         f1_ = f[1].detach()
 
@@ -460,13 +460,13 @@ class SimPLR(LightningModule):
         for xi in range(len(z)):            
             p_ = p[xi]
             z_ = z[xi]
-            f_ = f[xi]            
+            b_ = b[xi]            
             if self.loss == "resa":
                 loss += self.criterion( p_, z_, f0_, f1_ ) / len(z)
             else:
                 loss += self.criterion( p_, z_ ) / len(z)
             if self.loss == "negcosine-k":
-                loss += 0.1 * self.koleos(f_) / len(z)
+                loss += 0.1 * self.koleos(b_) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
