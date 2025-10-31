@@ -80,6 +80,13 @@ def backbones(name):
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         resnet.maxpool = nn.Sequential()
         resnet.fc = nn.Linear(emb_width, emb_width)
+    elif name in ["resnetjie-9L2","resnetjie-18L2"]:
+        resnet = {"resnetjie-9L2" :resnet18, 
+                  "resnetjie-18L2":resnet18}[name]()
+        emb_width = resnet.fc.in_features
+        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        resnet.maxpool = nn.Sequential()
+        resnet.fc = L2NormalizationLayer()
     else:
         raise NotImplemented("Backbone Not Supported")
     
