@@ -370,9 +370,11 @@ class SimPLR(LightningModule):
                     elif self.emm_v == 5:
                         sigma_ = torch.mean(((zg0_-zg1_))**2.0, dim=1, keepdim=True) 
                     elif self.emm_v == 4:
-                        sigma_  = torch.mean((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0, dim=1, keepdim=True)/2.0                        
+                        sigma_  = torch.mean((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0, dim=1, keepdim=True)/2.0
+                        zvars_ = sigma_
                     elif self.emm_v == 3:
-                        sigma_  = torch.mean((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0, dim=1, keepdim=True)                        
+                        sigma_  = torch.mean((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0, dim=1, keepdim=True)
+                        zvars_ = sigma_
                     elif self.emm_v == 2:
                         sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)                        
                     elif self.emm_v == 1:
