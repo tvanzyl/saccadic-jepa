@@ -356,27 +356,25 @@ class SimPLR(LightningModule):
                     zdiff1_ = zg1_  - zmean_
                     zincr0_ = self.gamma * zdiff0_
                     zincr1_ = self.gamma * zdiff1_
-                    if self.emm_v == 9:
-                        sigma_  = ((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0)/2.0
-                        zvars_ = sigma_
+                    if self.emm_v == 10:
+                        sigma_ = ((zg0_-zg1_))**2.0
+                    elif self.emm_v == 9:
+                        sigma_  = ((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0)/2.0                        
                     elif self.emm_v == 8:
-                        sigma_  = (p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0
-                        zvars_ = sigma_
+                        sigma_  = (p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0                        
                     elif self.emm_v == 7:
-                        sigma_ = ((zg0_-zg1_)/2.0)**2.0
-                        zvars_ = sigma_
+                        sigma_ = ((zg0_-zg1_)/2.0)**2.0                        
                     elif self.emm_v == 6:
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
 
+                    elif self.emm_v == 5:
+                        sigma_ = torch.mean(((zg0_-zg1_))**2.0, dim=1, keepdim=True) 
                     elif self.emm_v == 4:
-                        sigma_  = torch.mean((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0, dim=1, keepdim=True)/2.0
-                        zvars_ = sigma_
+                        sigma_  = torch.mean((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0, dim=1, keepdim=True)/2.0                        
                     elif self.emm_v == 3:
-                        sigma_  = torch.mean((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0, dim=1, keepdim=True)
-                        zvars_ = sigma_
+                        sigma_  = torch.mean((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0, dim=1, keepdim=True)                        
                     elif self.emm_v == 2:
-                        sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)
-                        zvars_ = sigma_
+                        sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)                        
                     elif self.emm_v == 1:
                         sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                     else:
@@ -388,7 +386,7 @@ class SimPLR(LightningModule):
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
-                    self.log_dict({"sigma":torch.mean(zvars_)})
+                    self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
 
                     zg0_ = n0*zg0_ + (1.-n0)*zmean_
@@ -552,7 +550,7 @@ class SimPLR(LightningModule):
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
-                end_value=0.001,
+                end_value=0.01,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
