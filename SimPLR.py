@@ -352,39 +352,49 @@ class SimPLR(LightningModule):
                         zmean_ = pmean_
 
                     zvars_ = self.embedding_var[idx]
-                    zdiff0_ = zg0_  - zmean_
-                    zdiff1_ = zg1_  - zmean_
-                    zincr0_ = self.gamma * zdiff0_
-                    zincr1_ = self.gamma * zdiff1_
+
                     if self.emm_v == 10:
-                        sigma_ = ((zg0_-zg1_))**2.0
+                        sigma_  = ((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0)
                     elif self.emm_v == 9:
                         sigma_  = ((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0)/2.0
                     elif self.emm_v == 8:
-                        sigma_  = (zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0                  
-                    elif self.emm_v == 7:
-                        sigma_ = ((zg0_-zg1_)/2.0)**2.0                        
-                    elif self.emm_v == 6:
+                        zdiff0_ = zg0_  - pmean_
+                        zdiff1_ = zg1_  - pmean_
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
-
+                    elif self.emm_v == 7:
+                        sigma_ = ((zg0_-zg1_)/2.0)**2.0
+                    elif self.emm_v == 6:
+                        zdiff0_ = zg0_  - zmean_
+                        zdiff1_ = zg1_  - zmean_
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
+                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                     elif self.emm_v == 5:
-                        sigma_ = torch.mean(((zg0_-zg1_))**2.0, dim=1, keepdim=True) 
+                        sigma_ = torch.mean(((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0), dim=1, keepdim=True)
                     elif self.emm_v == 4:
                         sigma_  = torch.mean((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0, dim=1, keepdim=True)/2.0
-                        zvars_ = sigma_
                     elif self.emm_v == 3:
-                        sigma_  = torch.mean((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0, dim=1, keepdim=True)
-                        zvars_ = sigma_
+                        zdiff0_ = zg0_  - pmean_
+                        zdiff1_ = zg1_  - pmean_
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
+                        sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                     elif self.emm_v == 2:
-                        sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)                        
+                        sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)
                     elif self.emm_v == 1:
+                        zdiff0_ = zg0_  - zmean_
+                        zdiff1_ = zg1_  - zmean_
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
                         sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                     else:
                         raise Exception("Not Valid EMM V")
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((zg0_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
-                    norm1_ = torch.linalg.vector_norm((zg1_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2                    
+                    norm1_ = torch.linalg.vector_norm((zg1_-zmean_)*(sigma_**-0.5), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
