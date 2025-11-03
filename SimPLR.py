@@ -124,7 +124,7 @@ class SimPLR(LightningModule):
                  whiten:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
-                                  'num_classes',
+                                  'num_classes', 'warmup',
                                   'backbone',
                                   'n_local_views',
                                   'lr',
@@ -552,7 +552,7 @@ class SimPLR(LightningModule):
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
-                end_value=0.01,
+                end_value=0.001,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",
