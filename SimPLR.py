@@ -359,9 +359,9 @@ class SimPLR(LightningModule):
                     if self.emm_v == 10:
                         sigma_ = ((zg0_-zg1_))**2.0
                     elif self.emm_v == 9:
-                        sigma_  = ((p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0)/2.0                        
+                        sigma_  = ((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0)/2.0
                     elif self.emm_v == 8:
-                        sigma_  = (p[0] - pmean_)**2.0 + (p[1] - pmean_)**2.0                        
+                        sigma_  = (zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0                  
                     elif self.emm_v == 7:
                         sigma_ = ((zg0_-zg1_)/2.0)**2.0                        
                     elif self.emm_v == 6:
