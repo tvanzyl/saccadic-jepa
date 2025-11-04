@@ -322,16 +322,15 @@ class SimPLR(LightningModule):
                 f_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 b_fwd = [self.projection_head( f_ ) for f_ in f_fwd]
                 g_fwd = [self.buttress( b_ ) for b_ in b_fwd]
-                p_fwd = [self.prediction_head( g_ ) for g_ in g_fwd]
                 z_fwd = [self.merge_head( g_ ) for g_ in g_fwd]
 
-            z = [self.merge_head( g_.detach() ) for g_ in g]            
+            z = [self.merge_head( g_.detach() ) for g_ in g]
             zg0_ = z[0]
             zg1_ = z[1]
 
             if self.JS: # For James-Stein
                 if self.first_epoch:
-                    self.embedding[idx] = 0.5*(zg0_+zg1_)                    
+                    self.embedding[idx] = 0.5*(zg0_+zg1_)
                     self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
@@ -344,32 +343,23 @@ class SimPLR(LightningModule):
                             zincr_ = self.alpha * zdiff_
                             zmean_ = zmean_ + zincr_
                             self.embedding[idx] = zmean_
-                            pmean_ = torch.mean(torch.stack(p_fwd, dim=0), dim=0)
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
-                            pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                     elif self.fwd > 0: #Use forwards as the mean
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                        pmean_ = torch.mean(torch.stack(p_fwd, dim=0), dim=0)
                     else: #Use the student as the mean
                         raise NotImplementedError()
-                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
-                        zmean_ = pmean_
-
+                    
                     zvars_ = self.embedding_var[idx]
 
                     if self.emm_v == 10:
-                        sigma_  = ((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0)
+                        raise NotImplementedError()
                     elif self.emm_v == 9:
-                        sigma_  = ((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0)/2.0
+                        raise NotImplementedError()
                     elif self.emm_v == 8:
-                        zdiff0_ = zg0_  - pmean_
-                        zdiff1_ = zg1_  - pmean_
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
-                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                        raise NotImplementedError()
                     elif self.emm_v == 7:
-                        sigma_ = ((zg0_-zg1_)/2.0)**2.0
+                        raise NotImplementedError()
                     elif self.emm_v == 6:
                         zdiff0_ = zg0_  - zmean_
                         zdiff1_ = zg1_  - zmean_
@@ -377,15 +367,11 @@ class SimPLR(LightningModule):
                         zincr1_ = self.gamma * zdiff1_
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                     elif self.emm_v == 5:
-                        sigma_ = torch.mean(((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0), dim=1, keepdim=True)
+                        raise NotImplementedError()
                     elif self.emm_v == 4:
-                        sigma_  = torch.mean((zg0_ - pmean_)**2.0 + (zg1_ - pmean_)**2.0, dim=1, keepdim=True)/2.0
+                        raise NotImplementedError()
                     elif self.emm_v == 3:
-                        zdiff0_ = zg0_  - pmean_
-                        zdiff1_ = zg1_  - pmean_
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        sigma_ = torch.mean(((zg0_-zg1_)*0.5)**2.0)
                     elif self.emm_v == 2:
                         sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)
                     elif self.emm_v == 1:
