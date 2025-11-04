@@ -322,7 +322,8 @@ class SimPLR(LightningModule):
                 f_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 b_fwd = [self.projection_head( f_ ) for f_ in f_fwd]
                 g_fwd = [self.buttress( b_ ) for b_ in b_fwd]
-                z_fwd = [self.merge_head( g_ ) for g_ in g_fwd]                
+                p_fwd = [self.prediction_head( g_ ) for g_ in g_fwd]
+                z_fwd = [self.merge_head( g_ ) for g_ in g_fwd]
 
             z = [self.merge_head( g_.detach() ) for g_ in g]            
             zg0_ = z[0]
@@ -334,7 +335,6 @@ class SimPLR(LightningModule):
                     self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                     if self.emm:
                         if self.fwd > 0:
                             zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
@@ -344,11 +344,16 @@ class SimPLR(LightningModule):
                             zincr_ = self.alpha * zdiff_
                             zmean_ = zmean_ + zincr_
                             self.embedding[idx] = zmean_
+                            pmean_ = torch.mean(torch.stack(p_fwd, dim=0), dim=0)
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]
+                            pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                     elif self.fwd > 0: #Use forwards as the mean
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
+                        pmean_ = torch.mean(torch.stack(p_fwd, dim=0), dim=0)
                     else: #Use the student as the mean
+                        raise NotImplementedError()
+                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                         zmean_ = pmean_
 
                     zvars_ = self.embedding_var[idx]
