@@ -317,7 +317,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision='32-true',
+                precision='16-true',
                 train_transform=METHODS[method]["train_transform"],
                 val_transform=METHODS[method]["val_transform"],
                 linear_lr=linear_lr,
