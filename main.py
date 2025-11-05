@@ -282,7 +282,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision='32-true',
                 ckpt_path=ckpt_path,
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
