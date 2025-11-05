@@ -20,11 +20,7 @@ from lightly.models import ResNetGenerator
 from lightly.loss import NegativeCosineSimilarity
 from lightly.loss.ntx_ent_loss import NTXentLoss
 from lightly.loss.hypersphere_loss import HypersphereLoss
-from lightly.loss.msn_loss import MSNLoss
-from lightly.loss.barlow_twins_loss import BarlowTwinsLoss
-from lightly.loss.vicreg_loss import VICRegLoss
 from lightly.loss.koleo_loss import KoLeoLoss
-from lightly.loss.wmse_loss import Whitening2d
 from lightly.models.utils import (
     get_weight_decay_parameters,
 )
@@ -34,7 +30,6 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 
 from action_transform import JSREPATransform
-from loss import ReSALoss, JSLoss
 
 def dataset_with_indices(cls):
     """
@@ -73,20 +68,6 @@ def backbones(name):
                   "resnet-50":resnet50}[name]()
         emb_width = resnet.fc.in_features
         resnet.fc = Identity()
-    elif name in ["resnetjie-9L","resnetjie-18L"]:
-        resnet = {"resnetjie-9L" :resnet18, 
-                  "resnetjie-18L":resnet18}[name]()
-        emb_width = resnet.fc.in_features
-        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
-        resnet.maxpool = nn.Sequential()
-        resnet.fc = nn.Linear(emb_width, emb_width)
-    elif name in ["resnetjie-9L2","resnetjie-18L2"]:
-        resnet = {"resnetjie-9L2" :resnet18, 
-                  "resnetjie-18L2":resnet18}[name]()
-        emb_width = resnet.fc.in_features
-        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
-        resnet.maxpool = nn.Sequential()
-        resnet.fc = L2NormalizationLayer()
     else:
         raise NotImplemented("Backbone Not Supported")
     
@@ -100,28 +81,25 @@ class SimPLR(LightningModule):
                  backbone:str = "resnet-50",
                  n_local_views:int = 6,
                  lr:float = 0.15,
-                 decay:float=1e-4,                 
-                 ema_v2:bool=False,
+                 decay:float=1e-4,                                  
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
                  asym_centering:bool=False,
-                 alpha:float = 0.65, gamma:float = 0.65,
-                 n0:float = 1.00, n1:float = 1.00,                 
+                 alpha:float = 0.65, gamma:float = 0.65,                 
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
-                 L2:bool=False,M2:bool=False,
+                 L2:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_prediction_head:bool=False,
                  JS:bool=False, 
-                 cycle_bias:bool=False, no_bias:bool=False,
+                 no_bias:bool=False,
                  emm:bool=False, emm_v:int=0,
                  fwd:int=0,
                  asm:bool=False,
                  loss:str="negcosine",
-                 nn_init:str="fan-in",
-                 whiten:bool=False,
+                 nn_init:str="fan-in",                 
                  end_value:float=0.001) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -130,51 +108,42 @@ class SimPLR(LightningModule):
                                   'n_local_views',
                                   'lr',
                                   'decay',
-                                  'ema_v2', 'JS',
+                                  'JS',
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
                                   'no_prediction_head',
                                   'asym_centering',
-                                  'alpha', 'gamma',
-                                  'n0', 'n1',
+                                  'alpha', 'gamma',                                  
                                   'prd_width', 
                                   "prj_depth", "prj_width",
-                                  'L2','M2',
+                                  'L2',
                                   'no_ReLU_buttress',
                                   'emm', 'emm_v', 
-                                  'cycle_bias', 'no_bias',
+                                  'no_bias',
                                   'fwd',
                                   'asm', 
                                   'loss',
-                                  'nn_init',
-                                  'whiten',
+                                  'nn_init',                                  
                                   'end_value')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
-        self.batch_size_per_device = batch_size_per_device        
-        self.ema_v2 = ema_v2
-        self.JS = JS
-        self.cycle_bias = cycle_bias
+        self.batch_size_per_device = batch_size_per_device                
+        self.JS = JS        
         self.emm = emm
         self.emm_v = emm_v
         self.fwd = fwd
         self.asm = asm
         self.momentum_head = momentum_head                
         self.alpha = alpha
-        self.gamma = gamma
-        self.n0 = n0
-        self.n1 = n1       
-        self.asym_centering = asym_centering 
-        self.whiten = whiten
+        self.gamma = gamma               
+        self.asym_centering = asym_centering         
         self.no_ReLU_buttress = no_ReLU_buttress
         self.end_value = end_value
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
-        if JS and ema_v2:
-            raise Exception("Invalid Arguments, can't select JS and EMA")
         if JS and not emm and fwd == 0:
             raise Exception("Invalid Arguments, Need One of Fwd or EMM with JS")
         if self.asm and not self.emm:
@@ -215,9 +184,6 @@ class SimPLR(LightningModule):
                 
             if L2:
                 projection_head.insert(0, L2NormalizationLayer())
-            if M2:
-                # projection_head.insert(0, nn.BatchNorm1d(self.emb_width))
-                projection_head.append(L2NormalizationLayer())
 
             self.projection_head = nn.Sequential(          
                                     *projection_head
@@ -266,16 +232,11 @@ class SimPLR(LightningModule):
             nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)            
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
-            else:
-                # nn.init.uniform_(self.merge_head.bias, -bound_w, bound_w)
+            else:                
                 nn.init.normal_(self.merge_head.bias, 0, bound_b)
             self.bound_b  = bound_b
             self.merge_head_bias = self.merge_head.bias.data.clone()
-            self.merge_head.weight.data = self.prediction_head.weight.data.clone()
-            if self.whiten:
-                self.merge_head = nn.Sequential(
-                    self.merge_head, Whitening2d(self.prd_width, track_running_stats=False)
-                )
+            self.merge_head.weight.data = self.prediction_head.weight.data.clone()            
         
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
@@ -291,12 +252,8 @@ class SimPLR(LightningModule):
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
                           "negcosine-k":NegativeCosineSimilarity(),
                           "nxtent":NTXentLoss(memory_bank_size=0),
-                          "hypersphere":HypersphereLoss(),
-                          "barlowtwins":BarlowTwinsLoss(),
-                          "vicreg":VICRegLoss(),
-                          "resa":ReSALoss(),
-                          "mse":F.mse_loss,
-                          "js":JSLoss(0.001)}[loss]
+                          "hypersphere":HypersphereLoss(),                         
+                          "mse":F.mse_loss,}[loss]
         self.koleos = KoLeoLoss()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
@@ -341,8 +298,7 @@ class SimPLR(LightningModule):
                         if self.fwd > 0:
                             zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                             zmean_ = self.embedding[idx]
-                            zdiff_ = zmean0_ - zmean_
-                            self.log_dict({"e2":torch.mean(zdiff_**2)})
+                            zdiff_ = zmean0_ - zmean_                            
                             zincr_ = self.alpha * zdiff_
                             zmean_ = zmean_ + zincr_
                             self.embedding[idx] = zmean_
@@ -411,12 +367,12 @@ class SimPLR(LightningModule):
         return f, b, p, z
 
     def on_train_epoch_end(self):
-        if self.ema_v2 or self.JS:
+        if self.JS:
             self.first_epoch = False
         return super().on_train_epoch_end()
 
     def on_train_start(self):                
-        if self.ema_v2 or self.JS:
+        if self.JS:
             self.first_epoch = True
             self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
@@ -435,17 +391,13 @@ class SimPLR(LightningModule):
         
         f, b, p, z = self.forward_student( x, idx )
         f0_ = f[0].detach()
-        f1_ = f[1].detach()
 
         loss = 0
         for xi in range(len(z)):            
             p_ = p[xi]
             z_ = z[xi]
             b_ = b[xi]            
-            if self.loss == "resa":
-                loss += self.criterion( p_, z_, f0_, f1_ ) / len(z)
-            else:
-                loss += self.criterion( p_, z_ ) / len(z)
+            loss += self.criterion( p_, z_ ) / len(z)
             if self.loss == "negcosine-k":
                 loss += 0.1 * self.koleos(b_) / len(z)
 
@@ -461,12 +413,6 @@ class SimPLR(LightningModule):
             (f0_, targets), batch_idx
         )        
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
-
-        with torch.no_grad():
-            if self.cycle_bias and self.no_ReLU_buttress:
-                nn.init.normal_(self.merge_head.bias, 0, self.bound_b)
-            elif self.cycle_bias:                            
-                nn.init.normal_(self.merge_head[1].bias, 0, self.bound_b)
 
         #These lines give us classical EMA v1
         if self.momentum_head:

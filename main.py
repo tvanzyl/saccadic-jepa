@@ -57,25 +57,20 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn-k", type=int, nargs="+")
 parser.add_argument("--lr", type=float, default=0.15)
 parser.add_argument("--decay", type=float, default=1e-4)
-parser.add_argument("--ema-v2", action="store_true")
 parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=0.65)
 parser.add_argument("--gamma", type=float, default=0.65)
-parser.add_argument("--n0", type=float, default=1.00)
-parser.add_argument("--n1", type=float, default=1.00)
 parser.add_argument("--linear-lr", type=float, default=0.1)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--L2", action="store_true")
-parser.add_argument("--M2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
 parser.add_argument("--asym-centering", action="store_true")
 parser.add_argument("--JS", action="store_true")
-parser.add_argument("--cycle-bias", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
 parser.add_argument("--emm-v", type=int, default=0)
@@ -83,7 +78,6 @@ parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--asm", action="store_true")
 parser.add_argument("--loss", type=str, default="negcosine")
 parser.add_argument("--nn-init", type=str, default="fan-in")
-parser.add_argument("--whiten", action="store_true")
 parser.add_argument("--end-value", type=float, default=0.001)
 
 METHODS = {
@@ -201,29 +195,26 @@ def main(
     ckpt_path: Union[Path, None],
     knn_k: Union[Sequence[int], int],
     lr: float,
-    decay: float,    
-    ema_v2: bool,
+    decay: float,        
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,
     asym_centering: bool,
-    alpha: float, gamma: float,
-    n0: float,    n1: float,    
+    alpha: float, gamma: float,    
     linear_lr: float,
     prd_width: int,
     prj_depth: int,
     prj_width: int,
-    L2: bool,M2: bool,
+    L2: bool,
     no_ReLU_buttress: bool,
     no_prediction_head: bool,
     JS: bool, 
-    cycle_bias: bool, no_bias: bool,
+    no_bias: bool,
     emm: bool, emm_v: int,
     fwd: int,
     asm: bool,
     loss: str,
-    nn_init: str,
-    whiten: bool,
+    nn_init: str,    
     end_value: float,
 ) -> None:
     torch.set_float32_matmul_precision("high")
@@ -248,28 +239,25 @@ def main(
             backbone=backbone,
             n_local_views=METHODS[method]["n_local_views"],
             lr=lr,
-            decay=decay,            
-            ema_v2=ema_v2,
+            decay=decay,                        
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,
             asym_centering=asym_centering,
-            alpha=alpha, gamma=gamma,
-            n0=n0, n1=n1,            
+            alpha=alpha, gamma=gamma,            
             prd_width=prd_width,
             prj_depth=prj_depth,
             prj_width=prj_width,
-            L2=L2,M2=M2,
+            L2=L2,
             no_ReLU_buttress=no_ReLU_buttress,
             no_prediction_head=no_prediction_head,
             JS=JS, 
-            cycle_bias=cycle_bias, no_bias=no_bias,
+            no_bias=no_bias,
             emm=emm, emm_v=emm_v,
             fwd=fwd,
             asm=asm,
             loss=loss,
-            nn_init=nn_init,
-            whiten=whiten,
+            nn_init=nn_init,            
             end_value=end_value,
         )
 
