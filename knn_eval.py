@@ -23,6 +23,7 @@ def knn_eval(
     num_workers: int,
     accelerator: str,
     devices: int,
+    precision: str,
     num_classes: int,
     knn_k: Union[Sequence[int], int],
     transform
@@ -65,7 +66,7 @@ def knn_eval(
             classifier = KNNClassifier(
                 model=model,
                 num_classes=num_classes,
-                feature_dtype=torch.float16,
+                feature_dtype=torch.float32,
                 knn_k=k,
                 knn_t=t,
                 # normalize=False
@@ -83,6 +84,7 @@ def knn_eval(
                     # DeviceStatsMonitor(),
                     metric_callback,
                 ],
+                precision=precision,
                 strategy="ddp_find_unused_parameters_true",
                 num_sanity_val_steps=0,
             )

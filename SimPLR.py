@@ -666,7 +666,7 @@ train_transforms = {
                     T.ToTensor(),
                     T.Normalize(mean=CIFAR10_NORMALIZE["mean"], std=CIFAR10_NORMALIZE["std"]),
                 ]),
-"Cifar100":  T.Compose([                    
+"Cifar100":  T.Compose([                       
                     T.RandomHorizontalFlip(),
                     T.ToTensor(),
                     T.Normalize(mean=CIFAR100_NORMALIZE["mean"], std=CIFAR100_NORMALIZE["std"]),

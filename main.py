@@ -311,6 +311,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
+                precision='32-true',
                 knn_k=knn_k,
                 transform=METHODS[method]["val_transform"]
             )
@@ -328,7 +329,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision='32-true',
                 train_transform=METHODS[method]["train_transform"],
                 val_transform=METHODS[method]["val_transform"],
                 linear_lr=linear_lr,
@@ -343,11 +344,11 @@ def main(
                 train_dir=train_dir,
                 val_dir=val_dir,
                 log_dir=method_dir,
-                batch_size_per_device=batch_size_per_device,
+                batch_size_per_device=256,
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision='32-true',
                 train_transform=METHODS[method]["train_transform"],
                 val_transform=METHODS[method]["val_transform"]
             )

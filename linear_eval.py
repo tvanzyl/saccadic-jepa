@@ -10,7 +10,9 @@ from torchvision import transforms as T
 
 from lightly.data import LightlyDataset
 from lightly.transforms.utils import IMAGENET_NORMALIZE
-from lightly.utils.benchmarking import LinearClassifier, MetricCallback
+from lightly.utils.benchmarking import MetricCallback
+# from lightly.utils.benchmarking import LinearClassifier
+from linear_classifier import LinearClassifier
 from lightly.utils.dist import print_rank_zero
 
 
