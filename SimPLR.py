@@ -347,33 +347,21 @@ class SimPLR(LightningModule):
                             zmean_ = self.embedding[idx]
                     elif self.fwd > 0: #Use forwards as the mean
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                    else: #Use the student as the mean
+                    else: 
                         raise NotImplementedError()
                     
                     zvars_ = self.embedding_var[idx]
 
-                    if self.emm_v == 10:
-                        raise NotImplementedError()
-                    elif self.emm_v == 9:
-                        raise NotImplementedError()
-                    elif self.emm_v == 8:
-                        raise NotImplementedError()
-                    elif self.emm_v == 7:
-                        raise NotImplementedError()
-                    elif self.emm_v == 6:
+                    if self.emm_v == 6:
                         zdiff0_ = zg0_  - zmean_
                         zdiff1_ = zg1_  - zmean_
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
-                    elif self.emm_v == 5:
-                        raise NotImplementedError()
-                    elif self.emm_v == 4:
-                        raise NotImplementedError()
                     elif self.emm_v == 3:
-                        sigma_ = torch.mean(((zg0_-zg1_)*0.5)**2.0)
+                        sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0)
                     elif self.emm_v == 2:
-                        sigma_ = torch.mean(((zg0_-zg1_)/2.0)**2.0, dim=1, keepdim=True)
+                        sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0, dim=1, keepdim=True)
                     elif self.emm_v == 1:
                         zdiff0_ = zg0_  - zmean_
                         zdiff1_ = zg1_  - zmean_
@@ -407,31 +395,6 @@ class SimPLR(LightningModule):
                         self.embedding[idx] = zmean_ + zic_
                     else:
                         raise Exception("Not Valid Combo")
-
-            if self.ema_v2: #For EMA 2.0
-                raise NotImplementedError("ema v2")
-                # n = cosine_schedule(self.global_step, 
-                #                     self.trainer.estimated_stepping_batches, 
-                #                     self.n0, self.n1)            
-                # zg_ = 0.5*(zg0_+zg1_)
-                # if self.first_epoch:
-                #     self.embedding[idx] = zg_.detach()
-                # else:                    
-                #     if self.fwd > 0 and self.emm:
-                #         ze_ = (self.embedding[idx] + zg2_)/2.0
-                #     elif self.emm:
-                #         ze_ = self.embedding[idx]
-                #     elif self.fwd > 0:
-                #         ze_ = zg2_
-
-                #     #1 means only previous, 0 means only current
-                #     zg0_ = (n)*zg0_ + (1.-n)*ze_
-                #     zg1_ = (n)*zg1_ + (1.-n)*ze_
-
-                #     if self.alpha < 1.0:
-                #         self.embedding[idx] = (self.alpha)*zg_ + (1.-self.alpha)*ze_
-                #     else:
-                #         self.embedding[idx] = zg_
             
             z = [zg1_, zg0_]
             if views > self.fwd + 2:
