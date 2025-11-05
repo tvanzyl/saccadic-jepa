@@ -121,7 +121,8 @@ class SimPLR(LightningModule):
                  asm:bool=False,
                  loss:str="negcosine",
                  nn_init:str="fan-in",
-                 whiten:bool=False) -> None:
+                 whiten:bool=False,
+                 end_value:float=0.001) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 'warmup',
@@ -147,7 +148,8 @@ class SimPLR(LightningModule):
                                   'asm', 
                                   'loss',
                                   'nn_init',
-                                  'whiten')
+                                  'whiten',
+                                  'end_value')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
@@ -167,6 +169,7 @@ class SimPLR(LightningModule):
         self.asym_centering = asym_centering 
         self.whiten = whiten
         self.no_ReLU_buttress = no_ReLU_buttress
+        self.end_value = end_value
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
@@ -492,13 +495,11 @@ class SimPLR(LightningModule):
                 {   "name": "params_weight_decay", 
                     "params": params_weight_decay,
                 },
-                {
-                    "name": "params_no_weight_decay", 
+                {   "name": "params_no_weight_decay", 
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
                 },
-                {
-                    "name": "online_classifier",
+                {   "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
                     "weight_decay": 0.0,
                     "lr": 0.1
@@ -516,7 +517,7 @@ class SimPLR(LightningModule):
                     / self.trainer.max_epochs
                     * self.warmup
                 ),
-                end_value=0.001,
+                end_value=self.end_value,
                 max_epochs=int(self.trainer.estimated_stepping_batches),
             ),
             "interval": "step",

@@ -84,6 +84,7 @@ parser.add_argument("--asm", action="store_true")
 parser.add_argument("--loss", type=str, default="negcosine")
 parser.add_argument("--nn-init", type=str, default="fan-in")
 parser.add_argument("--whiten", action="store_true")
+parser.add_argument("--end-value", type=float, default=0.001)
 
 METHODS = {
     "Cifar10":      {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -223,6 +224,7 @@ def main(
     loss: str,
     nn_init: str,
     whiten: bool,
+    end_value: float,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -268,6 +270,7 @@ def main(
             loss=loss,
             nn_init=nn_init,
             whiten=whiten,
+            end_value=end_value,
         )
 
         if compile_model and hasattr(torch, "compile"):
