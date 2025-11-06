@@ -379,7 +379,7 @@ class SimPLR(LightningModule):
             self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float32,
+                                        dtype=torch.float16,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float32,
