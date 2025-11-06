@@ -53,6 +53,15 @@ class L2NormalizationLayer(nn.Module):
     def forward(self, x: Tensor) -> Tensor:    
         return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
+class CenteringLayer(nn.Module):
+    def __init__(self, dim:int=0):
+        super(CenteringLayer, self).__init__()
+        self.dim = dim
+    
+    def forward(self, x: Tensor) -> Tensor:    
+        return x - torch.mean(x, dim=self.dim, keepdim=True)
+
+
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
@@ -77,7 +86,7 @@ def backbones(name):
 class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int,                  
                  num_classes: int, 
-                 warmup: int = 2,
+                 warmup: int = 0,
                  backbone:str = "resnet-50",
                  n_local_views:int = 6,
                  lr:float = 0.15,
@@ -86,7 +95,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,
                  asym_centering:bool=False,
-                 alpha:float = 0.65, gamma:float = 0.65,                 
+                 alpha:float = 0.80, gamma:float = 0.50,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -191,8 +200,8 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
-                            nn.BatchNorm1d(prj_width, 
-                            affine=False),
+                            CenteringLayer()
+                            # nn.BatchNorm1d(prj_width, affine=False),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
@@ -318,6 +327,9 @@ class SimPLR(LightningModule):
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                    elif self.emm_v == 4:
+                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0)
+                        sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
                     elif self.emm_v == 3:
                         sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0)
                     elif self.emm_v == 2:
