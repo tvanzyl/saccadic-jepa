@@ -250,11 +250,13 @@ class SimPLR(LightningModule):
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
                                 nn.ReLU(),
-                                self.prediction_head
+                                self.prediction_head,
+                                L2NormalizationLayer()
                             )
             self.merge_head = nn.Sequential(
                                 nn.ReLU(),
-                                self.merge_head
+                                self.merge_head,
+                                L2NormalizationLayer()
                             )
 
         self.loss = loss
@@ -262,7 +264,7 @@ class SimPLR(LightningModule):
                           "negcosine-k":NegativeCosineSimilarity(),
                           "nxtent":NTXentLoss(memory_bank_size=0),
                           "hypersphere":HypersphereLoss(),                         
-                          "mse":F.mse_loss,}[loss]
+                          "mse":nn.MSELoss()}[loss]
         self.koleos = KoLeoLoss()
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
@@ -328,8 +330,8 @@ class SimPLR(LightningModule):
                         zincr1_ = self.gamma * zdiff1_
                         sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                     elif self.emm_v == 4:
-                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0)
-                        sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
+                        pmean_ = F.normalize(torch.mean(torch.stack(p, dim=0), dim=0))
+                        sigma_ = self.gamma*((F.normalize(zg0_)-pmean_)**2.0 + (F.normalize(zg1_)-pmean_)**2.0)
                     elif self.emm_v == 3:
                         sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0)
                     elif self.emm_v == 2:
@@ -391,7 +393,7 @@ class SimPLR(LightningModule):
             self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float16,
+                                        dtype=torch.float32,
                                         device=self.device)
             self.embedding_var  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float32,
