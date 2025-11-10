@@ -200,8 +200,9 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
-                            CenteringLayer()
-                            # nn.BatchNorm1d(prj_width, affine=False),
+                            # CenteringLayer()
+                            nn.BatchNorm1d(prj_width, affine=False,
+                                           track_running_stats=False),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
@@ -250,13 +251,11 @@ class SimPLR(LightningModule):
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
                                 nn.ReLU(),
-                                self.prediction_head,
-                                L2NormalizationLayer()
+                                self.prediction_head,                                
                             )
             self.merge_head = nn.Sequential(
                                 nn.ReLU(),
-                                self.merge_head,
-                                L2NormalizationLayer()
+                                self.merge_head,                                
                             )
 
         self.loss = loss
@@ -302,7 +301,10 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
-                    self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
+                    if self.emm_v == 6:
+                        self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
+                    elif self.emm_v <= 2:
+                        self.embedding_var[idx] = torch.mean((0.5*(zg0_-zg1_))**2.0, dim=1, keepdim=True)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm:
@@ -318,28 +320,35 @@ class SimPLR(LightningModule):
                     elif self.fwd > 0: #Use forwards as the mean
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                     else: 
-                        raise NotImplementedError()
-                    
-                    zvars_ = self.embedding_var[idx]
+                        raise NotImplementedError()                    
                     
                     zdiff0_ = zg0_  - zmean_
                     zdiff1_ = zg1_  - zmean_                     
 
-                    if self.emm_v == 6:                        
+                    if self.emm_v == 6:
+                        sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_  = (1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                        self.embedding_var[idx] = sigma_
                     elif self.emm_v == 4:
-                        pmean_ = F.normalize(torch.mean(torch.stack(p, dim=0), dim=0))
-                        sigma_ = self.gamma*((F.normalize(zg0_)-pmean_)**2.0 + (F.normalize(zg1_)-pmean_)**2.0)
+                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0)
+                        sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
                     elif self.emm_v == 3:
                         sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0)
                     elif self.emm_v == 2:
-                        sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0, dim=1, keepdim=True)
-                    elif self.emm_v == 1:
+                        sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma) * (zvars_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        self.embedding_var[idx] = sigma_
+                        sigma_ = 0.5*sigma_ + 0.5*(zg0_-zg1_)**2.0
+                    elif self.emm_v == 1:
+                        sigma_ = self.embedding_var[idx]
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
+                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid EMM V")
 
@@ -355,8 +364,6 @@ class SimPLR(LightningModule):
 
                     zg0_ = n0*zg0_ + (1.-n0)*zmean_
                     zg1_ = n1*zg1_ + (1.-n1)*zmean_
-
-                    self.embedding_var[idx] = sigma_
 
                     if self.fwd > 0:
                         pass
@@ -393,11 +400,16 @@ class SimPLR(LightningModule):
             self.merge_head_bias = self.merge_head_bias.to(self.device)
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
+                                        dtype=torch.float16,
+                                        device=self.device)
+            if self.emm_v <= 2:
+                self.embedding_var  = torch.zeros((N, 1),
                                         dtype=torch.float32,
                                         device=self.device)
-            self.embedding_var  = torch.zeros((N, self.prd_width),
+            elif self.emm_v == 6:
+                self.embedding_var  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float32,
-                                        device=self.device)            
+                                        device=self.device)
         return super().on_train_start()
 
     def training_step(
@@ -412,10 +424,10 @@ class SimPLR(LightningModule):
         for xi in range(len(z)):            
             p_ = p[xi]
             z_ = z[xi]
-            b_ = b[xi]            
+            f_ = f[xi]            
             loss += self.criterion( p_, z_ ) / len(z)
             if self.loss == "negcosine-k":
-                loss += 0.1 * self.koleos(b_) / len(z)
+                loss += 0.1 * self.koleos(F.normalize(f_)) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
@@ -652,6 +664,3 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
-
-
-
