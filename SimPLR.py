@@ -201,7 +201,7 @@ class SimPLR(LightningModule):
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
                             # CenteringLayer()
-                            nn.BatchNorm1d(prj_width, affine=False,
+                            nn.BatchNorm1d(prj_width, affine=False, 
                                            track_running_stats=False),
                         )
         if no_prediction_head:
@@ -251,11 +251,13 @@ class SimPLR(LightningModule):
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
                                 nn.ReLU(),
-                                self.prediction_head,                                
+                                self.prediction_head,
+                                # L2NormalizationLayer()
                             )
             self.merge_head = nn.Sequential(
                                 nn.ReLU(),
-                                self.merge_head,                                
+                                self.merge_head,
+                                # L2NormalizationLayer()
                             )
 
         self.loss = loss
