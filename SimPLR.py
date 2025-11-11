@@ -333,6 +333,9 @@ class SimPLR(LightningModule):
                         zincr1_ = self.gamma * zdiff1_
                         sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                         self.embedding_var[idx] = sigma_
+                    elif self.emm_v == 5:
+                        pmean_ = (zmean_ + zg0_ + zg1_)/3.0
+                        sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
                     elif self.emm_v == 4:
                         pmean_ = torch.mean(torch.stack(p, dim=0), dim=0)
                         sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
@@ -429,7 +432,7 @@ class SimPLR(LightningModule):
             f_ = f[xi]            
             loss += self.criterion( p_, z_ ) / len(z)
             if self.loss == "negcosine-k":
-                loss += 0.1 * self.koleos(F.normalize(f_)) / len(z)
+                loss += 0.001 * self.koleos(F.normalize(f_)) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
