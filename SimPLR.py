@@ -451,7 +451,7 @@ class SimPLR(LightningModule):
         for xi in range(len(z)):            
             p_ = p[xi]
             z_ = z[xi]
-            b_ = f[xi]            
+            b_ = b[xi]            
             loss += self.criterion( p_, z_ ) / len(z)
             if self.loss == "negcosine-k":
                 loss += 0.01 * self.koleos(F.normalize(b_)) / len(z)
