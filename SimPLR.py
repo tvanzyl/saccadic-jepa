@@ -306,7 +306,7 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.first_epoch:
                     self.embedding[idx] = 0.5*(zg0_+zg1_)
-                    if self.emm_v == 6:
+                    if self.emm_v == 6 or self.emm_v == 5:
                         self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                     elif self.emm_v <= 2:
                         self.embedding_var[idx] = torch.mean((0.5*(zg0_-zg1_))**2.0, dim=1, keepdim=True)
@@ -321,14 +321,15 @@ class SimPLR(LightningModule):
                             zmean_ = zmean_ + zincr_
                             self.embedding[idx] = zmean_
                         else: #EMM or EMM+ASM
-                            zmean_ = self.embedding[idx]
+                            zmean_ = self.embedding[idx]                            
                     elif self.fwd > 0: #Use forwards as the mean
+                        # zmean_ = z_fwd[0]                        
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                     else: 
                         raise NotImplementedError()                    
                     
                     zdiff0_ = zg0_  - zmean_
-                    zdiff1_ = zg1_  - zmean_                     
+                    zdiff1_ = zg1_  - zmean_
 
                     if self.emm_v == 6:
                         sigma_ = self.embedding_var[idx]
@@ -337,8 +338,18 @@ class SimPLR(LightningModule):
                         sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
                         self.embedding_var[idx] = sigma_
                     elif self.emm_v == 5:
-                        pmean_ = (zmean_ + zg0_ + zg1_)/3.0
-                        sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
+                        zdiff2_ = z_fwd[0]  - zmean_
+                        zdiff3_ = z_fwd[1]  - zmean_
+                        sigma_ = self.embedding_var[idx]                        
+                        zincr0_ = self.gamma * zdiff0_
+                        zincr1_ = self.gamma * zdiff1_
+                        zincr2_ = self.gamma * zdiff2_
+                        zincr3_ = self.gamma * zdiff3_
+                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
+                                                                  (zdiff1_*zincr1_)+
+                                                                  (zdiff2_*zincr2_)+
+                                                                  (zdiff3_*zincr3_))/3.0)
+                        self.embedding_var[idx] = sigma_
                     elif self.emm_v == 4:
                         pmean_ = torch.mean(torch.stack(p, dim=0), dim=0)
                         sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
@@ -422,7 +433,7 @@ class SimPLR(LightningModule):
                 self.embedding_var  = torch.zeros((N, 1),
                                         dtype=torch.float32,
                                         device=self.device)
-            elif self.emm_v == 6:
+            elif self.emm_v == 6 or self.emm_v == 5:
                 self.embedding_var  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float32,
                                         device=self.device)
