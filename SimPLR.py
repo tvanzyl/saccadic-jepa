@@ -28,6 +28,7 @@ from lightly.models.utils import (
 from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
+from lightly.utils.debug import std_of_l2_normalized
 
 from action_transform import JSREPATransform
 
@@ -193,6 +194,7 @@ class SimPLR(LightningModule):
                 
             if L2:
                 projection_head.insert(0, L2NormalizationLayer())
+                # projection_head.append(L2NormalizationLayer())
 
             self.projection_head = nn.Sequential(          
                                     *projection_head
@@ -200,9 +202,10 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
-                            # CenteringLayer()
-                            nn.BatchNorm1d(prj_width, affine=False, 
-                                           track_running_stats=False),
+                            # L2NormalizationLayer(),
+                            CenteringLayer()
+                            # nn.BatchNorm1d(prj_width, affine=False, 
+                            #                track_running_stats=False),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
@@ -364,8 +367,16 @@ class SimPLR(LightningModule):
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
                     
+                    self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
+                    self.log_dict({"f_mean":torch.mean(f[0])})
+                    self.log_dict({"f_var":torch.var(f[0])})
+                    self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
+                    self.log_dict({"b_mean":torch.mean(b[0])})
+                    self.log_dict({"b_var":torch.var(b[0])})
+                    self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
                     self.log_dict({"sigma":torch.mean(sigma_)})
-                    self.log_dict({"JS_n0_n1":0.5*(n0.mean() + n1.mean())})
+                    self.log_dict({"zdiff":zdiff0_.mean()})                    
+                    self.log_dict({"JS_n0_n1":n0.mean()})
 
                     zg0_ = n0*zg0_ + (1.-n0)*zmean_
                     zg1_ = n1*zg1_ + (1.-n1)*zmean_
@@ -429,10 +440,10 @@ class SimPLR(LightningModule):
         for xi in range(len(z)):            
             p_ = p[xi]
             z_ = z[xi]
-            f_ = f[xi]            
+            b_ = f[xi]            
             loss += self.criterion( p_, z_ ) / len(z)
             if self.loss == "negcosine-k":
-                loss += 0.001 * self.koleos(F.normalize(f_)) / len(z)
+                loss += 0.01 * self.koleos(F.normalize(b_)) / len(z)
 
         self.log_dict(
             {"train_loss": loss},
