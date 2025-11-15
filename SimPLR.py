@@ -57,12 +57,26 @@ class L2NormalizationLayer(nn.Module):
 class CenteringLayer(nn.Module):
     def __init__(self, dim:int=0):
         super(CenteringLayer, self).__init__()
-        self.dim = dim
+        self.dim = dim        
     
     def forward(self, x: Tensor) -> Tensor:    
         return x - torch.mean(x, dim=self.dim, keepdim=True)
 
+class ScalingLayer(nn.Module):
+    def __init__(self, dim:int=0):
+        super(CenteringLayer, self).__init__()
+        self.dim = dim
+    
+    def forward(self, x: Tensor) -> Tensor:    
+        return x/torch.var(x, dim=self.dim, keepdim=True)
 
+class BiasLayer(nn.Module):
+    def __init__(self, size):
+        super(BiasLayer, self).__init__()
+        self.bias = nn.Parameter(torch.zeros(size))
+
+    def forward(self, x):
+        return x + self.bias
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
@@ -202,49 +216,57 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
-                            # L2NormalizationLayer(),
-                            CenteringLayer()
-                            # nn.BatchNorm1d(prj_width, affine=False, 
-                            #                track_running_stats=False),
+                            # CenteringLayer()
+                            nn.BatchNorm1d(prj_width, affine=False, 
+                                           track_running_stats=False),
                         )
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
-            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)        
+            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)  
+
+        if nn_init == "fan-in":
+            bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
+            bound_b = bound_w
+        elif nn_init == "fan-out":
+            bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
+            bound_b = bound_w
+        elif nn_init == "he-in":
+            bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
+            bound_b = 1 / math.sqrt(self.prediction_head.weight.size(1))
+        elif nn_init == "he-out":
+            bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
+            bound_b = 1 / math.sqrt(self.prediction_head.weight.size(0))
+        elif nn_init == "xavier":
+            bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+            bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+
         if identity_head:
             if prj_width == prd_width:
                 self.merge_head = nn.Linear(self.prd_width, self.prd_width)
                 nn.init.eye_( self.merge_head.weight )
+                if no_bias:
+                    nn.init.zeros_(self.merge_head.bias)                    
+                else:                
+                    nn.init.normal_(self.merge_head.bias, 0, bound_b)
             elif prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
-                self.merge_head = nn.Sequential(
-                    nn.AdaptiveAvgPool1d(self.prd_width),
-                    nn.Linear(self.prd_width, self.prd_width),
-                )
-                nn.init.eye_( self.merge_head[1].weight )
+                if no_bias:
+                    self.merge_head = nn.AdaptiveAvgPool1d(self.prd_width)
+                else:                    
+                    self.merge_head = nn.Sequential(
+                        nn.AdaptiveAvgPool1d(self.prd_width),
+                        BiasLayer()
+                    )
+                    nn.init.normal_(self.merge_head[1].bias, 0, bound_b)
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)
-
-            if nn_init == "fan-in":
-                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
-                bound_b = bound_w
-            elif nn_init == "fan-out":
-                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
-                bound_b = bound_w
-            elif nn_init == "he-in":
-                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
-                bound_b = 1 / math.sqrt(self.prediction_head.weight.size(1))
-            elif nn_init == "he-out":
-                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
-                bound_b = 1 / math.sqrt(self.prediction_head.weight.size(0))
-            elif nn_init == "xavier":
-                bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
-                bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)            
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
+                # nn.init.constant_(self.merge_head.bias, bound_w)                
             else:                
                 nn.init.normal_(self.merge_head.bias, 0, bound_b)
             self.bound_b  = bound_b
@@ -255,14 +277,15 @@ class SimPLR(LightningModule):
             self.prediction_head = nn.Sequential(
                                 nn.ReLU(),
                                 self.prediction_head,
-                                # L2NormalizationLayer()
-                            )
+                            )            
+            biaslayer = BiasLayer(prj_width)
+            nn.init.constant_(biaslayer.bias, bound_w)
             self.merge_head = nn.Sequential(
+                                biaslayer,
                                 nn.ReLU(),
                                 self.merge_head,
-                                # L2NormalizationLayer()
                             )
-
+        
         self.loss = loss
         self.criterion = {"negcosine":NegativeCosineSimilarity(),   
                           "negcosine-k":NegativeCosineSimilarity(),
@@ -323,7 +346,7 @@ class SimPLR(LightningModule):
                         else: #EMM or EMM+ASM
                             zmean_ = self.embedding[idx]                            
                     elif self.fwd > 0: #Use forwards as the mean
-                        # zmean_ = z_fwd[0]                        
+                        # zmean_ = z_fwd[0]
                         zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                     else: 
                         raise NotImplementedError()                    
