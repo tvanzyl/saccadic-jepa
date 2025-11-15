@@ -263,14 +263,12 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)
-            nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)            
+            nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
                 # nn.init.constant_(self.merge_head.bias, bound_w)                
             else:                
-                nn.init.normal_(self.merge_head.bias, 0, bound_b)
-            self.bound_b  = bound_b
-            self.merge_head_bias = self.merge_head.bias.data.clone()
+                nn.init.normal_(self.merge_head.bias, 0, bound_b)            
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()            
         
         if not no_ReLU_buttress:
@@ -279,7 +277,8 @@ class SimPLR(LightningModule):
                                 self.prediction_head,
                             )            
             biaslayer = BiasLayer(prj_width)
-            nn.init.constant_(biaslayer.bias, bound_w)
+            # nn.init.constant_(biaslayer.bias, bound_w)
+            nn.init.normal_(biaslayer.bias, 0, bound_w)
             self.merge_head = nn.Sequential(
                                 biaslayer,
                                 nn.ReLU(),
@@ -446,8 +445,7 @@ class SimPLR(LightningModule):
 
     def on_train_start(self):                
         if self.JS:
-            self.first_epoch = True
-            self.merge_head_bias = self.merge_head_bias.to(self.device)
+            self.first_epoch = True            
             N = len(self.trainer.train_dataloader.dataset)
             self.embedding      = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
