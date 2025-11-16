@@ -64,7 +64,7 @@ class CenteringLayer(nn.Module):
 
 class ScalingLayer(nn.Module):
     def __init__(self, dim:int=0):
-        super(CenteringLayer, self).__init__()
+        super(ScalingLayer, self).__init__()
         self.dim = dim
     
     def forward(self, x: Tensor) -> Tensor:    
@@ -269,10 +269,12 @@ class SimPLR(LightningModule):
                 # nn.init.constant_(self.merge_head.bias, bound_w)                
             else:                
                 nn.init.normal_(self.merge_head.bias, 0, bound_b)            
-            self.merge_head.weight.data = self.prediction_head.weight.data.clone()            
+            self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
+                                # ScalingLayer(),
+                                nn.Dropout(),
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
