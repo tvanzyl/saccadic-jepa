@@ -274,7 +274,7 @@ class SimPLR(LightningModule):
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
                                 # ScalingLayer(),
-                                nn.Dropout(),
+                                # nn.Dropout(),
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
