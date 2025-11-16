@@ -278,7 +278,10 @@ class SimPLR(LightningModule):
                             )            
             biaslayer = BiasLayer(prj_width)
             # nn.init.constant_(biaslayer.bias, bound_w)
-            nn.init.normal_(biaslayer.bias, 0, bound_w)
+            nn.init.uniform_(biaslayer.bias, -bound_w, bound_w)
+            # biaslayer.bias.data /= biaslayer.bias.data.abs()
+            # biaslayer.bias.data *= bound_w
+            # nn.init.normal_(biaslayer.bias, 0, bound_b)
             self.merge_head = nn.Sequential(
                                 biaslayer,
                                 nn.ReLU(),
