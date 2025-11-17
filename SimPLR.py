@@ -216,16 +216,19 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
-                            # CenteringLayer()
-                            nn.BatchNorm1d(prj_width, affine=False, 
-                                           track_running_stats=False),
+                            CenteringLayer()
+                            # nn.BatchNorm1d(prj_width, affine=False, 
+                            #                track_running_stats=False),
                         )        
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
             self.prediction_head = nn.Linear(prj_width, self.prd_width, False)  
 
-        if nn_init == "rand-out":
+        if nn_init == "rand-in":
+            bound_w = 1 / self.prediction_head.weight.size(1)
+            bound_b = bound_w
+        elif nn_init == "rand-out":
             bound_w = 1 / self.prediction_head.weight.size(0)
             bound_b = bound_w
         elif nn_init == "fan-in":
