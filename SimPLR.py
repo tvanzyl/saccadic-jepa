@@ -217,7 +217,7 @@ class SimPLR(LightningModule):
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
                             # CenteringLayer()
-                            nn.BatchNorm1d(prj_width, #affine=False, 
+                            nn.BatchNorm1d(prj_width, affine=False, 
                                            track_running_stats=False),
                         )        
         if no_prediction_head:
@@ -225,7 +225,10 @@ class SimPLR(LightningModule):
         else:
             self.prediction_head = nn.Linear(prj_width, self.prd_width, False)  
 
-        if nn_init == "fan-in":
+        if nn_init == "rand-out":
+            bound_w = 1 / self.prediction_head.weight.size(0)
+            bound_b = bound_w
+        elif nn_init == "fan-in":
             bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
             bound_b = bound_w
         elif nn_init == "fan-out":
@@ -263,25 +266,26 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
             self.merge_head = nn.Linear(prj_width, self.prd_width)
-            nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
+            # nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
+            nn.init.normal_(self.prediction_head.weight, 0, bound_w)
             if no_bias:
                 nn.init.zeros_(self.merge_head.bias)
-                # nn.init.constant_(self.merge_head.bias, bound_w)                
-            else:                
-                nn.init.normal_(self.merge_head.bias, 0, bound_b)            
+            else:
+                nn.init.normal_(self.merge_head.bias, 0, bound_b)
             self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         if not no_ReLU_buttress:
+            bound_w = 1 / self.prediction_head.weight.size(0)
             self.prediction_head = nn.Sequential(
                                 # ScalingLayer(),
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
-            # bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
-            # biaslayer = BiasLayer(prj_width)
+            biaslayer = BiasLayer(prj_width)
             # nn.init.uniform_(biaslayer.bias, -bound_w, bound_w)
-            nn.init.normal_(self.buttress[0].bias, -bound_w, bound_w)
-            nn.init.constant_(self.buttress[0].weight, 1.0)
+            nn.init.normal_(biaslayer.bias, 0, bound_w)
+            # nn.init.normal_(self.buttress[0].bias, 0, bound_w)
+            # nn.init.constant_(self.buttress[0].weight, 1.0)
             self.merge_head = nn.Sequential(
                                 # biaslayer,
                                 nn.ReLU(),
