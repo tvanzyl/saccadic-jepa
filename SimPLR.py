@@ -217,9 +217,9 @@ class SimPLR(LightningModule):
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
                             # CenteringLayer()
-                            nn.BatchNorm1d(prj_width, affine=False, 
+                            nn.BatchNorm1d(prj_width, #affine=False, 
                                            track_running_stats=False),
-                        )
+                        )        
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
@@ -274,18 +274,16 @@ class SimPLR(LightningModule):
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
                                 # ScalingLayer(),
-                                # nn.Dropout(),
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
-            biaslayer = BiasLayer(prj_width)
-            # nn.init.constant_(biaslayer.bias, bound_w)
-            nn.init.uniform_(biaslayer.bias, -bound_w, bound_w)
-            # biaslayer.bias.data /= biaslayer.bias.data.abs()
-            # biaslayer.bias.data *= bound_w
-            # nn.init.normal_(biaslayer.bias, 0, bound_b)
+            # bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
+            # biaslayer = BiasLayer(prj_width)
+            # nn.init.uniform_(biaslayer.bias, -bound_w, bound_w)
+            nn.init.normal_(self.buttress[0].bias, -bound_w, bound_w)
+            nn.init.constant_(self.buttress[0].weight, 1.0)
             self.merge_head = nn.Sequential(
-                                biaslayer,
+                                # biaslayer,
                                 nn.ReLU(),
                                 self.merge_head,
                             )
