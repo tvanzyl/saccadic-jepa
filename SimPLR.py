@@ -108,8 +108,7 @@ class SimPLR(LightningModule):
                  decay:float=1e-4,                                  
                  momentum_head:bool=False,
                  identity_head:bool=False,
-                 no_projection_head:bool=False,
-                 asym_centering:bool=False,
+                 no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
                  prd_width:int = 256,
                  prj_depth:int = 2,
@@ -121,8 +120,7 @@ class SimPLR(LightningModule):
                  no_bias:bool=False,
                  emm:bool=False, emm_v:int=0,
                  fwd:int=0,
-                 asm:bool=False,
-                 loss:str="negcosine",
+                 asm:bool=False,                 
                  nn_init:str="fan-in",                 
                  end_value:float=0.001) -> None:
         super().__init__()
@@ -136,8 +134,7 @@ class SimPLR(LightningModule):
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
-                                  'no_prediction_head',
-                                  'asym_centering',
+                                  'no_prediction_head',                                  
                                   'alpha', 'gamma',                                  
                                   'prd_width', 
                                   "prj_depth", "prj_width",
@@ -146,8 +143,7 @@ class SimPLR(LightningModule):
                                   'emm', 'emm_v', 
                                   'no_bias',
                                   'fwd',
-                                  'asm', 
-                                  'loss',
+                                  'asm',                                   
                                   'nn_init',                                  
                                   'end_value')
         self.warmup = warmup
@@ -162,7 +158,6 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head                
         self.alpha = alpha
         self.gamma = gamma               
-        self.asym_centering = asym_centering         
         self.no_ReLU_buttress = no_ReLU_buttress
         self.end_value = end_value
 
@@ -207,8 +202,7 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Selected Prediction Depth Not Supported")
                 
             if L2:
-                projection_head.insert(0, L2NormalizationLayer())
-                # projection_head.append(L2NormalizationLayer())
+                projection_head.insert(0, L2NormalizationLayer())                
 
             self.projection_head = nn.Sequential(          
                                     *projection_head
@@ -216,92 +210,70 @@ class SimPLR(LightningModule):
         
         #Use Batchnorm none-affine for centering
         self.buttress =  nn.Sequential(
-                            CenteringLayer()
-                            # nn.BatchNorm1d(prj_width, affine=False, 
-                            #                track_running_stats=False),
-                        )        
+                            # CenteringLayer()
+                            nn.BatchNorm1d(prj_width, affine=False, 
+                                           track_running_stats=False),
+                        )
+
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
-            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)  
+            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)
 
-        if nn_init == "rand-in":
-            bound_w = 1 / self.prediction_head.weight.size(1)
-            bound_b = bound_w
-        elif nn_init == "rand-out":
-            bound_w = 1 / self.prediction_head.weight.size(0)
-            bound_b = bound_w
-        elif nn_init == "fan-in":
-            bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
-            bound_b = bound_w
-        elif nn_init == "fan-out":
-            bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
-            bound_b = bound_w
-        elif nn_init == "he-in":
-            bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
-            bound_b = 1 / math.sqrt(self.prediction_head.weight.size(1))
-        elif nn_init == "he-out":
-            bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
-            bound_b = 1 / math.sqrt(self.prediction_head.weight.size(0))
-        elif nn_init == "xavier":
-            bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
-            bound_b = math.sqrt(2) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+            if nn_init == "rand-in":
+                bound_w = 1 / self.prediction_head.weight.size(1)                
+            elif nn_init == "rand-out":
+                bound_w = 1 / self.prediction_head.weight.size(0)                
+            elif nn_init == "fan-in":
+                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
+            elif nn_init == "fan-out":
+                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
+            elif nn_init == "he-in":
+                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
+            elif nn_init == "he-out":
+                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
+            elif nn_init == "xavier":
+                bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
+            
+            nn.init.normal_(self.prediction_head.weight, 0, bound_w)
+            # nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
 
         if identity_head:
             if prj_width == prd_width:
-                self.merge_head = nn.Linear(self.prd_width, self.prd_width)
-                nn.init.eye_( self.merge_head.weight )
-                if no_bias:
-                    nn.init.zeros_(self.merge_head.bias)                    
-                else:                
-                    nn.init.normal_(self.merge_head.bias, 0, bound_b)
+                self.merge_head = nn.Identity()
             elif prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
-                if no_bias:
-                    self.merge_head = nn.AdaptiveAvgPool1d(self.prd_width)
-                else:                    
-                    self.merge_head = nn.Sequential(
-                        nn.AdaptiveAvgPool1d(self.prd_width),
-                        BiasLayer()
-                    )
-                    nn.init.normal_(self.merge_head[1].bias, 0, bound_b)
+                self.merge_head = nn.AdaptiveAvgPool1d(self.prd_width)
+                #Rescale ???
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:
-            self.merge_head = nn.Linear(prj_width, self.prd_width)
-            # nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
-            nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            if no_bias:
-                nn.init.zeros_(self.merge_head.bias)
+            self.merge_head = nn.Linear(prj_width, self.prd_width, False)
+            if no_prediction_head:
+                nn.init.normal_(self.merge_head.weight, 0, bound_w)
             else:
-                nn.init.normal_(self.merge_head.bias, 0, bound_b)
-            self.merge_head.weight.data = self.prediction_head.weight.data.clone()
+                self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         if not no_ReLU_buttress:
-            bound_w = 1 / self.prediction_head.weight.size(0)
             self.prediction_head = nn.Sequential(
-                                # ScalingLayer(),
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
-            biaslayer = BiasLayer(prj_width)
-            # nn.init.uniform_(biaslayer.bias, -bound_w, bound_w)
-            nn.init.normal_(biaslayer.bias, 0, bound_w)
-            # nn.init.normal_(self.buttress[0].bias, 0, bound_w)
-            # nn.init.constant_(self.buttress[0].weight, 1.0)
-            self.merge_head = nn.Sequential(
-                                # biaslayer,
-                                nn.ReLU(),
-                                self.merge_head,
-                            )
+            if no_bias:
+                self.merge_head = nn.Sequential(                                    
+                                    nn.ReLU(),
+                                    self.merge_head,
+                                )
+            else:
+                biaslayer = BiasLayer(prj_width)
+                nn.init.normal_(biaslayer.bias, 0, bound_w)
+                self.merge_head = nn.Sequential(
+                                    biaslayer,
+                                    nn.ReLU(),
+                                    self.merge_head,
+                                )
         
-        self.loss = loss
-        self.criterion = {"negcosine":NegativeCosineSimilarity(),   
-                          "negcosine-k":NegativeCosineSimilarity(),
-                          "nxtent":NTXentLoss(memory_bank_size=0),
-                          "hypersphere":HypersphereLoss(),                         
-                          "mse":nn.MSELoss()}[loss]
-        self.koleos = KoLeoLoss()
+        self.criterion = NegativeCosineSimilarity()        
 
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
@@ -318,10 +290,7 @@ class SimPLR(LightningModule):
             f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
-        if self.asym_centering:
-            p = [self.prediction_head( b_ ) for b_ in b]
-        else:
-            p = [self.prediction_head( g_ ) for g_ in g]
+        p = [self.prediction_head( b_ ) for b_ in b]
         
         with torch.no_grad(): 
             # Fwds Only
@@ -367,38 +336,38 @@ class SimPLR(LightningModule):
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0)
+                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
+                                                                  (zdiff1_*zincr1_))/2.0)
                         self.embedding_var[idx] = sigma_
                     elif self.emm_v == 5:
-                        zdiff2_ = z_fwd[0]  - zmean_
-                        zdiff3_ = z_fwd[1]  - zmean_
-                        sigma_ = self.embedding_var[idx]                        
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
+                        zmeanz_ = torch.mean(torch.stack(z, dim=0), dim=0)
+                        zdiff2_ = z_fwd[0]  - zmeanz_
+                        zdiff3_ = z_fwd[1]  - zmeanz_
+                        sigma_ = self.embedding_var[idx]
                         zincr2_ = self.gamma * zdiff2_
                         zincr3_ = self.gamma * zdiff3_
-                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
-                                                                  (zdiff1_*zincr1_)+
-                                                                  (zdiff2_*zincr2_)+
-                                                                  (zdiff3_*zincr3_))/3.0)
+                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff2_*zincr2_)+
+                                                                  (zdiff3_*zincr3_))/2.0)
                         self.embedding_var[idx] = sigma_
                     elif self.emm_v == 4:
-                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0)
-                        sigma_ = self.gamma*((zg0_-pmean_)**2.0 + (zg1_-pmean_)**2.0)
+                        zmeanz_ = torch.mean(torch.stack(z, dim=0), dim=0)
+                        sigma_ = self.gamma*((z_fwd[0]-zmeanz_)**2.0 + (z_fwd[1]-zmeanz_)**2.0)
                     elif self.emm_v == 3:
                         sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0)
                     elif self.emm_v == 2:
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
+                                                                            (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                         self.embedding_var[idx] = sigma_
                         sigma_ = 0.5*sigma_ + 0.5*(zg0_-zg1_)**2.0
                     elif self.emm_v == 1:
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+(zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
+                                                                            (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                         self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid EMM V")
@@ -446,7 +415,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 z = z[:1]
             assert len(p)==len(z)
-        return f, b, p, z
+        return f, p, z
 
     def on_train_epoch_end(self):
         if self.JS:
@@ -475,17 +444,14 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f, b, p, z = self.forward_student( x, idx )
+        f, p, z = self.forward_student( x, idx )
         f0_ = f[0].detach()
 
         loss = 0
         for xi in range(len(z)):            
             p_ = p[xi]
             z_ = z[xi]
-            b_ = b[xi]            
-            loss += self.criterion( p_, z_ ) / len(z)
-            if self.loss == "negcosine-k":
-                loss += 0.01 * self.koleos(F.normalize(b_)) / len(z)
+            loss += self.criterion( p_, z_ ) / len(z)            
 
         self.log_dict(
             {"train_loss": loss},
@@ -537,7 +503,7 @@ class SimPLR(LightningModule):
                     "lr": 0.1
                 },
             ],            
-            lr=self.lr, #* self.batch_size_per_device * self.trainer.world_size / 256,
+            lr=self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
             weight_decay=self.decay,
         )         
@@ -554,8 +520,7 @@ class SimPLR(LightningModule):
             ),
             "interval": "step",
         }
-        # scheduler = {"scheduler": ConstantLR(optimizer=optimizer,factor=1.0,total_iters=1),"interval": "step",}
-                     
+
         return [optimizer], [scheduler]
 
 # For ResNet50 we adjust crop scales as recommended by the authors:

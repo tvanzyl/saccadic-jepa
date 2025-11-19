@@ -69,14 +69,12 @@ parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-prediction-head", action="store_true")
-parser.add_argument("--asym-centering", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
 parser.add_argument("--emm-v", type=int, default=0)
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--asm", action="store_true")
-parser.add_argument("--loss", type=str, default="negcosine")
 parser.add_argument("--nn-init", type=str, default="fan-in")
 parser.add_argument("--end-value", type=float, default=0.001)
 
@@ -198,8 +196,7 @@ def main(
     decay: float,        
     momentum_head: bool,
     identity_head: bool,
-    no_projection_head: bool,
-    asym_centering: bool,
+    no_projection_head: bool,    
     alpha: float, gamma: float,    
     linear_lr: float,
     prd_width: int,
@@ -212,8 +209,7 @@ def main(
     no_bias: bool,
     emm: bool, emm_v: int,
     fwd: int,
-    asm: bool,
-    loss: str,
+    asm: bool,    
     nn_init: str,    
     end_value: float,
 ) -> None:
@@ -242,8 +238,7 @@ def main(
             decay=decay,                        
             momentum_head=momentum_head,
             identity_head=identity_head,
-            no_projection_head=no_projection_head,
-            asym_centering=asym_centering,
+            no_projection_head=no_projection_head,            
             alpha=alpha, gamma=gamma,            
             prd_width=prd_width,
             prj_depth=prj_depth,
@@ -255,8 +250,7 @@ def main(
             no_bias=no_bias,
             emm=emm, emm_v=emm_v,
             fwd=fwd,
-            asm=asm,
-            loss=loss,
+            asm=asm,            
             nn_init=nn_init,            
             end_value=end_value,
         )
