@@ -214,9 +214,10 @@ class SimPLR(LightningModule):
             self.prediction_head = nn.Linear(prj_width, self.prd_width, False)
 
             if nn_init == "rand-in":
-                bound_w = 1 / self.prediction_head.weight.size(1)                
+                bound_w = 1 / (math.sqrt(self.prediction_head.weight.size(1))*9)
             elif nn_init == "rand-out":
-                bound_w = 1 / self.prediction_head.weight.size(0)                
+                # https://arxiv.org/pdf/2406.16468 (Cut Init)
+                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0)*9)
             elif nn_init == "fan-in":
                 bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
             elif nn_init == "fan-out":
@@ -256,6 +257,12 @@ class SimPLR(LightningModule):
                 nn.init.normal_(self.merge_head.weight, 0, bound_w)
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
+                self.prediction_head.weight.data.div_(9.0)
+        
+        # for name, param in self.projection_head.named_parameters():
+        #     if 'weight' in name: # Ensure you are targeting weights, not biases if needed
+        #         # Perform in-place division by 9
+        #         param.data.div_(9.0)
         
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
