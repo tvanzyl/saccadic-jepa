@@ -230,9 +230,9 @@ class SimPLR(LightningModule):
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             
             nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            # nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
+            # self.prediction_head.weight.data.div_(9.0)
 
-                #Use Batchnorm none-affine for centering
+        #Use Batchnorm none-affine for centering
         if no_bias:
             self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
         else:
@@ -258,11 +258,6 @@ class SimPLR(LightningModule):
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
                 self.prediction_head.weight.data.div_(9.0)
-        
-        # for name, param in self.projection_head.named_parameters():
-        #     if 'weight' in name: # Ensure you are targeting weights, not biases if needed
-        #         # Perform in-place division by 9
-        #         param.data.div_(9.0)
         
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(
@@ -571,7 +566,7 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
-"Cifar100-wea2":JSREPATransform(global_crop_size=32,
+"Cifar100-weak-2":JSREPATransform(global_crop_size=32,
                             global_crop_scale=(0.14, 1.0),
                             weak_crop_scale=(0.14, 1.0),
                             n_global_views=2,
