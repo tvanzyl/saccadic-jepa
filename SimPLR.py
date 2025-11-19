@@ -208,13 +208,6 @@ class SimPLR(LightningModule):
                                     *projection_head
                                 )
         
-        #Use Batchnorm none-affine for centering
-        self.buttress =  nn.Sequential(
-                            # CenteringLayer()
-                            nn.BatchNorm1d(prj_width, affine=False, 
-                                           track_running_stats=False),
-                        )
-
         if no_prediction_head:
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
@@ -238,6 +231,16 @@ class SimPLR(LightningModule):
             nn.init.normal_(self.prediction_head.weight, 0, bound_w)
             # nn.init.uniform_(self.prediction_head.weight, -bound_w, bound_w)
 
+                #Use Batchnorm none-affine for centering
+        if no_bias:
+            self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
+        else:
+            biaslayer = BiasLayer(prj_width)
+            nn.init.normal_(biaslayer.bias, 0, bound_w)
+            self.buttress =  nn.Sequential(            
+                                    nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),
+                                    biaslayer)
+
         if identity_head:
             if prj_width == prd_width:
                 self.merge_head = nn.Identity()
@@ -259,19 +262,10 @@ class SimPLR(LightningModule):
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
-            if no_bias:
-                self.merge_head = nn.Sequential(                                    
+            self.merge_head = nn.Sequential(                                    
                                     nn.ReLU(),
                                     self.merge_head,
-                                )
-            else:
-                biaslayer = BiasLayer(prj_width)
-                nn.init.normal_(biaslayer.bias, 0, bound_w)
-                self.merge_head = nn.Sequential(
-                                    biaslayer,
-                                    nn.ReLU(),
-                                    self.merge_head,
-                                )
+                            )
         
         self.criterion = NegativeCosineSimilarity()        
 
