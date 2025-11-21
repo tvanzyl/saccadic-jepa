@@ -54,6 +54,15 @@ class L2NormalizationLayer(nn.Module):
     def forward(self, x: Tensor) -> Tensor:    
         return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
+class StandardiseLayer(nn.Module):
+    def __init__(self, temp:float=1.0, dim:int=0):
+        super(StandardiseLayer, self).__init__()
+        self.dim = dim        
+        self.temp= temp
+    
+    def forward(self, x: Tensor) -> Tensor:    
+        return (x - torch.mean(x, dim=self.dim, keepdim=True))/(torch.var(x, dim=self.dim, keepdim=True)*self.temp)
+
 class CenteringLayer(nn.Module):
     def __init__(self, dim:int=0):
         super(CenteringLayer, self).__init__()
@@ -63,12 +72,13 @@ class CenteringLayer(nn.Module):
         return x - torch.mean(x, dim=self.dim, keepdim=True)
 
 class ScalingLayer(nn.Module):
-    def __init__(self, dim:int=0):
+    def __init__(self, temp:float=1.0, dim:int=0):
         super(ScalingLayer, self).__init__()
         self.dim = dim
+        self.temp = temp
     
     def forward(self, x: Tensor) -> Tensor:    
-        return x/torch.var(x, dim=self.dim, keepdim=True)
+        return x/(torch.var(x, dim=self.dim, keepdim=True)*self.temp)
 
 class BiasLayer(nn.Module):
     def __init__(self, size):
@@ -191,7 +201,8 @@ class SimPLR(LightningModule):
                                    nn.Linear(prj_width, prj_width, False),
                                    nn.BatchNorm1d(prj_width),
                                    nn.ReLU(),
-                                   nn.Linear(prj_width, prj_width),]
+                                   nn.Linear(prj_width, prj_width, False),
+                                   nn.BatchNorm1d(prj_width),]                
             elif prj_depth == 1:
                 projection_head = [nn.Linear(emb_width, prj_width, False),
                                    nn.BatchNorm1d(prj_width),
@@ -240,7 +251,8 @@ class SimPLR(LightningModule):
             biaslayer = BiasLayer(prj_width)
             nn.init.normal_(biaslayer.bias, 0, bound_w)
             self.buttress =  nn.Sequential(            
-                                    nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),
+                                    # nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),
+                                    StandardiseLayer(temp=0.9),
                                     biaslayer)
 
         if identity_head:
@@ -258,7 +270,9 @@ class SimPLR(LightningModule):
                 nn.init.normal_(self.merge_head.weight, 0, bound_w)
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
-                self.prediction_head.weight.data.div_(cut)
+        
+        if not no_prediction_head:
+            self.prediction_head.weight.data.div_(9.0)
         
         if not no_ReLU_buttress:
             self.prediction_head = nn.Sequential(                                
@@ -330,14 +344,20 @@ class SimPLR(LightningModule):
                             zmean_ = self.embedding[idx]                            
                     elif self.fwd > 0: #Use forwards as the mean
                         # zmean_ = z_fwd[0]
-                        zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
+                        if self.emm_v == 7:
+                            zmean_ = z_fwd[0]
+                        else:
+                            zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                     else: 
                         raise NotImplementedError()                    
                     
                     zdiff0_ = zg0_  - zmean_
                     zdiff1_ = zg1_  - zmean_
 
-                    if self.emm_v == 6:
+                    if self.emm_v == 7:
+                        zmeanz_ = z_fwd[1]
+                        sigma_ = self.gamma*((zg0_-zmeanz_)**2.0 + (zg1_-zmeanz_)**2.0)
+                    elif self.emm_v == 6:
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
