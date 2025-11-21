@@ -63,6 +63,7 @@ parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=0.80)
 parser.add_argument("--gamma", type=float, default=0.50)
 parser.add_argument("--linear-lr", type=float, default=0.1)
+parser.add_argument("--cut", type=int, default=9)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
@@ -192,13 +193,14 @@ def main(
     skip_finetune_eval: bool,
     ckpt_path: Union[Path, None],
     knn_k: Union[Sequence[int], int],
-    lr: float,
+    lr: float,    
     decay: float,        
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,    
     alpha: float, gamma: float,    
     linear_lr: float,
+    cut: int,
     prd_width: int,
     prj_depth: int,
     prj_width: int,
@@ -239,7 +241,8 @@ def main(
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,            
-            alpha=alpha, gamma=gamma,            
+            alpha=alpha, gamma=gamma,
+            cut=cut,
             prd_width=prd_width,
             prj_depth=prj_depth,
             prj_width=prj_width,

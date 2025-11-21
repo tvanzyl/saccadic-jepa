@@ -110,6 +110,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
+                 cut:int = 9,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -136,7 +137,7 @@ class SimPLR(LightningModule):
                                   'no_projection_head',
                                   'no_prediction_head',                                  
                                   'alpha', 'gamma',                                  
-                                  'prd_width', 
+                                  'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'L2',
                                   'no_ReLU_buttress',
@@ -257,16 +258,16 @@ class SimPLR(LightningModule):
                 nn.init.normal_(self.merge_head.weight, 0, bound_w)
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
-                self.prediction_head.weight.data.div_(9.0)
+                self.prediction_head.weight.data.div_(cut)
         
         if not no_ReLU_buttress:
-            self.prediction_head = nn.Sequential(
+            self.prediction_head = nn.Sequential(                                
                                 nn.ReLU(),
                                 self.prediction_head,
                             )            
             self.merge_head = nn.Sequential(                                    
-                                    nn.ReLU(),
-                                    self.merge_head,
+                                nn.ReLU(),
+                                self.merge_head,
                             )
         
         self.criterion = NegativeCosineSimilarity()        
@@ -289,6 +290,14 @@ class SimPLR(LightningModule):
         p = [self.prediction_head( b_ ) for b_ in b]
         
         with torch.no_grad(): 
+            self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
+            self.log_dict({"f_mean":torch.mean(f[0])})
+            self.log_dict({"f_var":torch.var(f[0])})
+            self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
+            self.log_dict({"b_mean":torch.mean(b[0])})
+            self.log_dict({"b_var":torch.var(b[0])})
+            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
+
             # Fwds Only
             if self.fwd > 0:            
                 f_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
@@ -375,13 +384,6 @@ class SimPLR(LightningModule):
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
                     
-                    self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
-                    self.log_dict({"f_mean":torch.mean(f[0])})
-                    self.log_dict({"f_var":torch.var(f[0])})
-                    self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
-                    self.log_dict({"b_mean":torch.mean(b[0])})
-                    self.log_dict({"b_var":torch.var(b[0])})
-                    self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"zdiff":zdiff0_.mean()})                    
                     self.log_dict({"JS_n0_n1":n0.mean()})
