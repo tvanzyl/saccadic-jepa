@@ -120,8 +120,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
-                 cut:float = 9.0,
-                 cut:float = 9.0,
+                 cut:float = 9.0,                 
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -242,8 +241,7 @@ class SimPLR(LightningModule):
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             
             nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            # nn.init.orthogonal_(self.prediction_head.weight)
-            # self.prediction_head.weight.data.div_(cut)
+            # nn.init.orthogonal_(self.prediction_head.weight)            
 
         #Use Batchnorm none-affine for centering
         if no_bias:
@@ -252,8 +250,7 @@ class SimPLR(LightningModule):
             biaslayer = BiasLayer(prj_width)
             nn.init.normal_(biaslayer.bias, 0, bound_w)
             self.buttress =  nn.Sequential(            
-                                    nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),
-                                    # StandardiseLayer(temp=0.9),
+                                    nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),                                    
                                     biaslayer)
 
         if identity_head:
@@ -273,8 +270,7 @@ class SimPLR(LightningModule):
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
-        if not no_prediction_head:
-            self.prediction_head.weight.data.div_(cut)
+        if not no_prediction_head:            
             self.prediction_head.weight.data.div_(cut)
         
         if not no_ReLU_buttress:
