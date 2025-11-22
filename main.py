@@ -63,7 +63,7 @@ parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=0.80)
 parser.add_argument("--gamma", type=float, default=0.50)
 parser.add_argument("--linear-lr", type=float, default=0.1)
-parser.add_argument("--cut", type=int, default=9)
+parser.add_argument("--cut", type=float, default=9.0)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
@@ -200,7 +200,7 @@ def main(
     no_projection_head: bool,    
     alpha: float, gamma: float,    
     linear_lr: float,
-    cut: int,
+    cut: float,
     prd_width: int,
     prj_depth: int,
     prj_width: int,

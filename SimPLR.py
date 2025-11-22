@@ -120,7 +120,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
-                 cut:int = 9,
+                 cut:float = 9.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -197,12 +197,11 @@ class SimPLR(LightningModule):
             if prj_depth == 2:
                 projection_head = [nn.Linear(emb_width, prj_width, False),
                                    nn.BatchNorm1d(prj_width),
-                                   nn.ReLU(),
+                                   nn.LeakyReLU(),
                                    nn.Linear(prj_width, prj_width, False),
                                    nn.BatchNorm1d(prj_width),
-                                   nn.ReLU(),
-                                   nn.Linear(prj_width, prj_width, False),
-                                   nn.BatchNorm1d(prj_width),]                
+                                   nn.LeakyReLU(),
+                                   nn.Linear(prj_width, prj_width),]
             elif prj_depth == 1:
                 projection_head = [nn.Linear(emb_width, prj_width, False),
                                    nn.BatchNorm1d(prj_width),
@@ -242,7 +241,8 @@ class SimPLR(LightningModule):
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             
             nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            # self.prediction_head.weight.data.div_(9.0)
+            # nn.init.orthogonal_(self.prediction_head.weight)
+            # self.prediction_head.weight.data.div_(cut)
 
         #Use Batchnorm none-affine for centering
         if no_bias:
@@ -251,8 +251,8 @@ class SimPLR(LightningModule):
             biaslayer = BiasLayer(prj_width)
             nn.init.normal_(biaslayer.bias, 0, bound_w)
             self.buttress =  nn.Sequential(            
-                                    # nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),
-                                    StandardiseLayer(temp=0.9),
+                                    nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),
+                                    # StandardiseLayer(temp=0.9),
                                     biaslayer)
 
         if identity_head:
@@ -268,15 +268,16 @@ class SimPLR(LightningModule):
             self.merge_head = nn.Linear(prj_width, self.prd_width, False)
             if no_prediction_head:
                 nn.init.normal_(self.merge_head.weight, 0, bound_w)
+                # nn.init.orthogonal_(self.merge_head.weight)
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         if not no_prediction_head:
-            self.prediction_head.weight.data.div_(9.0)
+            self.prediction_head.weight.data.div_(cut)
         
         if not no_ReLU_buttress:
-            self.prediction_head = nn.Sequential(                                
-                                nn.ReLU(),
+            self.prediction_head = nn.Sequential(                                       
+                                nn.ReLU(),                                
                                 self.prediction_head,
                             )            
             self.merge_head = nn.Sequential(                                    
@@ -504,7 +505,7 @@ class SimPLR(LightningModule):
 
     def configure_optimizers(self):
         params_weight_decay, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.prediction_head, self.projection_head]
+                    [self.backbone, self.projection_head, self.prediction_head]
                 )
         optimizer = SGD(
             [
@@ -597,10 +598,10 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
-"Cifar100-2":     DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.14, 1.0),
+"Cifar100-2":   DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.2, 1.0),
                             n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
+                            gaussian_blur=(0.0, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-4":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.14, 1.0),
