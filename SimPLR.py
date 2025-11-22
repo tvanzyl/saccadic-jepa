@@ -503,8 +503,7 @@ class SimPLR(LightningModule):
 
     def configure_optimizers(self):
         params_weight_decay, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.projection_head, self.prediction_head]
-                    [self.backbone, self.projection_head, self.prediction_head]
+                    [self.backbone, self.projection_head, self.prediction_head]                    
                 )
         optimizer = SGD(
             [
