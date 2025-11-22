@@ -68,7 +68,7 @@ class CenteringLayer(nn.Module):
         super(CenteringLayer, self).__init__()
         self.dim = dim        
     
-    def forward(self, x: Tensor) -> Tensor:    
+    def forward(self, x: Tensor) -> Tensor:                
         return x - torch.mean(x, dim=self.dim, keepdim=True)
 
 class ScalingLayer(nn.Module):
@@ -120,6 +120,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
+                 cut:float = 9.0,
                  cut:float = 9.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
@@ -273,6 +274,7 @@ class SimPLR(LightningModule):
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
         if not no_prediction_head:
+            self.prediction_head.weight.data.div_(cut)
             self.prediction_head.weight.data.div_(cut)
         
         if not no_ReLU_buttress:
@@ -506,6 +508,7 @@ class SimPLR(LightningModule):
     def configure_optimizers(self):
         params_weight_decay, params_no_weight_decay = get_weight_decay_parameters(
                     [self.backbone, self.projection_head, self.prediction_head]
+                    [self.backbone, self.projection_head, self.prediction_head]
                 )
         optimizer = SGD(
             [
@@ -515,7 +518,7 @@ class SimPLR(LightningModule):
                 {   "name": "params_no_weight_decay", 
                     "params": params_no_weight_decay,
                     "weight_decay": 0.0,
-                },
+                },                
                 {   "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
                     "weight_decay": 0.0,
