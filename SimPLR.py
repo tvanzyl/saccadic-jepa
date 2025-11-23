@@ -205,7 +205,7 @@ class SimPLR(LightningModule):
             elif prj_depth == 1:
                 projection_head = [nn.Linear(emb_width, prj_width, False),
                                    nn.BatchNorm1d(prj_width),
-                                   nn.ReLU(),
+                                   nn.LeakyReLU(),
                                    nn.Linear(prj_width, prj_width),]
             elif prj_depth == 0:
                 projection_head = [nn.Linear(emb_width, prj_width),]
@@ -400,8 +400,8 @@ class SimPLR(LightningModule):
                     norm0_ = torch.linalg.vector_norm((zdiff0_)*(sigma_**-0.5), dim=1, keepdim=True)**2
                     norm1_ = torch.linalg.vector_norm((zdiff1_)*(sigma_**-0.5), dim=1, keepdim=True)**2
 
-                    n0 = torch.maximum(1.0 - (self.prd_width-2.0)/norm0_, torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/norm1_, torch.tensor(0.0))
+                    n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
                     
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"zdiff":zdiff0_.mean()})                    
@@ -580,8 +580,8 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.14, 1.0),
-                            weak_crop_scale=(0.14, 1.0),
+                            global_crop_scale=(0.20, 1.0),
+                            weak_crop_scale=(0.20, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0,
@@ -602,10 +602,10 @@ transforms = {
                             gaussian_blur=(0.0, 0.0, 0.0),                            
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-4":   DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.14, 1.0),
+                            global_crop_scale=(0.20, 1.0),
                             n_local_views=6,
                             local_crop_size=32,
-                            local_crop_scale=(0.14, 1.0),
+                            local_crop_scale=(0.20, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
