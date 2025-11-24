@@ -397,8 +397,8 @@ class SimPLR(LightningModule):
                         raise Exception("Not Valid EMM V")
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                    norm0_ = torch.linalg.vector_norm((zdiff0_)*(sigma_**-0.5), dim=1, keepdim=True)**2
-                    norm1_ = torch.linalg.vector_norm((zdiff1_)*(sigma_**-0.5), dim=1, keepdim=True)**2
+                    norm0_ = torch.linalg.vector_norm((zdiff0_)/((sigma_**0.5)+1e-9), dim=1, keepdim=True)**2
+                    norm1_ = torch.linalg.vector_norm((zdiff1_)/((sigma_**0.5)+1e-9), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
@@ -593,9 +593,8 @@ transforms = {
                             n_global_views=2,
                             n_weak_views=2,
                             n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
+                            gaussian_blur=(0.5, 0.1, 0.0),
                             normalize=CIFAR100_NORMALIZE),
-
 "Cifar100-2":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
                             n_local_views=0,
