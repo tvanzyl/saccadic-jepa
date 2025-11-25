@@ -81,12 +81,31 @@ class ScalingLayer(nn.Module):
         return x/(torch.var(x, dim=self.dim, keepdim=True)*self.temp)
 
 class BiasLayer(nn.Module):
-    def __init__(self, size):
+    def __init__(self, size:int):
         super(BiasLayer, self).__init__()
         self.bias = nn.Parameter(torch.zeros(size))
 
     def forward(self, x):
         return x + self.bias
+
+class LinearEnsemble(nn.Module):
+    def __init__(self, input_dim, output_dim, num_models):
+        super(LinearEnsemble, self).__init__()
+        self.num_models = num_models
+        self.models = nn.ModuleList([
+            nn.Linear(input_dim, output_dim) for _ in range(num_models)
+        ])
+
+    def forward(self, x):
+        # Collect outputs from each individual linear layer
+        outputs = [model(x) for model in self.models]
+
+        # Combine the outputs (e.g., by averaging them)
+        # Stacking and then taking the mean across the model dimension
+        stacked_outputs = torch.stack(outputs, dim=0)
+        ensemble_output = torch.mean(stacked_outputs, dim=0)
+        return ensemble_output
+
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
@@ -593,7 +612,7 @@ transforms = {
                             n_global_views=2,
                             n_weak_views=2,
                             n_local_views=0,
-                            gaussian_blur=(0.5, 0.1, 0.0),
+                            # gaussian_blur=(0.5, 0.1, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-2":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
