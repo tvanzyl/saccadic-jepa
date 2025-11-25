@@ -329,6 +329,7 @@ class SimPLR(LightningModule):
             self.log_dict({"b_mean":torch.mean(b[0])})
             self.log_dict({"b_var":torch.var(b[0])})
             self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
+            self.log_dict({"rank":torch.linalg.matrix_rank(p)})
 
             # Fwds Only
             if self.fwd > 0:            
@@ -424,7 +425,7 @@ class SimPLR(LightningModule):
                     
                     self.log_dict({"sigma":torch.mean(sigma_)})
                     self.log_dict({"zdiff":zdiff0_.mean()})                    
-                    self.log_dict({"JS_n0_n1":n0.mean()})
+                    self.log_dict({"JS_n0_n1":n0.mean()})                    
 
                     zg0_ = n0*zg0_ + (1.-n0)*zmean_
                     zg1_ = n1*zg1_ + (1.-n1)*zmean_
