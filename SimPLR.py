@@ -328,8 +328,7 @@ class SimPLR(LightningModule):
             self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
             self.log_dict({"b_mean":torch.mean(b[0])})
             self.log_dict({"b_var":torch.var(b[0])})
-            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
-            self.log_dict({"rank":torch.linalg.matrix_rank(p)})
+            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})            
 
             # Fwds Only
             if self.fwd > 0:            
@@ -464,9 +463,10 @@ class SimPLR(LightningModule):
         if self.JS:
             self.first_epoch = True            
             N = len(self.trainer.train_dataloader.dataset)
-            self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float16,
-                                        device=self.device)
+            if self.emm:
+                self.embedding      = torch.empty((N, self.prd_width),
+                                            dtype=torch.float16,
+                                            device=self.device)
             if self.emm_v <= 2:
                 self.embedding_var  = torch.zeros((N, 1),
                                         dtype=torch.float32,
