@@ -262,11 +262,11 @@ class SimPLR(LightningModule):
         
         with torch.no_grad(): 
             self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
-            # self.log_dict({"f_mean":torch.mean(f[0])})
-            # self.log_dict({"f_var":torch.var(f[0])})
+            self.log_dict({"f_mean":torch.mean(f[0])})
+            self.log_dict({"f_var":torch.var(f[0])})
             self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
-            # self.log_dict({"b_mean":torch.mean(b[0])})
-            # self.log_dict({"b_var":torch.var(b[0])})
+            self.log_dict({"b_mean":torch.mean(b[0])})
+            self.log_dict({"b_var":torch.var(b[0])})
             self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})            
 
             # Fwds Only
