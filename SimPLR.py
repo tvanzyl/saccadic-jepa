@@ -260,7 +260,7 @@ class SimPLR(LightningModule):
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             
             # nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            nn.init.orthogonal_(self.prediction_head.weight)
+            nn.init.orthogonal_(self.prediction_head.weight)            
 
         #Use Batchnorm none-affine for centering
         if no_bias:
