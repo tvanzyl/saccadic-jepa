@@ -259,8 +259,8 @@ class SimPLR(LightningModule):
             elif nn_init == "xavier":
                 bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
             
-            nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            # nn.init.orthogonal_(self.prediction_head.weight)            
+            # nn.init.normal_(self.prediction_head.weight, 0, bound_w)
+            nn.init.orthogonal_(self.prediction_head.weight)
 
         #Use Batchnorm none-affine for centering
         if no_bias:
@@ -281,7 +281,7 @@ class SimPLR(LightningModule):
                 #Rescale ???
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
-        else:
+        else:            
             self.merge_head = nn.Linear(prj_width, self.prd_width, False)
             if no_prediction_head:
                 nn.init.normal_(self.merge_head.weight, 0, bound_w)
@@ -328,8 +328,7 @@ class SimPLR(LightningModule):
             self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
             self.log_dict({"b_mean":torch.mean(b[0])})
             self.log_dict({"b_var":torch.var(b[0])})
-            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
-            self.log_dict({"rank":torch.linalg.matrix_rank(p)})
+            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})            
 
             # Fwds Only
             if self.fwd > 0:            
@@ -462,10 +461,11 @@ class SimPLR(LightningModule):
     def on_train_start(self):                
         if self.JS:
             self.first_epoch = True            
-            N = len(self.trainer.train_dataloader.dataset)
-            self.embedding      = torch.empty((N, self.prd_width),
-                                        dtype=torch.float16,
-                                        device=self.device)
+            N = len(self.trainer.train_dataloader.dataset)            
+            if self.emm:
+                self.embedding      = torch.empty((N, self.prd_width),
+                                            dtype=torch.float16,
+                                            device=self.device)
             if self.emm_v <= 2:
                 self.embedding_var  = torch.zeros((N, 1),
                                         dtype=torch.float32,
@@ -608,12 +608,12 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak-2":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
-                            weak_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.14, 1.0),
+                            weak_crop_scale=(0.14, 1.0),
                             n_global_views=2,
                             n_weak_views=2,
                             n_local_views=0,
-                            # gaussian_blur=(0.5, 0.1, 0.0),
+                            gaussian_blur=(0.5, 0.1, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-2":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
