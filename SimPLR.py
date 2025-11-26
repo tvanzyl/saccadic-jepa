@@ -54,32 +54,6 @@ class L2NormalizationLayer(nn.Module):
     def forward(self, x: Tensor) -> Tensor:    
         return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
-class StandardiseLayer(nn.Module):
-    def __init__(self, temp:float=1.0, dim:int=0):
-        super(StandardiseLayer, self).__init__()
-        self.dim = dim        
-        self.temp= temp
-    
-    def forward(self, x: Tensor) -> Tensor:    
-        return (x - torch.mean(x, dim=self.dim, keepdim=True))/(torch.var(x, dim=self.dim, keepdim=True)*self.temp)
-
-class CenteringLayer(nn.Module):
-    def __init__(self, dim:int=0):
-        super(CenteringLayer, self).__init__()
-        self.dim = dim        
-    
-    def forward(self, x: Tensor) -> Tensor:                
-        return x - torch.mean(x, dim=self.dim, keepdim=True)
-
-class ScalingLayer(nn.Module):
-    def __init__(self, temp:float=1.0, dim:int=0):
-        super(ScalingLayer, self).__init__()
-        self.dim = dim
-        self.temp = temp
-    
-    def forward(self, x: Tensor) -> Tensor:    
-        return x/(torch.var(x, dim=self.dim, keepdim=True)*self.temp)
-
 class BiasLayer(nn.Module):
     def __init__(self, size:int):
         super(BiasLayer, self).__init__()
@@ -87,25 +61,6 @@ class BiasLayer(nn.Module):
 
     def forward(self, x):
         return x + self.bias
-
-class LinearEnsemble(nn.Module):
-    def __init__(self, input_dim, output_dim, num_models):
-        super(LinearEnsemble, self).__init__()
-        self.num_models = num_models
-        self.models = nn.ModuleList([
-            nn.Linear(input_dim, output_dim) for _ in range(num_models)
-        ])
-
-    def forward(self, x):
-        # Collect outputs from each individual linear layer
-        outputs = [model(x) for model in self.models]
-
-        # Combine the outputs (e.g., by averaging them)
-        # Stacking and then taking the mean across the model dimension
-        stacked_outputs = torch.stack(outputs, dim=0)
-        ensemble_output = torch.mean(stacked_outputs, dim=0)
-        return ensemble_output
-
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
@@ -158,24 +113,19 @@ class SimPLR(LightningModule):
                                   'num_classes', 'warmup',
                                   'backbone',
                                   'n_local_views',
-                                  'lr',
-                                  'decay',
-                                  'JS',
+                                  'lr', 'decay', 'JS',
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
-                                  'no_prediction_head',                                  
-                                  'alpha', 'gamma',                                  
+                                  'no_prediction_head',
+                                  'alpha', 'gamma',
                                   'cut','prd_width', 
-                                  "prj_depth", "prj_width",
-                                  'L2',
+                                  "prj_depth", "prj_width", 'L2',
                                   'no_ReLU_buttress',
                                   'emm', 'emm_v', 
                                   'no_bias',
-                                  'fwd',
-                                  'asm',                                   
-                                  'nn_init',                                  
-                                  'end_value')
+                                  'fwd', 'asm',
+                                  'nn_init', 'end_value')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
@@ -242,25 +192,15 @@ class SimPLR(LightningModule):
             self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
             self.prediction_head = nn.Linear(prj_width, self.prd_width, False)
-
-            if nn_init == "rand-in":
-                bound_w = 1 / (math.sqrt(self.prediction_head.weight.size(1))*9)
-            elif nn_init == "rand-out":
-                # https://arxiv.org/pdf/2406.16468 (Cut Init)
-                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0)*9)
-            elif nn_init == "fan-in":
+            
+            # https://arxiv.org/pdf/2406.16468 (Cut Init)
+            if nn_init == "fan-in":
                 bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
             elif nn_init == "fan-out":
                 bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
-            elif nn_init == "he-in":
-                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(1))
-            elif nn_init == "he-out":
-                bound_w = math.sqrt(3) / math.sqrt(self.prediction_head.weight.size(0))
-            elif nn_init == "xavier":
-                bound_w = math.sqrt(6) / math.sqrt(self.prediction_head.weight.size(0) + self.prediction_head.weight.size(1))
-            
+
             # nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            nn.init.orthogonal_(self.prediction_head.weight)            
+            nn.init.orthogonal_(self.prediction_head.weight)
 
         #Use Batchnorm none-affine for centering
         if no_bias:
@@ -277,8 +217,7 @@ class SimPLR(LightningModule):
                 self.merge_head = nn.Identity()
             elif prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
-                self.merge_head = nn.AdaptiveAvgPool1d(self.prd_width)
-                #Rescale ???
+                self.merge_head = nn.AdaptiveAvgPool1d(self.prd_width)                
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:            
@@ -323,11 +262,11 @@ class SimPLR(LightningModule):
         
         with torch.no_grad(): 
             self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
-            self.log_dict({"f_mean":torch.mean(f[0])})
-            self.log_dict({"f_var":torch.var(f[0])})
+            # self.log_dict({"f_mean":torch.mean(f[0])})
+            # self.log_dict({"f_var":torch.var(f[0])})
             self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
-            self.log_dict({"b_mean":torch.mean(b[0])})
-            self.log_dict({"b_var":torch.var(b[0])})
+            # self.log_dict({"b_mean":torch.mean(b[0])})
+            # self.log_dict({"b_var":torch.var(b[0])})
             self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})            
 
             # Fwds Only
@@ -380,8 +319,8 @@ class SimPLR(LightningModule):
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
-                                                                  (zdiff1_*zincr1_))/2.0)
+                        sigma_  = (1.0 - self.gamma)*(sigma_ + ((zdiff0_*zincr0_)+
+                                                                (zdiff1_*zincr1_))/2.0)
                         self.embedding_var[idx] = sigma_
                     elif self.emm_v == 5:
                         zmeanz_ = torch.mean(torch.stack(z, dim=0), dim=0)
@@ -402,16 +341,16 @@ class SimPLR(LightningModule):
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
-                                                                            (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        sigma_ = torch.mean((1.0 - self.gamma)*(sigma_ + ((zdiff0_*zincr0_)+
+                                                                          (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                         self.embedding_var[idx] = sigma_
                         sigma_ = 0.5*sigma_ + 0.5*(zg0_-zg1_)**2.0
                     elif self.emm_v == 1:
                         sigma_ = self.embedding_var[idx]
                         zincr0_ = self.gamma * zdiff0_
                         zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma) * (sigma_ + ((zdiff0_*zincr0_)+
-                                                                            (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
+                        sigma_ = torch.mean((1.0 - self.gamma)*(sigma_ + ((zdiff0_*zincr0_)+
+                                                                          (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
                         self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid EMM V")
