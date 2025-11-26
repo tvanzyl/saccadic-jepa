@@ -161,7 +161,10 @@ METHODS = {
                      "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
                      "transform": SimPLR.transforms["Im100-weak"],},
-                
+    "Im100-weak-2": {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Im100"],
+                     "val_transform": SimPLR.val_transforms["Im100"],
+                     "transform": SimPLR.transforms["Im100-weak-2"],},    
     
     "Im1k-8":       {"model": SimPLR.SimPLR, "n_local_views":6,
                      "train_transform": SimPLR.train_transforms["Im1k"],

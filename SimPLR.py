@@ -314,7 +314,7 @@ class SimPLR(LightningModule):
 
         # Two globals
         f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]        
-        
+        f0_ = f[0]
         if views > self.fwd + 2: # MultiCrops
             f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
         b = [self.projection_head( f_ ) for f_ in f]
@@ -328,7 +328,8 @@ class SimPLR(LightningModule):
             self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
             self.log_dict({"b_mean":torch.mean(b[0])})
             self.log_dict({"b_var":torch.var(b[0])})
-            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})            
+            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})
+            self.log_dict({"rank":torch.linalg.matrix_rank(p)})
 
             # Fwds Only
             if self.fwd > 0:            
@@ -343,7 +344,8 @@ class SimPLR(LightningModule):
 
             if self.JS: # For James-Stein
                 if self.first_epoch:
-                    self.embedding[idx] = 0.5*(zg0_+zg1_)
+                    if self.emm:
+                        self.embedding[idx] = 0.5*(zg0_+zg1_)
                     if self.emm_v == 6 or self.emm_v == 5:
                         self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
                     elif self.emm_v <= 2:
@@ -451,7 +453,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 z = z[:1]
             assert len(p)==len(z)
-        return f, p, z
+        return f0_, p, z
 
     def on_train_epoch_end(self):
         if self.JS:
@@ -461,11 +463,10 @@ class SimPLR(LightningModule):
     def on_train_start(self):                
         if self.JS:
             self.first_epoch = True            
-            N = len(self.trainer.train_dataloader.dataset)            
-            if self.emm:
-                self.embedding      = torch.empty((N, self.prd_width),
-                                            dtype=torch.float16,
-                                            device=self.device)
+            N = len(self.trainer.train_dataloader.dataset)
+            self.embedding      = torch.empty((N, self.prd_width),
+                                        dtype=torch.float16,
+                                        device=self.device)
             if self.emm_v <= 2:
                 self.embedding_var  = torch.zeros((N, 1),
                                         dtype=torch.float32,
@@ -481,8 +482,7 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f, p, z = self.forward_student( x, idx )
-        f0_ = f[0].detach()
+        f0_, p, z = self.forward_student( x, idx )        
 
         loss = 0
         for xi in range(len(z)):            
@@ -500,7 +500,7 @@ class SimPLR(LightningModule):
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
             (f0_, targets), batch_idx
-        )        
+        )
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         #These lines give us classical EMA v1
@@ -685,7 +685,11 @@ transforms = {
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0),
-
+"Im100-weak-2": JSREPATransform(global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
+                            n_global_views=2,
+                            n_weak_views=2,
+                            n_local_views=0),
 
 "Im1k-8":       DINOTransform(global_crop_scale=(0.14, 1.00),
                             local_crop_scale =(0.05, 0.14)),
