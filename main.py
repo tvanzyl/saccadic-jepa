@@ -6,10 +6,6 @@ from typing import Dict, Sequence, Union
 import SimPLR
 from SimPLR import (
     dataset_with_indices,
-    CIFAR10_NORMALIZE,
-    CIFAR100_NORMALIZE,
-    TINYIMAGE_NORMALIZE,
-    STL10_NORMALIZE
 )
 import finetune_eval
 import knn_eval
@@ -63,7 +59,7 @@ parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=0.80)
 parser.add_argument("--gamma", type=float, default=0.50)
 parser.add_argument("--linear-lr", type=float, default=0.1)
-parser.add_argument("--cut", type=float, default=9.0)
+parser.add_argument("--cut", type=float, default=1.0)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)

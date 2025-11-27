@@ -1,29 +1,22 @@
-import copy
 import math
 from typing import List, Tuple, Union
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from pytorch_lightning import LightningModule
 from torch import Tensor
 from torch.nn import Identity
-from torch.optim import SGD, AdamW
-from torch.optim.lr_scheduler import ConstantLR
-from torch.optim.optimizer import Optimizer
+from torch.optim import SGD
+
 from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34, resnet18
 
+from pytorch_lightning import LightningModule
+
 from lightly.transforms.utils import IMAGENET_NORMALIZE
 from lightly.models._momentum import _do_momentum_update
-from lightly.models import ResNetGenerator
 from lightly.loss import NegativeCosineSimilarity
-from lightly.loss.ntx_ent_loss import NTXentLoss
-from lightly.loss.hypersphere_loss import HypersphereLoss
-from lightly.loss.koleo_loss import KoLeoLoss
-from lightly.models.utils import (
-    get_weight_decay_parameters,
-)
+from lightly.models.utils import get_weight_decay_parameters
 
 from lightly.transforms import DINOTransform
 from lightly.utils.benchmarking import OnlineLinearClassifier
@@ -94,7 +87,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
-                 cut:float = 9.0,                 
+                 cut:float = 1.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -206,9 +199,9 @@ class SimPLR(LightningModule):
         if no_bias:
             self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
         else:
-            biaslayer = BiasLayer(prj_width)
+            biaslayer = BiasLayer(prj_width)            
             nn.init.normal_(biaslayer.bias, 0, bound_w)
-            self.buttress =  nn.Sequential(            
+            self.buttress =  nn.Sequential(
                                     nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),                                    
                                     biaslayer)
 
@@ -223,12 +216,13 @@ class SimPLR(LightningModule):
         else:            
             self.merge_head = nn.Linear(prj_width, self.prd_width, False)
             if no_prediction_head:
-                nn.init.normal_(self.merge_head.weight, 0, bound_w)
-                # nn.init.orthogonal_(self.merge_head.weight)
+                # nn.init.normal_(self.merge_head.weight, 0, bound_w)
+                nn.init.orthogonal_(self.merge_head.weight)
             else:
                 self.merge_head.weight.data = self.prediction_head.weight.data.clone()
         
-        if not no_prediction_head:            
+        # https://arxiv.org/pdf/2406.16468 (Cut Init)
+        if not no_prediction_head and cut > 1.0:
             self.prediction_head.weight.data.div_(cut)
         
         if not no_ReLU_buttress:
@@ -241,9 +235,15 @@ class SimPLR(LightningModule):
                                 self.merge_head,
                             )
         
-        self.criterion = NegativeCosineSimilarity()        
+        self.sigma_head = nn.Sequential(                                       
+                                nn.ReLU(),
+                                nn.Linear(prj_width, prd_width)
+                            )  
 
-        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
+        self.criterion = NegativeCosineSimilarity()
+        self.sigma_crt = nn.GaussianNLLLoss()
+
+        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)        
 
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
@@ -259,6 +259,8 @@ class SimPLR(LightningModule):
         b = [self.projection_head( f_ ) for f_ in f]
         g = [self.buttress( b_ ) for b_ in b]
         p = [self.prediction_head( b_ ) for b_ in b]
+
+        sigmas = [torch.exp(self.sigma_head( g_.detach() )) for g_ in g]
         
         with torch.no_grad(): 
             self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
@@ -279,9 +281,11 @@ class SimPLR(LightningModule):
             z = [self.merge_head( g_.detach() ) for g_ in g]
             zg0_ = z[0]
             zg1_ = z[1]
-
+            
             if self.JS: # For James-Stein
-                if self.first_epoch:
+                if self.current_epoch == 0:     
+                    if self.fwd > 0:
+                        zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
                     if self.emm:
                         self.embedding[idx] = 0.5*(zg0_+zg1_)
                     if self.emm_v == 6 or self.emm_v == 5:
@@ -312,7 +316,9 @@ class SimPLR(LightningModule):
                     zdiff0_ = zg0_  - zmean_
                     zdiff1_ = zg1_  - zmean_
 
-                    if self.emm_v == 7:
+                    if self.emm_v == 8:                                                
+                        sigma_ = torch.mean(torch.stack(sigmas, dim=0), dim=0)
+                    elif self.emm_v == 7:
                         zmeanz_ = z_fwd[1]
                         sigma_ = self.gamma*((zg0_-zmeanz_)**2.0 + (zg1_-zmeanz_)**2.0)
                     elif self.emm_v == 6:
@@ -382,6 +388,7 @@ class SimPLR(LightningModule):
                     else:
                         raise Exception("Not Valid Combo")
             
+            zorg = z
             z = [zg1_, zg0_]
             if views > self.fwd + 2:
                 zg_ = 0.5*(zg0_+zg1_)
@@ -391,16 +398,10 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 z = z[:1]
             assert len(p)==len(z)
-        return f0_, p, z
-
-    def on_train_epoch_end(self):
-        if self.JS:
-            self.first_epoch = False
-        return super().on_train_epoch_end()
+        return f0_, p, z, sigmas, zorg, zmean_
 
     def on_train_start(self):                
-        if self.JS:
-            self.first_epoch = True            
+        if self.JS:            
             N = len(self.trainer.train_dataloader.dataset)
             if self.emm:
                 self.embedding      = torch.empty((N, self.prd_width),
@@ -421,13 +422,18 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f0_, p, z = self.forward_student( x, idx )        
+        f0_, p, z, sigmas, zorg, zmean_ = self.forward_student( x, idx )
+
+        sigma_loss = 0 
 
         loss = 0
         for xi in range(len(z)):            
             p_ = p[xi]
-            z_ = z[xi]
-            loss += self.criterion( p_, z_ ) / len(z)            
+            z_ = z[xi]            
+            loss += self.criterion( p_, z_ ) / len(z)
+            sigma_ = sigmas[xi]
+            zorg_ = zorg[xi]
+            sigma_loss += self.sigma_crt(zorg_, zmean_, sigma_)  / len(z)
 
         self.log_dict(
             {"train_loss": loss},
@@ -447,7 +453,7 @@ class SimPLR(LightningModule):
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
             _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
 
-        return loss + cls_loss
+        return loss + cls_loss + sigma_loss
 
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int
@@ -475,6 +481,11 @@ class SimPLR(LightningModule):
                 },                
                 {   "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
+                    "weight_decay": 0.0,
+                    "lr": 0.1
+                },
+                {   "name": "sigma_regressor",
+                    "params": self.sigma_head.parameters(),
                     "weight_decay": 0.0,
                     "lr": 0.1
                 },
