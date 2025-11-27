@@ -547,12 +547,12 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak-2":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.14, 1.0),
-                            weak_crop_scale=(0.14, 1.0),
+                            global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
                             n_global_views=2,
                             n_weak_views=2,
                             n_local_views=0,
-                            gaussian_blur=(0.5, 0.1, 0.0),
+                            gaussian_blur=(0.0, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-2":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
@@ -666,3 +666,4 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
