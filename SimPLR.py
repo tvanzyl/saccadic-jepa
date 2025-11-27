@@ -201,6 +201,7 @@ class SimPLR(LightningModule):
         else:
             biaslayer = BiasLayer(prj_width)            
             nn.init.normal_(biaslayer.bias, 0, bound_w)
+            biaslayer.bias.data.div_(cut)
             self.buttress =  nn.Sequential(
                                     nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),                                    
                                     biaslayer)
@@ -235,7 +236,8 @@ class SimPLR(LightningModule):
                                 self.merge_head,
                             )
         
-        self.sigma_head = nn.Sequential(                                       
+        self.sigma_head = nn.Sequential(          
+                                nn.Linear(prj_width, prj_width),
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width)
                             )  
@@ -441,6 +443,10 @@ class SimPLR(LightningModule):
             sync_dist=True,
             batch_size=len(targets),
         )
+        self.log_dict(
+            {"sigma_loss": sigma_loss}, 
+            sync_dist=True, 
+            batch_size=len(targets))
 
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
