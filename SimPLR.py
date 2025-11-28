@@ -51,6 +51,8 @@ class BiasLayer(nn.Module):
     def __init__(self, size:int):
         super(BiasLayer, self).__init__()
         self.bias = nn.Parameter(torch.zeros(size))
+        bound_w = 1 / math.sqrt(size)
+        nn.init.normal_(self.bias, 0, bound_w)
 
     def forward(self, x):
         return x + self.bias
@@ -93,13 +95,12 @@ class SimPLR(LightningModule):
                  prj_width:int = 2048,
                  L2:bool=False,
                  no_ReLU_buttress:bool=False,
-                 no_prediction_head:bool=False,
+                 no_student_head:bool=False,
                  JS:bool=False, 
                  no_bias:bool=False,
                  emm:bool=False, emm_v:int=0,
                  fwd:int=0,
                  asm:bool=False,                 
-                 nn_init:str="fan-in",                 
                  end_value:float=0.001) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -110,7 +111,7 @@ class SimPLR(LightningModule):
                                   'momentum_head',
                                   'identity_head',
                                   'no_projection_head',
-                                  'no_prediction_head',
+                                  'no_student_head',
                                   'alpha', 'gamma',
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width", 'L2',
@@ -118,7 +119,7 @@ class SimPLR(LightningModule):
                                   'emm', 'emm_v', 
                                   'no_bias',
                                   'fwd', 'asm',
-                                  'nn_init', 'end_value')
+                                  'end_value')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
@@ -152,100 +153,63 @@ class SimPLR(LightningModule):
             prj_width = self.emb_width
         
         self.prd_width = prd_width
-
-        if no_projection_head:
-            self.projection_head = nn.Sequential()
-        else:
-            if prj_depth == 2:
-                projection_head = [nn.Linear(emb_width, prj_width, False),
-                                   nn.BatchNorm1d(prj_width),
-                                   nn.LeakyReLU(),
-                                   nn.Linear(prj_width, prj_width, False),
-                                   nn.BatchNorm1d(prj_width),
-                                   nn.LeakyReLU(),
-                                   nn.Linear(prj_width, prj_width),]
-            elif prj_depth == 1:
-                projection_head = [nn.Linear(emb_width, prj_width, False),
-                                   nn.BatchNorm1d(prj_width),
-                                   nn.LeakyReLU(),
-                                   nn.Linear(prj_width, prj_width),]
-            elif prj_depth == 0:
-                projection_head = [nn.Linear(emb_width, prj_width),]
-            else:
-                raise NotImplementedError("Selected Prediction Depth Not Supported")
-                
-            if L2:
-                projection_head.insert(0, L2NormalizationLayer())                
-
-            self.projection_head = nn.Sequential(          
-                                    *projection_head
-                                )
         
-        if no_prediction_head:
-            self.prediction_head = nn.AdaptiveAvgPool1d(self.prd_width)
-        else:
-            self.prediction_head = nn.Linear(prj_width, self.prd_width, False)
-            
-            # https://arxiv.org/pdf/2406.16468 (Cut Init)
-            if nn_init == "fan-in":
-                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(1))
-            elif nn_init == "fan-out":
-                bound_w = 1 / math.sqrt(self.prediction_head.weight.size(0))
-
-            # nn.init.normal_(self.prediction_head.weight, 0, bound_w)
-            nn.init.orthogonal_(self.prediction_head.weight)
+        self.projection_head = nn.Sequential()
+        if L2:
+            self.projection_head.extend([L2NormalizationLayer(),])
+        if not no_projection_head:
+            self.projection_head.extend([nn.Linear(emb_width, prj_width),])
+            self.projection_head.extend(
+                                [nn.BatchNorm1d(prj_width),
+                                 nn.LeakyReLU(),
+                                 nn.Linear(prj_width, prj_width),]*prj_depth
+            )
 
         #Use Batchnorm none-affine for centering
-        if no_bias:
-            self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
-        else:
-            biaslayer = BiasLayer(prj_width)            
-            nn.init.normal_(biaslayer.bias, 0, bound_w)
-            biaslayer.bias.data.div_(cut)
-            self.buttress =  nn.Sequential(
-                                    nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False),                                    
-                                    biaslayer)
+        self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
 
         if identity_head:
             if prj_width == prd_width:
-                self.merge_head = nn.Identity()
+                teacher_head = nn.Identity()
             elif prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
-                self.merge_head = nn.AdaptiveAvgPool1d(self.prd_width)                
+                teacher_head = nn.AdaptiveAvgPool1d(self.prd_width)
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:            
-            self.merge_head = nn.Linear(prj_width, self.prd_width, False)
-            if no_prediction_head:
-                # nn.init.normal_(self.merge_head.weight, 0, bound_w)
-                nn.init.orthogonal_(self.merge_head.weight)
-            else:
-                self.merge_head.weight.data = self.prediction_head.weight.data.clone()
-        
-        # https://arxiv.org/pdf/2406.16468 (Cut Init)
-        if not no_prediction_head and cut > 1.0:
-            self.prediction_head.weight.data.div_(cut)
+            teacher_head = nn.Linear(prj_width, self.prd_width, False)
+            nn.init.orthogonal_(teacher_head.weight)
+        self.teacher_head = nn.Sequential(teacher_head)
+
+        if no_student_head:
+            student_head = nn.AdaptiveAvgPool1d(self.prd_width)
+        else:
+            student_head = nn.Linear(prj_width, self.prd_width, False)
+            student_head.weight.data = teacher_head.weight.data.clone()
+            if cut > 1.0:
+                # https://arxiv.org/pdf/2406.16468 (Cut Init)
+                student_head.weight.data.div_(cut)
+        self.student_head = nn.Sequential(student_head)
         
         if not no_ReLU_buttress:
-            self.prediction_head = nn.Sequential(                                       
-                                nn.ReLU(),                                
-                                self.prediction_head,
-                            )            
-            self.merge_head = nn.Sequential(                                    
-                                nn.ReLU(),
-                                self.merge_head,
-                            )
+            self.student_head.insert(0, nn.ReLU())
+            self.teacher_head.insert(0, nn.ReLU())
+
+        if not no_bias:
+            biaslayer = BiasLayer(prj_width)
+            biaslayer.bias.data.div_(cut)
+            self.teacher_head.insert(0, biaslayer)
         
-        self.sigma_head = nn.Sequential(          
+        self.sigma_head = nn.Sequential(
+                                nn.ReLU(),
                                 nn.Linear(prj_width, prj_width),
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width)
-                            )  
+                            )
+        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
         self.sigma_crt = nn.GaussianNLLLoss()
-
-        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)        
 
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
@@ -254,153 +218,126 @@ class SimPLR(LightningModule):
         views = len(x)
 
         # Two globals
-        f = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]        
-        f0_ = f[0]
+        h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
+        h0_ = h[0].detach()
         if views > self.fwd + 2: # MultiCrops
-            f.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
-        b = [self.projection_head( f_ ) for f_ in f]
-        g = [self.buttress( b_ ) for b_ in b]
-        p = [self.prediction_head( b_ ) for b_ in b]
-
-        sigmas = [torch.exp(self.sigma_head( g_.detach() )) for g_ in g]
+            h.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
+        z = [self.projection_head( h_ ) for h_ in h]
+        b = [self.buttress( z_ ) for z_ in z]
+        p = [self.student_head( z_ ) for z_ in z]
         
-        with torch.no_grad(): 
-            self.log_dict({"f_quality":std_of_l2_normalized(f[0])})
-            self.log_dict({"f_mean":torch.mean(f[0])})
-            self.log_dict({"f_var":torch.var(f[0])})
-            self.log_dict({"f_sharp":torch.mean(f[0])/torch.var(f[0])})
-            self.log_dict({"b_mean":torch.mean(b[0])})
-            self.log_dict({"b_var":torch.var(b[0])})
-            self.log_dict({"b_sharp":torch.mean(b[0])/torch.var(b[0])})            
+        sigmas = [torch.exp(self.sigma_head( z_.detach() )) for z_ in z]
+        
+        with torch.no_grad():
+            self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
+            self.log_dict({"h_mean":torch.mean(h0_)})
+            self.log_dict({"h_var":torch.var(h0_)})
+            self.log_dict({"h_sharp":torch.mean(h0_)/torch.var(h0_)})
+            self.log_dict({"z_mean":torch.mean(z[0])})
+            self.log_dict({"z_var":torch.var(z[0])})
+            self.log_dict({"z_sharp":torch.mean(z[0])/torch.var(z[0])})
 
             # Fwds Only
-            if self.fwd > 0:            
-                f_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                b_fwd = [self.projection_head( f_ ) for f_ in f_fwd]
-                g_fwd = [self.buttress( b_ ) for b_ in b_fwd]
-                z_fwd = [self.merge_head( g_ ) for g_ in g_fwd]
+            if self.fwd > 0:
+                h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
 
-            z = [self.merge_head( g_.detach() ) for g_ in g]
-            zg0_ = z[0]
-            zg1_ = z[1]
+            q = [self.teacher_head( b_.detach() ) for b_ in b]
+            q0_ = q[0]
+            q1_ = q[1]
             
             if self.JS: # For James-Stein
-                if self.current_epoch == 0:     
+                if self.current_epoch == 0:
                     if self.fwd > 0:
-                        zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
+                        qmean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     if self.emm:
-                        self.embedding[idx] = 0.5*(zg0_+zg1_)
-                    if self.emm_v == 6 or self.emm_v == 5:
-                        self.embedding_var[idx] = (0.5*(zg0_-zg1_))**2.0
-                    elif self.emm_v <= 2:
-                        self.embedding_var[idx] = torch.mean((0.5*(zg0_-zg1_))**2.0, dim=1, keepdim=True)
+                        self.embedding[idx] = 0.5*(q0_+q1_)
+                    if self.emm_v in [5,6]:
+                        self.embedding_var[idx] = (0.5*(q0_-q1_))**2.0
+                    elif self.emm_v in [1]:
+                        self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    if self.emm:
-                        if self.fwd > 0:
-                            zmean0_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                            zmean_ = self.embedding[idx]
-                            zdiff_ = zmean0_ - zmean_
-                            zincr_ = self.alpha * zdiff_
-                            zmean_ = zmean_ + zincr_
-                            self.embedding[idx] = zmean_
-                        else: #EMM or EMM+ASM
-                            zmean_ = self.embedding[idx]                            
-                    elif self.fwd > 0: #Use forwards as the mean
-                        # zmean_ = z_fwd[0]
-                        if self.emm_v == 7:
-                            zmean_ = z_fwd[0]
-                        else:
-                            zmean_ = torch.mean(torch.stack(z_fwd, dim=0), dim=0)
-                    else: 
-                        raise NotImplementedError()                    
+                    if self.fwd > 0: #Use forwards as the mean
+                        qmean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
+                    if self.emm and self.fwd > 0:
+                        qmean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * qmean_
+                        self.embedding[idx] = qmean_
+                    elif self.emm: #EMM or EMM+ASM
+                        qmean_ = self.embedding[idx]                    
                     
-                    zdiff0_ = zg0_  - zmean_
-                    zdiff1_ = zg1_  - zmean_
+                    qdiff0_ = q0_  - qmean_
+                    qdiff1_ = q1_  - qmean_
 
-                    if self.emm_v == 8:                                                
-                        sigma_ = torch.mean(torch.stack(sigmas, dim=0), dim=0)
-                    elif self.emm_v == 7:
-                        zmeanz_ = z_fwd[1]
-                        sigma_ = self.gamma*((zg0_-zmeanz_)**2.0 + (zg1_-zmeanz_)**2.0)
-                    elif self.emm_v == 6:
+                    if self.emm_v == 8:
+                        sigma_ = torch.mean(torch.stack(sigmas, dim=0), dim=0).detach()
+                    if self.emm_v == 5:
+                        qmeans_ = torch.mean(torch.stack(q, dim=0), dim=0)
+                        qdiff2_ = q_fwd[0]  - qmeans_
+                        qdiff3_ = q_fwd[1]  - qmeans_
                         sigma_ = self.embedding_var[idx]
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
-                        sigma_  = (1.0 - self.gamma)*(sigma_ + ((zdiff0_*zincr0_)+
-                                                                (zdiff1_*zincr1_))/2.0)
-                        self.embedding_var[idx] = sigma_
-                    elif self.emm_v == 5:
-                        zmeanz_ = torch.mean(torch.stack(z, dim=0), dim=0)
-                        zdiff2_ = z_fwd[0]  - zmeanz_
-                        zdiff3_ = z_fwd[1]  - zmeanz_
-                        sigma_ = self.embedding_var[idx]
-                        zincr2_ = self.gamma * zdiff2_
-                        zincr3_ = self.gamma * zdiff3_
-                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((zdiff2_*zincr2_)+
-                                                                  (zdiff3_*zincr3_))/2.0)
+                        qincr2_ = self.gamma * qdiff2_
+                        qincr3_ = self.gamma * qdiff3_
+                        sigma_  = (1.0 - self.gamma) * (sigma_ + ((qdiff2_*qincr2_)+
+                                                                  (qdiff3_*qincr3_))/2.0)
                         self.embedding_var[idx] = sigma_
                     elif self.emm_v == 4:
-                        zmeanz_ = torch.mean(torch.stack(z, dim=0), dim=0)
-                        sigma_ = self.gamma*((z_fwd[0]-zmeanz_)**2.0 + (z_fwd[1]-zmeanz_)**2.0)
+                        qmeans_ = torch.mean(torch.stack(q, dim=0), dim=0)
+                        sigma_ = self.gamma*((q_fwd[0]-qmeans_)**2.0 + (q_fwd[1]-qmeans_)**2.0)
                     elif self.emm_v == 3:
-                        sigma_ = torch.mean(((zg0_-zg1_)*self.gamma)**2.0)
-                    elif self.emm_v == 2:
+                        sigma_ = self.gamma*((qdiff0_)**2.0 + (qdiff1_)**2.0)
+                    elif self.emm_v == 1 or self.emm_v == 6:
                         sigma_ = self.embedding_var[idx]
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma)*(sigma_ + ((zdiff0_*zincr0_)+
-                                                                          (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
-                        self.embedding_var[idx] = sigma_
-                        sigma_ = 0.5*sigma_ + 0.5*(zg0_-zg1_)**2.0
-                    elif self.emm_v == 1:
-                        sigma_ = self.embedding_var[idx]
-                        zincr0_ = self.gamma * zdiff0_
-                        zincr1_ = self.gamma * zdiff1_
-                        sigma_ = torch.mean((1.0 - self.gamma)*(sigma_ + ((zdiff0_*zincr0_)+
-                                                                          (zdiff1_*zincr1_))/2.0), dim=1, keepdim=True)
-                        self.embedding_var[idx] = sigma_
+                        qincr0_ = self.gamma * qdiff0_
+                        qincr1_ = self.gamma * qdiff1_
+                        sigma_  = (1.0 - self.gamma)*(sigma_ + ((qdiff0_*qincr0_)+
+                                                                (qdiff1_*qincr1_))/2.0)
+                        if self.emm_v == 1: # Reduce to scalar
+                            self.embedding_var[idx] = torch.mean(sigma_, dim=1, keepdim=True)
+                        else:
+                            self.embedding_var[idx] = sigma_
                     else:
                         raise Exception("Not Valid EMM V")
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                    norm0_ = torch.linalg.vector_norm((zdiff0_)/((sigma_**0.5)+1e-9), dim=1, keepdim=True)**2
-                    norm1_ = torch.linalg.vector_norm((zdiff1_)/((sigma_**0.5)+1e-9), dim=1, keepdim=True)**2
+                    norm0_ = torch.linalg.vector_norm((qdiff0_)/((sigma_**0.5)+1e-9), dim=1, keepdim=True)**2
+                    norm1_ = torch.linalg.vector_norm((qdiff1_)/((sigma_**0.5)+1e-9), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
                     n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
                     
                     self.log_dict({"sigma":torch.mean(sigma_)})
-                    self.log_dict({"zdiff":zdiff0_.mean()})                    
-                    self.log_dict({"JS_n0_n1":n0.mean()})                    
+                    self.log_dict({"qdiff":qdiff0_.mean()})
+                    self.log_dict({"JS_n0_n1":n0.mean()})
 
-                    zg0_ = n0*zg0_ + (1.-n0)*zmean_
-                    zg1_ = n1*zg1_ + (1.-n1)*zmean_
+                    q0_ = n0*q0_ + (1.-n0)*qmean_
+                    q1_ = n1*q1_ + (1.-n1)*qmean_
 
                     if self.fwd > 0:
                         pass
                     elif self.asm: #TODO: Deal with ASM
-                        # zic_ = (zincr0_+zincr1_)/2.0
-                        zic_ = self.alpha*(zdiff0_+ zdiff1_)/2.0
-                        self.embedding[idx] = zmean_ + zic_
+                        # zic_ = (qincr0_+qincr1_)/2.0
+                        qmean_ =  qmean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = qmean_
                     elif self.emm:
-                        # zic_ = (zincr0_+zincr1_)/2.0
-                        zic_ = self.alpha*(zdiff0_+ zdiff1_)/2.0
-                        self.embedding[idx] = zmean_ + zic_
+                        # zic_ = (qincr0_+qincr1_)/2.0
+                        qmean_ = qmean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = qmean_
                     else:
                         raise Exception("Not Valid Combo")
             
-            zorg = z
-            z = [zg1_, zg0_]
+            q = [q1_, q0_]
             if views > self.fwd + 2:
-                zg_ = 0.5*(zg0_+zg1_)
-                z.extend([zg_ for _ in range(views-2-self.fwd)])
+                q_ = 0.5*(q0_+q1_)
+                q.extend([q_ for _ in range(views-2-self.fwd)])
             
             if self.asm:
                 p = p[:1]
-                z = z[:1]
-            assert len(p)==len(z)
-        return f0_, p, z, sigmas, zorg, zmean_
+                q = q[:1]
+            assert len(p)==len(q)
+        return h0_, p, q
 
     def on_train_start(self):                
         if self.JS:            
@@ -409,11 +346,11 @@ class SimPLR(LightningModule):
                 self.embedding      = torch.empty((N, self.prd_width),
                                             dtype=torch.float16,
                                             device=self.device)
-            if self.emm_v <= 2:
+            if self.emm_v in [1]:
                 self.embedding_var  = torch.zeros((N, 1),
                                         dtype=torch.float32,
                                         device=self.device)
-            elif self.emm_v == 6 or self.emm_v == 5:
+            elif self.emm_v in [5,6]:
                 self.embedding_var  = torch.zeros((N, self.prd_width),
                                         dtype=torch.float32,
                                         device=self.device)
@@ -424,18 +361,19 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        f0_, p, z, sigmas, zorg, zmean_ = self.forward_student( x, idx )
+        h0_, p, q = self.forward_student( x, idx )
 
-        sigma_loss = 0 
+        # sigma_loss = 0 
 
         loss = 0
-        for xi in range(len(z)):            
+        for xi in range(len(q)): 
             p_ = p[xi]
-            z_ = z[xi]            
-            loss += self.criterion( p_, z_ ) / len(z)
-            sigma_ = sigmas[xi]
-            zorg_ = zorg[xi]
-            sigma_loss += self.sigma_crt(zorg_, zmean_, sigma_)  / len(z)
+            q_ = q[xi]
+            loss += self.criterion( p_, q_ ) / len(q)
+            # sigma_ = sigmas[xi]
+            # mean_ = means[xi]
+            # zorg_ = zorg[xi]
+            # sigma_loss += self.sigma_crt(mean_, z_, sigma_)  / len(z)
 
         self.log_dict(
             {"train_loss": loss},
@@ -443,23 +381,23 @@ class SimPLR(LightningModule):
             sync_dist=True,
             batch_size=len(targets),
         )
-        self.log_dict(
-            {"sigma_loss": sigma_loss}, 
-            sync_dist=True, 
-            batch_size=len(targets))
+        # self.log_dict(
+        #     {"sigma_loss": sigma_loss}, 
+        #     sync_dist=True, 
+        #     batch_size=len(targets))
 
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
-            (f0_, targets), batch_idx
+            (h0_, targets), batch_idx
         )
         self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         #These lines give us classical EMA v1
         if self.momentum_head:
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-            _do_momentum_update(self.merge_head.weight, self.prediction_head.weight, momentum)
+            _do_momentum_update(self.teacher_head.weight, self.student_head.weight, momentum)
 
-        return loss + cls_loss + sigma_loss
+        return loss + cls_loss #+ sigma_loss
 
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int
@@ -474,7 +412,7 @@ class SimPLR(LightningModule):
 
     def configure_optimizers(self):
         params_weight_decay, params_no_weight_decay = get_weight_decay_parameters(
-                    [self.backbone, self.projection_head, self.prediction_head]                    
+                    [self.backbone, self.projection_head, self.student_head]                    
                 )
         optimizer = SGD(
             [
@@ -490,11 +428,11 @@ class SimPLR(LightningModule):
                     "weight_decay": 0.0,
                     "lr": 0.1
                 },
-                {   "name": "sigma_regressor",
-                    "params": self.sigma_head.parameters(),
-                    "weight_decay": 0.0,
-                    "lr": 0.1
-                },
+                # {   "name": "sigma_regressor",
+                #     "params": self.sigma_head.parameters(),
+                #     "weight_decay": 0.0,
+                #     "lr": 0.1
+                # },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,

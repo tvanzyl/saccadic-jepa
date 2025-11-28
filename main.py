@@ -65,14 +65,13 @@ parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--L2", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
-parser.add_argument("--no-prediction-head", action="store_true")
+parser.add_argument("--no-student-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
 parser.add_argument("--emm-v", type=int, default=0)
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--asm", action="store_true")
-parser.add_argument("--nn-init", type=str, default="fan-in")
 parser.add_argument("--end-value", type=float, default=0.001)
 
 METHODS = {
@@ -205,13 +204,12 @@ def main(
     prj_width: int,
     L2: bool,
     no_ReLU_buttress: bool,
-    no_prediction_head: bool,
+    no_student_head: bool,
     JS: bool, 
     no_bias: bool,
     emm: bool, emm_v: int,
     fwd: int,
-    asm: bool,    
-    nn_init: str,    
+    asm: bool,        
     end_value: float,
 ) -> None:
     torch.set_float32_matmul_precision("high")
@@ -247,13 +245,12 @@ def main(
             prj_width=prj_width,
             L2=L2,
             no_ReLU_buttress=no_ReLU_buttress,
-            no_prediction_head=no_prediction_head,
+            no_student_head=no_student_head,
             JS=JS, 
             no_bias=no_bias,
             emm=emm, emm_v=emm_v,
             fwd=fwd,
-            asm=asm,            
-            nn_init=nn_init,            
+            asm=asm,                        
             end_value=end_value,
         )
 
