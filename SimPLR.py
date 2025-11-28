@@ -159,11 +159,12 @@ class SimPLR(LightningModule):
             self.projection_head.extend([L2NormalizationLayer(),])
         if not no_projection_head:
             self.projection_head.extend([nn.Linear(emb_width, prj_width),])
-            self.projection_head.extend(
-                                [nn.BatchNorm1d(prj_width),
-                                 nn.LeakyReLU(),
-                                 nn.Linear(prj_width, prj_width),]*prj_depth
-            )
+            for _ in range(prj_depth):
+                self.projection_head.extend(
+                                    [nn.BatchNorm1d(prj_width),
+                                    nn.LeakyReLU(),
+                                    nn.Linear(prj_width, prj_width),]
+                )
 
         #Use Batchnorm none-affine for centering
         self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
