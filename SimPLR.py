@@ -89,7 +89,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 0.80, gamma:float = 0.50,
-                 cut:float = 1.0,
+                 cut:float = 2.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -185,10 +185,9 @@ class SimPLR(LightningModule):
         if no_student_head:
             student_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
-            student_head = nn.Linear(prj_width, self.prd_width, False)
+            student_head = nn.Linear(prj_width, self.prd_width, False)            
             student_head.weight.data = teacher_head.weight.data.clone()
-            if cut > 1.0:
-                # https://arxiv.org/pdf/2406.16468 (Cut Init)
+            if cut > 1.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)
         
@@ -267,14 +266,14 @@ class SimPLR(LightningModule):
                         qmean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * qmean_
                         self.embedding[idx] = qmean_
                     elif self.emm: #EMM or EMM+ASM
-                        qmean_ = self.embedding[idx]                    
+                        qmean_ = self.embedding[idx]
                     
                     qdiff0_ = q0_  - qmean_
                     qdiff1_ = q1_  - qmean_
 
                     if self.emm_v == 8:
                         sigma_ = torch.mean(torch.stack(sigmas, dim=0), dim=0).detach()
-                    if self.emm_v == 5:
+                    elif self.emm_v == 5:
                         qmeans_ = torch.mean(torch.stack(q, dim=0), dim=0)
                         qdiff2_ = q_fwd[0]  - qmeans_
                         qdiff3_ = q_fwd[1]  - qmeans_
@@ -511,9 +510,9 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-2":   DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.08, 1.0),
                             n_local_views=0,
-                            gaussian_blur=(0.0, 0.0, 0.0),                            
+                            gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-4":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.20, 1.0),
