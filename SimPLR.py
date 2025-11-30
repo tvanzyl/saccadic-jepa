@@ -206,6 +206,12 @@ class SimPLR(LightningModule):
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width)
                             )
+        self.mean_head = nn.Sequential(
+                                nn.ReLU(),
+                                nn.Linear(prj_width, prj_width),
+                                nn.ReLU(),
+                                nn.Linear(prj_width, prd_width)
+                            )
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
@@ -226,7 +232,8 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        sigmas = [torch.exp(self.sigma_head( z_.detach() )) for z_ in z]
+        sigmas = [torch.exp(self.sigma_head( b_.detach() )) for b_ in b]
+        means = [self.mean_head( b_.detach() ) for b_ in b]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
@@ -251,7 +258,7 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein
                 if self.current_epoch == 0:
                     if self.fwd > 0:
-                        qmean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
+                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     if self.emm:
                         self.embedding[idx] = 0.5*(q0_+q1_)
                     if self.emm_v in [5,6]:
@@ -261,22 +268,22 @@ class SimPLR(LightningModule):
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.fwd > 0: #Use forwards as the mean
-                        qmean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
+                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     if self.emm and self.fwd > 0:
-                        qmean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * qmean_
-                        self.embedding[idx] = qmean_
+                        mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
+                        self.embedding[idx] = mean_
                     elif self.emm: #EMM or EMM+ASM
-                        qmean_ = self.embedding[idx]
+                        mean_ = self.embedding[idx]                    
                     
-                    qdiff0_ = q0_  - qmean_
-                    qdiff1_ = q1_  - qmean_
+                    qdiff0_ = q0_  - mean_
+                    qdiff1_ = q1_  - mean_
 
                     if self.emm_v == 8:
                         sigma_ = torch.mean(torch.stack(sigmas, dim=0), dim=0).detach()
                     elif self.emm_v == 5:
-                        qmeans_ = torch.mean(torch.stack(q, dim=0), dim=0)
-                        qdiff2_ = q_fwd[0]  - qmeans_
-                        qdiff3_ = q_fwd[1]  - qmeans_
+                        qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
+                        qdiff2_ = q_fwd[0]  - qmean_
+                        qdiff3_ = q_fwd[1]  - qmean_
                         sigma_ = self.embedding_var[idx]
                         qincr2_ = self.gamma * qdiff2_
                         qincr3_ = self.gamma * qdiff3_
@@ -284,10 +291,11 @@ class SimPLR(LightningModule):
                                                                   (qdiff3_*qincr3_))/2.0)
                         self.embedding_var[idx] = sigma_
                     elif self.emm_v == 4:
-                        qmeans_ = torch.mean(torch.stack(q, dim=0), dim=0)
-                        sigma_ = self.gamma*((q_fwd[0]-qmeans_)**2.0 + (q_fwd[1]-qmeans_)**2.0)
+                        qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
+                        sigma_ = self.gamma*((q_fwd[0]-qmean_)**2.0 + (q_fwd[1]-qmean_)**2.0)
                     elif self.emm_v == 3:
-                        sigma_ = self.gamma*((qdiff0_)**2.0 + (qdiff1_)**2.0)
+                        pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
+                        sigma_ = self.gamma*((q0_-pmean_)**2.0 + (q1_-pmean_)**2.0)
                     elif self.emm_v == 1 or self.emm_v == 6:
                         sigma_ = self.embedding_var[idx]
                         qincr0_ = self.gamma * qdiff0_
@@ -312,19 +320,19 @@ class SimPLR(LightningModule):
                     self.log_dict({"qdiff":qdiff0_.mean()})
                     self.log_dict({"JS_n0_n1":n0.mean()})
 
-                    q0_ = n0*q0_ + (1.-n0)*qmean_
-                    q1_ = n1*q1_ + (1.-n1)*qmean_
+                    q0_ = n0*q0_ + (1.-n0)*mean_
+                    q1_ = n1*q1_ + (1.-n1)*mean_
 
                     if self.fwd > 0:
                         pass
                     elif self.asm: #TODO: Deal with ASM
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        qmean_ =  qmean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = qmean_
+                        mean_ =  mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = mean_
                     elif self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        qmean_ = qmean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = qmean_
+                        mean_ = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = mean_
                     else:
                         raise Exception("Not Valid Combo")
             
@@ -337,7 +345,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 q = q[:1]
             assert len(p)==len(q)
-        return h0_, p, q
+        return h0_, p, q, sigmas, means
 
     def on_train_start(self):                
         if self.JS:            
@@ -361,19 +369,18 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q = self.forward_student( x, idx )
+        h0_, p, q, sigmas, means = self.forward_student( x, idx )
+        mean_ = torch.mean(torch.stack(means, dim=0), dim=0)
 
-        # sigma_loss = 0 
-
+        sigma_loss = 0
         loss = 0
+
         for xi in range(len(q)): 
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-            # sigma_ = sigmas[xi]
-            # mean_ = means[xi]
-            # zorg_ = zorg[xi]
-            # sigma_loss += self.sigma_crt(mean_, z_, sigma_)  / len(z)
+            sigma_ = sigmas[xi]
+            sigma_loss += self.sigma_crt(mean_, q_.detach(), sigma_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
@@ -381,10 +388,10 @@ class SimPLR(LightningModule):
             sync_dist=True,
             batch_size=len(targets),
         )
-        # self.log_dict(
-        #     {"sigma_loss": sigma_loss}, 
-        #     sync_dist=True, 
-        #     batch_size=len(targets))
+        self.log_dict(
+            {"sigma_loss": sigma_loss}, 
+            sync_dist=True, 
+            batch_size=len(targets))
 
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
@@ -397,7 +404,7 @@ class SimPLR(LightningModule):
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
             _do_momentum_update(self.teacher_head.weight, self.student_head.weight, momentum)
 
-        return loss + cls_loss #+ sigma_loss
+        return loss + cls_loss + sigma_loss
 
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int
@@ -428,11 +435,16 @@ class SimPLR(LightningModule):
                     "weight_decay": 0.0,
                     "lr": 0.1
                 },
-                # {   "name": "sigma_regressor",
-                #     "params": self.sigma_head.parameters(),
-                #     "weight_decay": 0.0,
-                #     "lr": 0.1
-                # },
+                {   "name": "sigma_regressor",
+                    "params": self.sigma_head.parameters(),
+                    "weight_decay": 0.0,
+                    "lr": 0.1
+                },
+                {   "name": "mean_regressor",
+                    "params": self.mean_head.parameters(),
+                    "weight_decay": 0.0,
+                    "lr": 0.1
+                },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
