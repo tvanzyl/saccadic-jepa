@@ -296,8 +296,9 @@ class SimPLR(LightningModule):
                     elif self.emm_v == 3:
                         pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                         var_ = self.gamma*((q0_-pmean_)**2.0 + (q1_-pmean_)**2.0)
-                    elif self.emm_v == 2:                        
-                        var_ = self.gamma*((q_fwd[0]-mean_)**2.0 + (q_fwd[1]-mean_)**2.0)
+                    elif self.emm_v == 2:    
+                        qmean_ = (torch.mean(torch.stack(q, dim=0), dim=0) + mean_)/2.0
+                        var_ = self.gamma*((q0_-qmean_)**2.0 + (q1_-qmean_)**2.0 + (q_fwd[0]-qmean_)**2.0 + (q_fwd[1]-qmean_)**2.0)
                     elif self.emm_v == 1 or self.emm_v == 6:
                         var_ = self.embedding_var[idx]
                         qincr0_ = self.gamma * qdiff0_
