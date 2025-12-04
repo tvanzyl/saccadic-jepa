@@ -10,6 +10,7 @@ from torch.optim import SGD
 
 from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34, resnet18
+from resnet import resnet18 as resnetjie18
 
 from pytorch_lightning import LightningModule
 
@@ -59,7 +60,7 @@ class BiasLayer(nn.Module):
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
-        resnet = {"resnetjie-9" :resnet18, 
+        resnet = {"resnetjie-9" :resnet18,
                   "resnetjie-18":resnet18}[name]()
         emb_width = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
@@ -204,7 +205,8 @@ class SimPLR(LightningModule):
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prj_width),
                                 nn.ReLU(),
-                                nn.Linear(prj_width, prd_width)
+                                nn.Linear(prj_width, prd_width),
+                                nn.Softplus()
                             )
         self.mean_head = nn.Sequential(
                                 nn.ReLU(),
@@ -232,7 +234,7 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        vars  = [torch.exp(self.var_head( z_.detach() )) for z_ in z]
+        vars  = [self.var_head( z_.detach() ) for z_ in z]
         means = [self.mean_head( z_.detach() ) for z_ in z]
         
         with torch.no_grad():
@@ -274,7 +276,7 @@ class SimPLR(LightningModule):
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
                         self.embedding[idx] = mean_
                     elif self.emm: #EMM or EMM+ASM
-                        mean_ = self.embedding[idx]                    
+                        mean_ = self.embedding[idx]
                     
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
@@ -306,7 +308,8 @@ class SimPLR(LightningModule):
                         var_  = (1.0 - self.gamma)*(var_ + ((qdiff0_*qincr0_)+
                                                             (qdiff1_*qincr1_))/2.0)
                         if self.emm_v == 1: # Reduce to scalar
-                            self.embedding_var[idx] = torch.mean(var_, dim=1, keepdim=True)
+                            var_ = torch.mean(var_, dim=1, keepdim=True)
+                            self.embedding_var[idx] = var_
                         else:
                             self.embedding_var[idx] = var_
                     else:
@@ -338,7 +341,7 @@ class SimPLR(LightningModule):
                         self.embedding[idx] = mean_
                     else:
                         raise Exception("Not Valid Combo")
-            
+            qo = q
             q = [q1_, q0_]
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
@@ -348,10 +351,10 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 q = q[:1]
             assert len(p)==len(q)
-        return h0_, p, q, vars, means
+        return h0_, p, q, qo, vars, None # mean_
 
-    def on_train_start(self):                
-        if self.JS:            
+    def on_train_start(self):
+        if self.JS:
             N = len(self.trainer.train_dataloader.dataset)
             if self.emm:
                 self.embedding      = torch.empty((N, self.prd_width),
@@ -372,19 +375,18 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q, vars, means = self.forward_student( x, idx )
-        # mean_ = torch.mean(torch.stack(means, dim=0), dim=0)
+        h0_, p, q, qo, vars, mean_ = self.forward_student( x, idx )
 
-        var_loss = 0
         loss = 0
-
-        for xi in range(len(q)): 
+        var_loss = 0
+        for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
+            # qo_ = qo[xi]
             # var_  = vars[xi]
             # mean_ = means[xi]
-            # var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q)
+            # var_loss += self.var_crt(mean_.detach(), qo_.detach(), var_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
