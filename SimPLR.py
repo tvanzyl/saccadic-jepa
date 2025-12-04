@@ -124,14 +124,14 @@ class SimPLR(LightningModule):
         self.lr = lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device                
-        self.JS = JS        
+        self.JS = JS
         self.emm = emm
         self.emm_v = emm_v
         self.fwd = fwd
         self.asm = asm
-        self.momentum_head = momentum_head                
+        self.momentum_head = momentum_head
         self.alpha = alpha
-        self.gamma = gamma               
+        self.gamma = gamma
         self.no_ReLU_buttress = no_ReLU_buttress
         self.end_value = end_value
 
@@ -143,7 +143,7 @@ class SimPLR(LightningModule):
             raise Exception("Invalid Arguments, Need EMM with Asm")
         if self.asm and self.fwd > 0:
             raise Exception("Invalid Arguments, can't have Asm with Fwd")
-
+        
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes        
         
@@ -268,6 +268,7 @@ class SimPLR(LightningModule):
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.fwd > 0: #Use forwards as the mean
+                        # mean_ = q_fwd[0]
                         mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     if self.emm and self.fwd > 0:
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
@@ -296,9 +297,8 @@ class SimPLR(LightningModule):
                     elif self.emm_v == 3:
                         pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                         var_ = self.gamma*((q0_-pmean_)**2.0 + (q1_-pmean_)**2.0)
-                    elif self.emm_v == 2:    
-                        qmean_ = (torch.mean(torch.stack(q, dim=0), dim=0) + mean_)/2.0
-                        var_ = self.gamma*((q0_-qmean_)**2.0 + (q1_-qmean_)**2.0 + (q_fwd[0]-qmean_)**2.0 + (q_fwd[1]-qmean_)**2.0)
+                    elif self.emm_v == 2:
+                        var_ = self.gamma*(len(q)+len(q_fwd))*(torch.var(torch.stack(q+q_fwd, dim=0), unbiased=False, dim=0))
                     elif self.emm_v == 1 or self.emm_v == 6:
                         var_ = self.embedding_var[idx]
                         qincr0_ = self.gamma * qdiff0_
@@ -382,9 +382,9 @@ class SimPLR(LightningModule):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-            var_  = vars[xi]
-            mean_ = means[xi]
-            var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q)
+            # var_  = vars[xi]
+            # mean_ = means[xi]
+            # var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
@@ -502,16 +502,16 @@ transforms = {
                             normalize=CIFAR10_NORMALIZE),
 
 "Cifar100-asm": JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.14, 1.0),
-                            weak_crop_scale=(0.14, 1.0),
+                            global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
                             n_global_views=1,
                             n_weak_views=1,                         
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-weak":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
-                            weak_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
                             n_global_views=2,
                             n_weak_views=1,
                             n_local_views=0,
@@ -525,16 +525,31 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
+"Cifar100-weak-4":JSREPATransform(global_crop_size=32,
+                            global_crop_scale=(0.08, 1.0),
+                            weak_crop_scale=(0.08, 1.0),
+                            n_global_views=2,
+                            n_weak_views=4,
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
 "Cifar100-2":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.08, 1.0),
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 "Cifar100-4":   DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
-                            n_local_views=6,
+                            global_crop_scale=(0.08, 1.0),
+                            n_local_views=2,
                             local_crop_size=32,
-                            local_crop_scale=(0.20, 1.0),
+                            local_crop_scale=(0.08, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+"Cifar100-6":   DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.08, 1.0),
+                            n_local_views=4,
+                            local_crop_size=32,
+                            local_crop_scale=(0.08, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
