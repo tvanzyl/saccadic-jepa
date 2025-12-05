@@ -275,13 +275,18 @@ class SimPLR(LightningModule):
                     if self.emm and self.fwd > 0:
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
                         self.embedding[idx] = mean_
-                    elif self.emm: #EMM or EMM+ASM
-                        mean_ = self.embedding[idx]
-                    
+                    elif self.emm: #EMM or EMM+ASM                        
+                        if self.emm_v == 9:
+                            mean_ = torch.mean(torch.stack(means, dim=0), dim=0).detach()
+                        else:
+                            mean_ = self.embedding[idx]
+                  
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
 
-                    if self.emm_v == 8:
+                    if self.emm_v == 9:
+                        var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+                    elif self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
                     elif self.emm_v == 5:
                         qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
