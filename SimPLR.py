@@ -313,8 +313,8 @@ class SimPLR(LightningModule):
                         var_  = (1.0 - self.gamma)*(var_ + ((qdiff0_*qincr0_)+
                                                             (qdiff1_*qincr1_))/2.0)
                         if self.emm_v == 1: # Reduce to scalar
-                            var_ = torch.mean(var_, dim=1, keepdim=True)
-                            self.embedding_var[idx] = var_
+                            # var_ = torch.mean(var_, dim=1, keepdim=True)
+                            self.embedding_var[idx] = torch.mean(var_, dim=1, keepdim=True)
                         else:
                             self.embedding_var[idx] = var_
                     else:
@@ -356,7 +356,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 q = q[:1]
             assert len(p)==len(q)
-        return h0_, p, q, qo, vars, None # mean_
+        return h0_, p, q, qo, vars, means
 
     def on_train_start(self):
         if self.JS:
@@ -380,7 +380,7 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q, qo, vars, mean_ = self.forward_student( x, idx )
+        h0_, p, q, qo, vars, means = self.forward_student( x, idx )
 
         loss = 0
         var_loss = 0
@@ -389,9 +389,9 @@ class SimPLR(LightningModule):
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
             # qo_ = qo[xi]
-            # var_  = vars[xi]
-            # mean_ = means[xi]
-            # var_loss += self.var_crt(mean_.detach(), qo_.detach(), var_)  / len(q)
+            var_  = vars[xi]
+            mean_ = means[xi]
+            var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
