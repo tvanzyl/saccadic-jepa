@@ -208,12 +208,12 @@ class SimPLR(LightningModule):
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
-        self.mean_head = nn.Sequential(
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prj_width),
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prd_width)
-                            )
+        # self.mean_head = nn.Sequential(
+        #                         nn.ReLU(),
+        #                         nn.Linear(prj_width, prj_width),
+        #                         nn.ReLU(),
+        #                         nn.Linear(prj_width, prd_width)
+        #                     )
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
@@ -235,7 +235,7 @@ class SimPLR(LightningModule):
         p = [self.student_head( z_ ) for z_ in z]
         
         vars  = [self.var_head( z_.detach() ) for z_ in z]
-        means = [self.mean_head( z_.detach() ) for z_ in z]
+        # means = [self.mean_head( z_.detach() ) for z_ in z]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
@@ -276,17 +276,17 @@ class SimPLR(LightningModule):
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
                         self.embedding[idx] = mean_
                     elif self.emm: #EMM or EMM+ASM                        
-                        if self.emm_v == 9:
-                            mean_ = torch.mean(torch.stack(means, dim=0), dim=0).detach()
-                        else:
-                            mean_ = self.embedding[idx]
+                        # if self.emm_v == 9:
+                        #     mean_ = torch.mean(torch.stack(means, dim=0), dim=0).detach()
+                        # else:
+                        mean_ = self.embedding[idx]
                   
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
 
-                    if self.emm_v == 9:
-                        var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                    elif self.emm_v == 8:
+                    # if self.emm_v == 9:
+                    #     var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+                    if self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
                     elif self.emm_v == 5:
                         qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
@@ -345,8 +345,7 @@ class SimPLR(LightningModule):
                         mean_ = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                         self.embedding[idx] = mean_
                     else:
-                        raise Exception("Not Valid Combo")
-            qo = q
+                        raise Exception("Not Valid Combo")            
             q = [q1_, q0_]
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
@@ -356,7 +355,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 q = q[:1]
             assert len(p)==len(q)
-        return h0_, p, q, qo, vars, means
+        return h0_, p, q, vars
 
     def on_train_start(self):
         if self.JS:
@@ -380,7 +379,7 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q, qo, vars, means = self.forward_student( x, idx )
+        h0_, p, q, vars = self.forward_student( x, idx )
 
         loss = 0
         var_loss = 0
@@ -390,8 +389,8 @@ class SimPLR(LightningModule):
             loss += self.criterion( p_, q_ ) / len(q)
             # qo_ = qo[xi]
             var_  = vars[xi]
-            mean_ = means[xi]
-            var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q)
+            # mean_ = means[xi]
+            var_loss += self.var_crt(p_.detach(), q_.detach(), var_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
@@ -449,13 +448,13 @@ class SimPLR(LightningModule):
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),
                     "weight_decay": 0.0,
-                    "lr": 0.1
+                    # "lr": 0.1
                 },
-                {   "name": "mean_regressor",
-                    "params": self.mean_head.parameters(),
-                    "weight_decay": 0.0,
-                    "lr": 0.1
-                },
+                # {   "name": "mean_regressor",
+                #     "params": self.mean_head.parameters(),
+                #     "weight_decay": 0.0,
+                #     "lr": 0.1
+                # },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
