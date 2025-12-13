@@ -202,18 +202,16 @@ class SimPLR(LightningModule):
             self.teacher_head.insert(0, biaslayer)
         
         self.var_head = nn.Sequential(
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prj_width),
+                                # nn.ReLU(),
+                                # nn.Linear(prj_width, prj_width),
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
-        # self.mean_head = nn.Sequential(
-        #                         nn.ReLU(),
-        #                         nn.Linear(prj_width, prj_width),
-        #                         nn.ReLU(),
-        #                         nn.Linear(prj_width, prd_width)
-        #                     )
+        self.mean_head = nn.Sequential(                                
+                                nn.ReLU(),
+                                nn.Linear(prj_width, prd_width)
+                            )
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
@@ -234,8 +232,8 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        vars  = [self.var_head( z_.detach() ) for z_ in z]
-        # means = [self.mean_head( z_.detach() ) for z_ in z]
+        vars  = [self.var_head(  b_.detach() ) for b_ in b]
+        means = [self.mean_head( b_.detach() ) for b_ in b]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
@@ -245,6 +243,8 @@ class SimPLR(LightningModule):
             self.log_dict({"z_mean":torch.mean(z[0])})
             self.log_dict({"z_var":torch.var(z[0])})
             self.log_dict({"z_sharp":torch.mean(z[0])/torch.var(z[0])})
+
+            var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
 
             # Fwds Only
             if self.fwd > 0:
@@ -257,10 +257,10 @@ class SimPLR(LightningModule):
             q0_ = q[0]
             q1_ = q[1]
             
-            if self.JS: # For James-Stein
+            if self.JS: # For James-Stein                
+                if self.fwd > 0: #Use forwards as the mean
+                    mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                 if self.current_epoch == 0:
-                    if self.fwd > 0:
-                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     if self.emm:
                         self.embedding[idx] = 0.5*(q0_+q1_)
                     if self.emm_v in [5,6,7,10]:
@@ -269,24 +269,22 @@ class SimPLR(LightningModule):
                         self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    if self.fwd > 0: #Use forwards as the mean
-                        # mean_ = q_fwd[0]
-                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     if self.emm and self.fwd > 0:
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
                         self.embedding[idx] = mean_
-                    elif self.emm: #EMM or EMM+ASM                        
-                        # if self.emm_v == 9:
-                        #     mean_ = torch.mean(torch.stack(means, dim=0), dim=0).detach()
-                        # else:
+                    elif self.emm: #EMM or EMM+ASM
                         mean_ = self.embedding[idx]
                   
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
 
-                    # if self.emm_v == 9:
-                    #     var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                    if self.emm_v == 8:
+                    if self.emm_v == 9:
+                        qdiff_ = torch.stack(q_fwd, dim=0) - mean_
+                        var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
+                        var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
+                        self.log_dict({"var_b":torch.mean(var_b)})
+                        self.log_dict({"var_u":torch.mean(var_u)})
+                    elif self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
                     elif self.emm_v == 10:
                         var_ = self.embedding_var[idx]
@@ -344,9 +342,8 @@ class SimPLR(LightningModule):
                     norm1_ = torch.linalg.vector_norm((qdiff1_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
+                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))                    
                     
-                    self.log_dict({"var":torch.mean(var_)})
                     self.log_dict({"qdiff":qdiff0_.mean()})
                     self.log_dict({"JS_n0_n1":n0.mean()})
                     
@@ -364,7 +361,11 @@ class SimPLR(LightningModule):
                         mean_ = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                         self.embedding[idx] = mean_
                     else:
-                        raise Exception("Not Valid Combo")            
+                        raise Exception("Not Valid Combo")
+                    
+            self.log_dict({"var":torch.mean(var_)})
+                        
+            qo = q
             q = [q1_, q0_]
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
@@ -374,7 +375,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 q = q[:1]
             assert len(p)==len(q)
-        return h0_, p, q, vars
+        return h0_, p, q, qo, means, vars
 
     def on_train_start(self):
         if self.JS:
@@ -398,18 +399,22 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q, vars = self.forward_student( x, idx )
+        h0_, p, q, qo, means, vars = self.forward_student( x, idx )
 
         loss = 0
         var_loss = 0
+        qmean_ = torch.mean(torch.stack(q, dim=0), dim=0).detach()
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-            # qo_ = qo[xi]
-            var_  = vars[xi]
-            # mean_ = means[xi]
-            var_loss += self.var_crt(p_.detach(), q_.detach(), var_)  / len(q)
+            qo_    = qo[xi].detach()
+            var_   = vars[xi]
+            mean_  = means[xi]
+            # var_loss += self.var_crt(qmean_, qo_, var_)  / len(q)
+            # var_loss += self.var_crt(qo[0].detach(), qo[1].detach(), var_)  / len(q)
+            # var_loss += self.var_crt(mean_, qo_, var_)  / len(q)
+            var_loss += self.var_crt(mean_, q_, var_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
@@ -467,13 +472,13 @@ class SimPLR(LightningModule):
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),
                     "weight_decay": 0.0,
-                    # "lr": 0.1
+                    "lr": 0.1
                 },
-                # {   "name": "mean_regressor",
-                #     "params": self.mean_head.parameters(),
-                #     "weight_decay": 0.0,
-                #     "lr": 0.1
-                # },
+                {   "name": "mean_regressor",
+                    "params": self.mean_head.parameters(),
+                    "weight_decay": 0.0,
+                    "lr": 0.1
+                },
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
@@ -573,6 +578,13 @@ transforms = {
 "Cifar100-6":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.08, 1.0),
                             n_local_views=4,
+                            local_crop_size=32,
+                            local_crop_scale=(0.08, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=CIFAR100_NORMALIZE),
+"Cifar100-12":  DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.08, 1.0),
+                            n_local_views=10,
                             local_crop_size=32,
                             local_crop_scale=(0.08, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
