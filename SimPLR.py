@@ -232,8 +232,8 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        vars  = [self.var_head(  b_.detach() ) for b_ in b]
-        means = [self.mean_head( b_.detach() ) for b_ in b]
+        vars  = None #[self.var_head(  b_.detach() ) for b_ in b]
+        means = None #[self.mean_head( b_.detach() ) for b_ in b]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
@@ -244,7 +244,7 @@ class SimPLR(LightningModule):
             self.log_dict({"z_var":torch.var(z[0])})
             self.log_dict({"z_sharp":torch.mean(z[0])/torch.var(z[0])})
 
-            var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+            # var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
 
             # Fwds Only
             if self.fwd > 0:
@@ -286,35 +286,26 @@ class SimPLR(LightningModule):
                         self.log_dict({"var_u":torch.mean(var_u)})
                     elif self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                    elif self.emm_v == 10:
+                    elif self.emm_v == 1 or self.emm_v == 6 or self.emm_v == 10:
                         var_ = self.embedding_var[idx]
-                        qincr0_ = self.gamma * qdiff0_
-                        qincr1_ = self.gamma * qdiff1_
-                        var_n  = (1.0 - self.gamma)*(var_ + ((qdiff0_*qincr0_)+
-                                                             (qdiff1_*qincr1_))/2.0)
-                        self.embedding_var[idx] = var_n
+                        var_n  = (1.0 - self.gamma)*var_ + self.gamma*(qdiff0_**2 + qdiff1_**2)/2.0                                                
+                        if self.emm_v == 1 or self.emm_v == 6:
+                            var_ = var_n
+                        if self.emm_v == 1: # Reduce to scalar
+                            self.embedding_var[idx] = torch.mean(var_n, dim=1, keepdim=True)
+                        else:
+                            self.embedding_var[idx] = var_n
                         self.log_dict({"var_n":torch.mean(var_n)})
-                    elif self.emm_v == 7:
+                    elif self.emm_v == 5 or self.emm_v == 7:
                         qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
                         qdiff2_ = q_fwd[0]  - qmean_
                         qdiff3_ = q_fwd[1]  - qmean_
                         var_ = self.embedding_var[idx]
-                        qincr2_ = self.gamma * qdiff2_
-                        qincr3_ = self.gamma * qdiff3_
-                        var_n  = (1.0 - self.gamma) * (var_ + ((qdiff2_*qincr2_)+
-                                                              (qdiff3_*qincr3_))/2.0)
+                        var_n  = (1.0 - self.gamma)*var_ + self.gamma*(qdiff2_**2 + qdiff3_**2)/2.0
+                        if self.emm_v == 5:
+                            var_ = var_n
                         self.embedding_var[idx] = var_n
                         self.log_dict({"var_n":torch.mean(var_n)})
-                    elif self.emm_v == 5:
-                        qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
-                        qdiff2_ = q_fwd[0]  - qmean_
-                        qdiff3_ = q_fwd[1]  - qmean_
-                        var_ = self.embedding_var[idx]
-                        qincr2_ = self.gamma * qdiff2_
-                        qincr3_ = self.gamma * qdiff3_
-                        var_  = (1.0 - self.gamma) * (var_ + ((qdiff2_*qincr2_)+
-                                                              (qdiff3_*qincr3_))/2.0)
-                        self.embedding_var[idx] = var_
                     elif self.emm_v == 4:
                         qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
                         var_ = self.gamma*((q_fwd[0]-qmean_)**2.0 + (q_fwd[1]-qmean_)**2.0)
@@ -322,18 +313,7 @@ class SimPLR(LightningModule):
                         pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                         var_ = self.gamma*((q0_-pmean_)**2.0 + (q1_-pmean_)**2.0)
                     elif self.emm_v == 2:
-                        var_ = self.gamma*(len(q)+len(q_fwd))*(torch.var(torch.stack(q+q_fwd, dim=0), unbiased=False, dim=0))
-                    elif self.emm_v == 1 or self.emm_v == 6:
-                        var_ = self.embedding_var[idx]
-                        qincr0_ = self.gamma * qdiff0_
-                        qincr1_ = self.gamma * qdiff1_
-                        var_  = (1.0 - self.gamma)*(var_ + ((qdiff0_*qincr0_)+
-                                                            (qdiff1_*qincr1_))/2.0)
-                        if self.emm_v == 1: # Reduce to scalar
-                            # var_ = torch.mean(var_, dim=1, keepdim=True)
-                            self.embedding_var[idx] = torch.mean(var_, dim=1, keepdim=True)
-                        else:
-                            self.embedding_var[idx] = var_
+                        var_ = self.gamma*(len(q)+len(q_fwd))*(torch.var(torch.stack(q+q_fwd, dim=0), unbiased=False, dim=0))                    
                     else:
                         raise Exception("Not Valid EMM V")
 
@@ -342,10 +322,7 @@ class SimPLR(LightningModule):
                     norm1_ = torch.linalg.vector_norm((qdiff1_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
 
                     n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))                    
-                    
-                    self.log_dict({"qdiff":qdiff0_.mean()})
-                    self.log_dict({"JS_n0_n1":n0.mean()})
+                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
                     
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_
@@ -363,7 +340,9 @@ class SimPLR(LightningModule):
                     else:
                         raise Exception("Not Valid Combo")
                     
-            self.log_dict({"var":torch.mean(var_)})
+                    self.log_dict({"qdiff":qdiff0_.mean()})
+                    self.log_dict({"JS_n0_n1":n0.mean()})
+                    self.log_dict({"var":torch.mean(var_)})
                         
             qo = q
             q = [q1_, q0_]
@@ -403,18 +382,19 @@ class SimPLR(LightningModule):
 
         loss = 0
         var_loss = 0
-        qmean_ = torch.mean(torch.stack(q, dim=0), dim=0).detach()
+        # qmean_ = torch.mean(torch.stack(q, dim=0), dim=0).detach()
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-            qo_    = qo[xi].detach()
-            var_   = vars[xi]
-            mean_  = means[xi]
+            # qo_    = qo[xi].detach()
+            # var_   = vars[xi]
+            # mean_  = means[xi]
             # var_loss += self.var_crt(qmean_, qo_, var_)  / len(q)
             # var_loss += self.var_crt(qo[0].detach(), qo[1].detach(), var_)  / len(q)
             # var_loss += self.var_crt(mean_, qo_, var_)  / len(q)
-            var_loss += self.var_crt(mean_, q_, var_)  / len(q)
+            # var_loss += self.var_crt(mean_, q_, var_)  / len(q)
+            
 
         self.log_dict(
             {"train_loss": loss},
