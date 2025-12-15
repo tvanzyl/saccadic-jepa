@@ -208,7 +208,9 @@ class SimPLR(LightningModule):
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
-        self.mean_head = nn.Sequential(                                
+        self.mean_head = nn.Sequential(     
+                                # nn.ReLU(),
+                                # nn.Linear(prj_width, prj_width),
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width)
                             )
@@ -282,6 +284,7 @@ class SimPLR(LightningModule):
                         qdiff_ = torch.stack(q_fwd, dim=0) - mean_
                         var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
                         var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
+                        self.log_dict({"mean":torch.mean(mean_)})
                         self.log_dict({"var_b":torch.mean(var_b)})
                         self.log_dict({"var_u":torch.mean(var_u)})
                     elif self.emm_v == 8:
@@ -345,7 +348,7 @@ class SimPLR(LightningModule):
                     self.log_dict({"var":torch.mean(var_)})
                         
             qo = q
-            q = [q1_, q0_]
+            q  = [q1_, q0_]
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
                 q.extend([q_ for _ in range(views-2-self.fwd)])
@@ -354,7 +357,7 @@ class SimPLR(LightningModule):
                 p = p[:1]
                 q = q[:1]
             assert len(p)==len(q)
-        return h0_, p, q, qo, means, vars
+        return h0_, p, q, qo, means, vars, mean_.detach()
 
     def on_train_start(self):
         if self.JS:
@@ -378,23 +381,27 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q, qo, means, vars = self.forward_student( x, idx )
+        h0_, p, q, qo, means, vars, meano_ = self.forward_student( x, idx )
 
         loss = 0
         var_loss = 0
         # qmean_ = torch.mean(torch.stack(q, dim=0), dim=0).detach()
+        # qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-            # qo_    = qo[xi].detach()
-            # var_   = vars[xi]
+            var_   = vars[xi]
             # mean_  = means[xi]
-            # var_loss += self.var_crt(qmean_, qo_, var_)  / len(q)
+            qo_    = qo[xi].detach()
+            # var_loss += self.var_crt(qmean_, qo_, var_)  / len(q) ***
             # var_loss += self.var_crt(qo[0].detach(), qo[1].detach(), var_)  / len(q)
             # var_loss += self.var_crt(mean_, qo_, var_)  / len(q)
-            # var_loss += self.var_crt(mean_, q_, var_)  / len(q)
-            
+            # var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q) #12-13_20-59
+            # var_loss += self.var_crt(p_.detach(), q_.detach(), var_)  / len(q) #12-13_22-12
+            # var_loss += self.var_crt(qomean_, qo_, var_)  / len(q) ***
+            # var_loss += self.var_crt(meano_, qo_, var_)  / len(q)
+            var_loss += self.var_crt(meano_, qo_, var_)  / len(q)
 
         self.log_dict(
             {"train_loss": loss},
