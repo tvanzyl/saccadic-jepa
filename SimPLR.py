@@ -202,18 +202,12 @@ class SimPLR(LightningModule):
             self.teacher_head.insert(0, biaslayer)
         
         self.var_head = nn.Sequential(
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prj_width),
+                                # nn.ReLU(),
+                                # nn.Linear(prj_width, prj_width),
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
-                            )
-        self.mean_head = nn.Sequential(     
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prj_width),
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prd_width)
-                            )
+                            )        
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
@@ -234,8 +228,7 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        vars  = [self.var_head(  z_.detach() ) for z_ in z]
-        means = [self.mean_head( z_.detach() ) for z_ in z]
+        vars  = [self.var_head(  b_.detach() ) for b_ in b]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
@@ -262,13 +255,14 @@ class SimPLR(LightningModule):
             if self.JS: # For James-Stein                
                 if self.fwd: #Use forwards as the mean
                     mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
+                    mean_new = mean_
                 if self.current_epoch == 0:
                     if self.emm:
                         self.embedding[idx] = 0.5*(q0_+q1_)
                     if self.emm_v in [5,6,7,10]:
-                        self.embedding_var[idx] = (0.5*(q0_-q1_))**2.0                    
+                        self.embedding_var[idx] = (0.5*(q0_-q1_))**2.0
                     elif self.emm_v in [1]:
-                        self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)                    
+                        self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)
                 else:
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm and self.fwd:
@@ -276,14 +270,14 @@ class SimPLR(LightningModule):
                         self.embedding[idx] = mean_
                     elif self.emm: #EMM or EMM+ASM
                         mean_ = self.embedding[idx]
-                  
+
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
 
                     if self.emm_v == 9:
                         qdiff_ = torch.stack(q_fwd, dim=0) - mean_
                         var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
-                        var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)                        
+                        var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
                         self.log_dict({"mean":torch.mean(mean_)})
                         self.log_dict({"var_b":torch.mean(var_b)})
                         self.log_dict({"var_u":torch.mean(var_u)})
@@ -322,7 +316,7 @@ class SimPLR(LightningModule):
                         pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
                         var_ = self.gamma*((q0_-pmean_)**2.0 + (q1_-pmean_)**2.0)
                     elif self.emm_v == 2:
-                        var_ = self.gamma*(len(q)+len(q_fwd))*(torch.var(torch.stack(q+q_fwd, dim=0), unbiased=False, dim=0))                    
+                        var_ = self.gamma*(len(q)+len(q_fwd))*(torch.var(torch.stack(q+q_fwd, dim=0), unbiased=False, dim=0))
                     else:
                         raise Exception("Not Valid EMM V")
 
@@ -342,32 +336,31 @@ class SimPLR(LightningModule):
 
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_
-
-                    if self.fwd > 0:
+                    
+                    if self.fwd:
                         pass
                     elif self.asm: #TODO: Deal with ASM
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        mean_ = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = mean_
+                        mean_new = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = mean_new
                     elif self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        mean_ = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = mean_
+                        mean_new = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = mean_new
                     else:
                         raise Exception("Not Valid Combo")
-                    
-                        
+            
             qo = q
             q  = [q1_, q0_]
+            # vars.reverse()
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
-                q.extend([q_ for _ in range(views-2-self.fwd)])
-            
+                q.extend([q_ for _ in range(views-2-self.fwd)])            
             if self.asm:
                 p = p[:1]
                 q = q[:1]
-            assert len(p)==len(q)
-        return h0_, p, q, qo, means, vars, mean_.detach()
+            assert len(p)==len(q)        
+        return h0_, p, q, qo, vars
 
     def on_train_start(self):
         if self.JS:
@@ -391,27 +384,18 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        h0_, p, q, qo, means, vars, meano_ = self.forward_student( x, idx )
+        h0_, p, q, qo, vars = self.forward_student( x, idx )
 
         loss = 0
-        var_loss = 0
-        # qmean_ = torch.mean(torch.stack(q, dim=0), dim=0).detach()
+        var_loss = 0        
         qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
             var_   = vars[xi]
-            # mean_  = means[xi]
             qo_    = qo[xi].detach()
-            # var_loss += self.var_crt(qmean_, qo_, var_)  / len(q) ***
-            # var_loss += self.var_crt(qo[0].detach(), qo[1].detach(), var_)  / len(q)
-            # var_loss += self.var_crt(mean_, qo_, var_)  / len(q)
-            # var_loss += self.var_crt(mean_, q_.detach(), var_)  / len(q) #12-13_20-59
-            # var_loss += self.var_crt(p_.detach(), q_.detach(), var_)  / len(q) #12-13_22-12
-            # var_loss += self.var_crt(qomean_, qo_, var_)  / len(q) #***
-            # var_loss += self.var_crt(meano_, qo_, var_)  / len(q)
-            var_loss += self.var_crt(q[0].detach(), q[1].detach(), var_)  / len(q)
+            var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
 
         self.log_dict(
             {"train_loss": loss},
@@ -469,13 +453,8 @@ class SimPLR(LightningModule):
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),
                     "weight_decay": 0.0,
-                    "lr": 0.1
-                },
-                {   "name": "mean_regressor",
-                    "params": self.mean_head.parameters(),
-                    "weight_decay": 0.0,
-                    "lr": 0.1
-                },
+                    # "lr": 0.1
+                },                
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
