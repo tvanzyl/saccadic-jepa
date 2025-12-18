@@ -254,8 +254,7 @@ class SimPLR(LightningModule):
 
             if self.JS: # For James-Stein                
                 if self.fwd: #Use forwards as the mean
-                    mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
-                    mean_new = mean_
+                    mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)                    
                 if self.current_epoch == 0:
                     if self.emm:
                         self.embedding[idx] = 0.5*(q0_+q1_)
@@ -286,8 +285,6 @@ class SimPLR(LightningModule):
                     elif self.emm_v in [1,5,6,7,10]:
                         var_ = self.embedding_var[idx]
                         if self.emm_v in [5,7]:
-                            if not self.fwd >= 2:
-                                raise NotImplementedError()
                             qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
                             qdiff2_ = q_fwd[0]  - qmean_
                             qdiff3_ = q_fwd[1]  - qmean_
@@ -298,10 +295,10 @@ class SimPLR(LightningModule):
                             raise
                         elif self.emm:
                             var_n  = (1.0 - self.gamma)*var_ + \
-                                     self.gamma*(1.0 - self.gamma)*qdiff_s
+                                     self.gamma*(1.0 - self.alpha)*qdiff_s
                         elif self.fwd:
                             var_n  = (1.0 - self.gamma)*var_ + \
-                                     self.gamma/(1.0 - self.gamma)*qdiff_s
+                                     self.gamma*qdiff_s
                         else:
                             raise                        
                         if self.emm_v == 1 or self.emm_v == 6:
@@ -340,12 +337,10 @@ class SimPLR(LightningModule):
                         pass
                     elif self.asm: #TODO: Deal with ASM
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        mean_new = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = mean_new
+                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                     elif self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        mean_new = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = mean_new
+                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                     else:
                         raise Exception("Not Valid Combo")
             
