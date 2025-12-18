@@ -286,6 +286,8 @@ class SimPLR(LightningModule):
                     elif self.emm_v in [1,5,6,7,10]:
                         var_ = self.embedding_var[idx]
                         if self.emm_v in [5,7]:
+                            if not self.fwd >= 2:
+                                raise NotImplementedError()
                             qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
                             qdiff2_ = q_fwd[0]  - qmean_
                             qdiff3_ = q_fwd[1]  - qmean_
@@ -330,9 +332,6 @@ class SimPLR(LightningModule):
                     self.log_dict({"qdiff":qdiff0_.mean()})
                     self.log_dict({"JS_n0_n1":n0.mean()})
                     self.log_dict({"var":torch.mean(var_)})
-
-                    n0 = 0.0
-                    n1 = 0.0
 
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_
