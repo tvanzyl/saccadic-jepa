@@ -101,7 +101,6 @@ class SimPLR(LightningModule):
                  no_bias:bool=False,
                  emm:bool=False, emm_v:int=0,
                  fwd:int=0,
-                 asm:bool=False,                 
                  end_value:float=0.001) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -119,7 +118,7 @@ class SimPLR(LightningModule):
                                   'no_ReLU_buttress',
                                   'emm', 'emm_v', 
                                   'no_bias',
-                                  'fwd', 'asm',
+                                  'fwd', 
                                   'end_value')
         self.warmup = warmup
         self.lr = lr
@@ -128,8 +127,7 @@ class SimPLR(LightningModule):
         self.JS = JS
         self.emm = emm
         self.emm_v = emm_v
-        self.fwd = fwd
-        self.asm = asm
+        self.fwd = fwd        
         self.momentum_head = momentum_head
         self.alpha = alpha
         self.gamma = gamma
@@ -139,11 +137,7 @@ class SimPLR(LightningModule):
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
         if JS and not emm and fwd == 0:
-            raise Exception("Invalid Arguments, Need One of Fwd or EMM with JS")
-        if self.asm and not self.emm:
-            raise Exception("Invalid Arguments, Need EMM with Asm")
-        if self.asm and self.fwd > 0:
-            raise Exception("Invalid Arguments, can't have Asm with Fwd")
+            raise Exception("Invalid Arguments, Need One of Fwd or EMM with JS")        
         
         resnet, emb_width = backbones(backbone)
         self.emb_width  = emb_width # Used by eval classes        
@@ -266,8 +260,8 @@ class SimPLR(LightningModule):
                     # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     if self.emm and self.fwd:
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
-                        self.embedding[idx] = mean_
-                    elif self.emm: #EMM or EMM+ASM
+                        
+                    elif self.emm: #EMM 
                         mean_ = self.embedding[idx]
 
                     qdiff0_ = q0_  - mean_
@@ -301,7 +295,7 @@ class SimPLR(LightningModule):
                                      self.gamma*qdiff_s
                         else:
                             raise                        
-                        if self.emm_v == 1 or self.emm_v == 6:
+                        if self.emm_v in [1,6,5]:
                             var_ = var_n
                         if self.emm_v == 1: # Reduce to scalar
                             self.embedding_var[idx] = torch.mean(var_n, dim=1, keepdim=True)
@@ -333,14 +327,13 @@ class SimPLR(LightningModule):
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_
                     
-                    if self.fwd:
-                        pass
-                    elif self.asm: #TODO: Deal with ASM
-                        # zic_ = (qincr0_+qincr1_)/2.0
-                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                    if self.emm and self.fwd:
+                        self.embedding[idx] = mean_
                     elif self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
                         self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                    elif self.fwd:
+                        pass
                     else:
                         raise Exception("Not Valid Combo")
             
@@ -349,10 +342,7 @@ class SimPLR(LightningModule):
             # vars.reverse()
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
-                q.extend([q_ for _ in range(views-2-self.fwd)])            
-            if self.asm:
-                p = p[:1]
-                q = q[:1]
+                q.extend([q_ for _ in range(views-2-self.fwd)])
             assert len(p)==len(q)        
         return h0_, p, q, qo, vars
 
@@ -552,6 +542,14 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
 
+"Tiny-weak":    JSREPATransform(global_crop_size=64,                    
+                            global_crop_scale=(0.20, 1.0),
+                            weak_crop_scale=(0.20, 1.0),
+                            n_global_views=2,
+                            n_weak_views=1,
+                            n_local_views=0,
+                            gaussian_blur=(0.5, 0.0, 0.0),
+                            normalize=TINYIMAGE_NORMALIZE),
 "Tiny-2":       DINOTransform(global_crop_size=64,                          
                             global_crop_scale=(0.14, 1.0),
                             n_local_views=0,

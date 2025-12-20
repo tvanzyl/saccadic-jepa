@@ -108,6 +108,14 @@ METHODS = {
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100-12"],},
 
+<<<<<<< HEAD
+=======
+    "Tiny-weak":    {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Tiny"],  
+                     "val_transform": SimPLR.val_transforms["Tiny"],
+                     "transform": SimPLR.transforms["Tiny-weak"],},
+
+>>>>>>> 7f57ba0 (remove asm)
     "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
@@ -198,8 +206,7 @@ def main(
     JS: bool, 
     no_bias: bool,
     emm: bool, emm_v: int,
-    fwd: int,
-    asm: bool,        
+    fwd: int,    
     end_value: float,
 ) -> None:
     torch.set_float32_matmul_precision("high")
@@ -240,7 +247,6 @@ def main(
             no_bias=no_bias,
             emm=emm, emm_v=emm_v,
             fwd=fwd,
-            asm=asm,                        
             end_value=end_value,
         )
 
