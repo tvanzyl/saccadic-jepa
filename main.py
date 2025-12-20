@@ -108,14 +108,6 @@ METHODS = {
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100-12"],},
 
-<<<<<<< HEAD
-=======
-    "Tiny-weak":    {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Tiny"],  
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-weak"],},
-
->>>>>>> 7f57ba0 (remove asm)
     "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
