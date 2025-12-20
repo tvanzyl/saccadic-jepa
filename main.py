@@ -71,7 +71,6 @@ parser.add_argument("--no-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
 parser.add_argument("--emm-v", type=int, default=0)
 parser.add_argument("--fwd", type=int, default=0)
-parser.add_argument("--asm", action="store_true")
 parser.add_argument("--end-value", type=float, default=0.001)
 
 METHODS = {
@@ -84,10 +83,6 @@ METHODS = {
                      "train_transform": SimPLR.train_transforms["Cifar100"],  
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100-2"],},
-    "Cifar100-asm": {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Cifar100"],  
-                     "val_transform": SimPLR.val_transforms["Cifar100"], 
-                     "transform": SimPLR.transforms["Cifar100-asm"],},
     "Cifar100-weak":{"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Cifar100"],  
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
@@ -113,15 +108,6 @@ METHODS = {
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100-12"],},
 
-    "Tiny-asm":     {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Tiny"],  
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-asm"],},
-    "Tiny-weak":    {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Tiny"],  
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-weak"],},
-
     "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
@@ -130,10 +116,6 @@ METHODS = {
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
                      "transform": SimPLR.transforms["Tiny-4"],},
-    "Tiny-8":       {"model": SimPLR.SimPLR, "n_local_views":6,
-                     "train_transform": SimPLR.train_transforms["Tiny"],  
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-8"],},
 
     "STL-2":        {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["STL"],  
