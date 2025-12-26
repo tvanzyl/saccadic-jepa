@@ -158,7 +158,7 @@ class SimPLR(LightningModule):
                 self.projection_head.extend(
                                     [nn.BatchNorm1d(prj_width),
                                     nn.LeakyReLU(),
-                                    nn.Linear(prj_width, prj_width),]
+                                    nn.Linear(prj_width, prj_width)]
                 )
 
         #Use Batchnorm none-affine for centering
@@ -180,28 +180,34 @@ class SimPLR(LightningModule):
         if no_student_head:
             student_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
-            student_head = nn.Linear(prj_width, self.prd_width, False)            
+            student_head = nn.Linear(prj_width, self.prd_width, False)
             student_head.weight.data = teacher_head.weight.data.clone()
             if cut > 1.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)
-        
+
         if not no_ReLU_buttress:
             self.student_head.insert(0, nn.ReLU())
             self.teacher_head.insert(0, nn.ReLU())
 
         if not no_bias:
             biaslayer = BiasLayer(prj_width)
-            biaslayer.bias.data.div_(cut)
+            if cut > 1.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
+                biaslayer.bias.data.div_(cut)
             self.teacher_head.insert(0, biaslayer)
-        
-        self.var_head = nn.Sequential(                                
+
+        self.var_head = nn.Sequential(
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
-                            )        
+                            )
+        # self.mean_head = nn.Sequential(
+        #                         nn.ReLU(),
+        #                         nn.Linear(prj_width, prd_width)                                
+        #                     )        
+        
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
-
+        
         self.criterion = NegativeCosineSimilarity()
         self.var_crt = nn.GaussianNLLLoss()
 
@@ -220,7 +226,8 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        vars  = [self.var_head(  b_.detach() ) for b_ in b]
+        vars = [self.var_head( z_.detach() ) for z_ in z]
+        # means = [self.mean_head( z_.detach() ) for z_ in z]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})            
@@ -238,9 +245,7 @@ class SimPLR(LightningModule):
             q0_ = q[0]
             q1_ = q[1]
 
-            if self.JS: # For James-Stein                
-                if self.fwd: #Use forwards as the mean
-                    mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)                    
+            if self.JS: # For James-Stein                                                 
                 if self.current_epoch == 0:
                     if self.emm:
                         self.embedding[idx] = 0.5*(q0_+q1_)
@@ -249,23 +254,28 @@ class SimPLR(LightningModule):
                     elif self.emm_v in [1]:
                         self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)
                 else:
-                    # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    if self.emm and self.fwd:
-                        mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
-                        
+                    if self.fwd: #Use forwards as the mean
+                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)                       
+                    elif self.emm and self.fwd:
+                        mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_                        
                     elif self.emm: #EMM 
+                        # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                         mean_ = self.embedding[idx]
+
+                    # if self.emm_v == 8:
+                    #     mean_ = torch.mean(torch.stack(means, dim=0), dim=0).detach()
 
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
-
+                    
                     if self.emm_v == 9:
-                        qdiff_ = torch.stack(q_fwd, dim=0) - mean_
-                        var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
-                        var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
-                        self.log_dict({"mean":torch.mean(mean_)})
-                        self.log_dict({"var_b":torch.mean(var_b)})
-                        self.log_dict({"var_u":torch.mean(var_u)})
+                        var_ = torch.tensor(0.10, device=self.device)
+                        # qdiff_ = torch.stack(q_fwd, dim=0) - mean_
+                        # var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
+                        # var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
+                        # self.log_dict({"mean":torch.mean(mean_)})
+                        # self.log_dict({"var_b":torch.mean(var_b)})
+                        # self.log_dict({"var_u":torch.mean(var_u)})
                     elif self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
                     elif self.emm_v in [1,5,6,7,10]:
@@ -315,6 +325,7 @@ class SimPLR(LightningModule):
                     self.log_dict({"qdiff":qdiff0_.mean()})
                     self.log_dict({"JS_n0_n1":n0.mean()})
                     self.log_dict({"var":torch.mean(var_)})
+                    self.log_dict({"var_var":torch.var(var_)})
 
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_
@@ -369,9 +380,12 @@ class SimPLR(LightningModule):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-            var_   = vars[xi]
+            var_  = vars[xi]
+            # mean_ = means[xi]
             qo_    = qo[xi].detach()
+            # var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*mean_, var_)            
             var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
+            # var_loss += self.var_crt(qomean_, qo_, var_)
 
         self.log_dict(
             {"train_loss": loss},
@@ -429,8 +443,7 @@ class SimPLR(LightningModule):
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),
                     "weight_decay": 0.0,
-                    # "lr": 0.1
-                },                
+                }               
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
@@ -611,4 +624,5 @@ val_transforms = {
 "Im100":     val_transform,
 "Im1k":      val_transform,
 }
+
 
