@@ -195,9 +195,7 @@ class SimPLR(LightningModule):
             biaslayer.bias.data.div_(cut)
             self.teacher_head.insert(0, biaslayer)
         
-        self.var_head = nn.Sequential(
-                                # nn.ReLU(),
-                                # nn.Linear(prj_width, prj_width),
+        self.var_head = nn.Sequential(                                
                                 nn.ReLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
@@ -225,13 +223,7 @@ class SimPLR(LightningModule):
         vars  = [self.var_head(  b_.detach() ) for b_ in b]
         
         with torch.no_grad():
-            self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
-            self.log_dict({"h_mean":torch.mean(h0_)})
-            self.log_dict({"h_var":torch.var(h0_)})
-            self.log_dict({"h_sharp":torch.mean(h0_)/torch.var(h0_)})
-            self.log_dict({"z_mean":torch.mean(z[0])})
-            self.log_dict({"z_var":torch.var(z[0])})
-            self.log_dict({"z_sharp":torch.mean(z[0])/torch.var(z[0])})
+            self.log_dict({"h_quality":std_of_l2_normalized(h0_)})            
 
             var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
 
