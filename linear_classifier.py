@@ -6,7 +6,7 @@ from pytorch_lightning import LightningModule
 from torch import Tensor
 from torch.nn import CrossEntropyLoss, Linear, Module, Parameter, Sequential
 from torch.optim import SGD, Optimizer, Adam
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import ExponentialLR, MultiStepLR
 
 from lightly.utils.benchmarking.topk import mean_topk_accuracy
 from lightly.utils.scheduler import CosineWarmupScheduler
@@ -97,6 +97,10 @@ class BaseClassifier(LightningModule, ABC):
             weight_decay=0.0,
         )
         scheduler = {
+            # "scheduler": MultiStepLR(
+            #     optimizer=optimizer,
+            #     milestones=[60, 80]
+            # ),
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
                 warmup_epochs=0,
