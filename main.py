@@ -56,7 +56,7 @@ parser.add_argument("--decay", type=float, default=1e-4)
 parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
-parser.add_argument("--alpha", type=float, default=0.80)
+parser.add_argument("--alpha", type=float, default=1.00)
 parser.add_argument("--gamma", type=float, default=0.50)
 parser.add_argument("--linear-lr", type=float, default=0.1)
 parser.add_argument("--cut", type=float, default=2.0)
@@ -78,6 +78,14 @@ METHODS = {
                      "train_transform": SimPLR.train_transforms["Cifar10"],  
                      "val_transform": SimPLR.val_transforms["Cifar10"],  
                      "transform": SimPLR.transforms["Cifar10"],},
+    "Cifar10-2":    {"model": SimPLR.SimPLR, "n_local_views":0,
+                     "train_transform": SimPLR.train_transforms["Cifar10"],  
+                     "val_transform": SimPLR.val_transforms["Cifar10"], 
+                     "transform": SimPLR.transforms["Cifar10-2"],},
+    "Cifar10-4":    {"model": SimPLR.SimPLR, "n_local_views":2,
+                     "train_transform": SimPLR.train_transforms["Cifar10"],  
+                     "val_transform": SimPLR.val_transforms["Cifar10"], 
+                     "transform": SimPLR.transforms["Cifar10-4"],},
 
     "Cifar100-2":   {"model": SimPLR.SimPLR, "n_local_views":0,
                      "train_transform": SimPLR.train_transforms["Cifar100"],  

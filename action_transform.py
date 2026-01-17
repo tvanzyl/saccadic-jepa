@@ -642,7 +642,7 @@ class JSREPATransform(MultiViewTransform):
         local_crop_size: int = 96,
         local_crop_scale: Tuple[float, float] = (0.05, 0.4),        
         n_local_views: int = 0,
-        n_weak_views: int = 1,
+        n_weak_views: int = 0,
         n_global_views: int = 2,
         hf_prob: float = 0.5,
         vf_prob: float = 0,
@@ -659,7 +659,7 @@ class JSREPATransform(MultiViewTransform):
         kernel_size: Optional[float] = None,
         kernel_scale: Optional[float] = None,
         sigmas: Tuple[float, float] = (0.1, 2),
-        solarization_prob: float = 0.2,
+        solarization_prob: float = (0.2, 0.0),
         normalize: Union[None, Dict[str, List[float]]] = IMAGENET_NORMALIZE,
     ):
         # weak crop
@@ -711,7 +711,7 @@ class JSREPATransform(MultiViewTransform):
             kernel_size=kernel_size,
             kernel_scale=kernel_scale,
             sigmas=sigmas,
-            solarization_prob=solarization_prob,
+            solarization_prob=solarization_prob[0],
             normalize=normalize,
         )
 
@@ -734,7 +734,7 @@ class JSREPATransform(MultiViewTransform):
             kernel_size=kernel_size,
             kernel_scale=kernel_scale,
             sigmas=sigmas,
-            solarization_prob=0,
+            solarization_prob=solarization_prob[1],
             normalize=normalize,
         )
         weak_transforms = [weak_transform] * n_weak_views
