@@ -354,14 +354,14 @@ class SimPLR(LightningModule):
                 self.embedding      = torch.empty((N, self.prd_width),
                                             dtype=torch.float16,
                                             device=self.device)
-            if self.emm_v in [1]:
-                self.embedding_var  = torch.zeros((N, 1),
-                                        dtype=torch.float32,
-                                        device=self.device)
-            elif self.emm_v in [5,6,7,10]:
-                self.embedding_var  = torch.zeros((N, self.prd_width),
-                                        dtype=torch.float32,
-                                        device=self.device)
+            # if self.emm_v in [1]:
+            #     self.embedding_var  = torch.zeros((N, 1),
+            #                             dtype=torch.float32,
+            #                             device=self.device)
+            # elif self.emm_v in [5,6,7,10]:
+            #     self.embedding_var  = torch.zeros((N, self.prd_width),
+            #                             dtype=torch.float32,
+            #                             device=self.device)
         return super().on_train_start()
 
     def training_step(
