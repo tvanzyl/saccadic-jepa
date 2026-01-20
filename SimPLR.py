@@ -99,7 +99,7 @@ class SimPLR(LightningModule):
                  no_student_head:bool=False,
                  JS:bool=False, 
                  no_bias:bool=False,
-                 emm:bool=False, emm_v:int=0,
+                 emm:bool=False, emm_v:int=0, var:float=0.1,
                  fwd:int=0,
                  end_value:float=0.001) -> None:
         super().__init__()
@@ -116,7 +116,7 @@ class SimPLR(LightningModule):
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width", 'L2',
                                   'no_ReLU_buttress',
-                                  'emm', 'emm_v', 
+                                  'emm', 'emm_v', 'var',
                                   'no_bias',
                                   'fwd', 
                                   'end_value')
@@ -127,6 +127,7 @@ class SimPLR(LightningModule):
         self.JS = JS
         self.emm = emm
         self.emm_v = emm_v
+        self.var = var
         self.fwd = fwd        
         self.momentum_head = momentum_head
         self.alpha = alpha
@@ -157,8 +158,8 @@ class SimPLR(LightningModule):
             for _ in range(prj_depth):
                 self.projection_head.extend(
                                     [nn.BatchNorm1d(prj_width),
-                                    nn.LeakyReLU(),
-                                    nn.Linear(prj_width, prj_width)]
+                                     nn.LeakyReLU(),
+                                     nn.Linear(prj_width, prj_width)]
                 )
 
         #Use Batchnorm none-affine for centering
@@ -196,9 +197,10 @@ class SimPLR(LightningModule):
                 biaslayer.bias.data.div_(cut)
             self.teacher_head.insert(0, biaslayer)
 
-        self.var_head = nn.Sequential(
+        self.var_head = nn.Sequential(                                
+                                nn.BatchNorm1d(prj_width),
                                 nn.ReLU(),
-                                nn.Linear(prj_width, prd_width),
+                                nn.Linear(prj_width, prd_width, bias=False),
                                 nn.Softplus()
                             )
         
@@ -265,7 +267,7 @@ class SimPLR(LightningModule):
                     qdiff1_ = q1_  - mean_
                     
                     if self.emm_v == 9:
-                        var_ = torch.tensor(0.10, device=self.device)
+                        var_ = torch.tensor(self.var, device=self.device)
                         # qdiff_ = torch.stack(q_fwd, dim=0) - mean_
                         # var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
                         # var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
@@ -379,7 +381,7 @@ class SimPLR(LightningModule):
             var_  = vars[xi]
             # mean_ = means[xi]
             qo_    = qo[xi].detach()
-            # var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*mean_, var_)            
+            # var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*mean_, var_)
             var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
             # var_loss += self.var_crt(qomean_, qo_, var_)
 
@@ -585,11 +587,12 @@ transforms = {
 
 "Im100-8":      DINOTransform(global_crop_scale=(0.14, 1.00),
                             local_crop_scale=(0.05, 0.14)),
-"Im100-4":      DINOTransform(global_crop_scale=(0.08, 1.0),
+"Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
                             n_local_views=2,
                             local_crop_size=224,
                             local_crop_scale=(0.08, 1.0),
-                            gaussian_blur=(1.0, 0.1, 0.5)),
+                            gaussian_blur=(1.0, 0.1, 0.5),
+                            solarization_prob=(0.2, 0.1)),
 "Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
                             n_local_views=0),
 "Im100-2-14":   DINOTransform(global_crop_scale=(0.14, 1.0),

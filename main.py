@@ -70,6 +70,7 @@ parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
 parser.add_argument("--emm-v", type=int, default=0)
+parser.add_argument("--var", type=float, default=0.1)
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--end-value", type=float, default=0.001)
 
@@ -202,7 +203,7 @@ def main(
     no_student_head: bool,
     JS: bool, 
     no_bias: bool,
-    emm: bool, emm_v: int,
+    emm: bool, emm_v: int, var: float,
     fwd: int,    
     end_value: float,
 ) -> None:
@@ -242,7 +243,7 @@ def main(
             no_student_head=no_student_head,
             JS=JS, 
             no_bias=no_bias,
-            emm=emm, emm_v=emm_v,
+            emm=emm, emm_v=emm_v, var=var,
             fwd=fwd,
             end_value=end_value,
         )
