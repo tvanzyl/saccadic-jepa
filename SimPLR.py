@@ -182,10 +182,13 @@ class SimPLR(LightningModule):
             student_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
             student_head = nn.Linear(prj_width, self.prd_width, False)
+            if cut == 0.0:
+                cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
+                print(f"Cut: {cut}")
             student_head.weight.data = teacher_head.weight.data.clone()
-            if cut > 1.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
+            if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
-        self.student_head = nn.Sequential(student_head)
+        self.student_head = nn.Sequential(student_head)        
 
         if not no_ReLU_buttress:
             self.student_head.insert(0, nn.ReLU())
