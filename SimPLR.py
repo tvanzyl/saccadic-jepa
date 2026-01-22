@@ -255,10 +255,10 @@ class SimPLR(LightningModule):
                     # elif self.emm_v in [1]:
                     #     self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)
                 else:
-                    if self.fwd: #Use forwards as the mean
-                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)                       
-                    elif self.emm and self.fwd:
+                    if self.emm and self.fwd:
                         mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
+                    elif self.fwd: #Use forwards as the mean
+                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
                     elif self.emm: #EMM 
                         # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                         mean_ = self.embedding[idx]
@@ -591,11 +591,7 @@ transforms = {
 "Im100-8":      DINOTransform(global_crop_scale=(0.14, 1.00),
                             local_crop_scale=(0.05, 0.14)),
 "Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
-                            n_local_views=2,
-                            local_crop_size=224,
-                            local_crop_scale=(0.08, 1.0),
-                            gaussian_blur=(1.0, 0.1, 0.5),
-                            solarization_prob=(0.2, 0.1)),
+                            n_global_views=4),
 "Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
                             n_local_views=0),
 "Im100-2-14":   DINOTransform(global_crop_scale=(0.14, 1.0),
