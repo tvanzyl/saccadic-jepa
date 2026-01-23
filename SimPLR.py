@@ -201,9 +201,8 @@ class SimPLR(LightningModule):
             self.teacher_head.insert(0, biaslayer)
 
         self.var_head = nn.Sequential(                                
-                                nn.BatchNorm1d(prj_width),
                                 nn.ReLU(),
-                                nn.Linear(prj_width, prd_width, bias=False),
+                                nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
         
@@ -227,11 +226,10 @@ class SimPLR(LightningModule):
         b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
-        vars = [self.var_head( z_.detach() ) for z_ in z]
-        # means = [self.mean_head( z_.detach() ) for z_ in z]
+        vars = [self.var_head( b_.detach() ) for b_ in b]
         
         with torch.no_grad():
-            self.log_dict({"h_quality":std_of_l2_normalized(h0_)})            
+            self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
             var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
 
@@ -240,7 +238,7 @@ class SimPLR(LightningModule):
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]                
+                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
 
             q = [self.teacher_head( b_.detach() ) for b_ in b]
             q0_ = q[0]
@@ -342,12 +340,11 @@ class SimPLR(LightningModule):
                         raise Exception("Not Valid Combo")
             
             qo = q
-            q  = [q1_, q0_]
-            # vars.reverse()
+            q  = [q1_, q0_]            
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
                 q.extend([q_ for _ in range(views-2-self.fwd)])
-            assert len(p)==len(q)        
+            assert len(p)==len(q)
         return h0_, p, q, qo, vars
 
     def on_train_start(self):
@@ -381,12 +378,10 @@ class SimPLR(LightningModule):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
+
             var_  = vars[xi]
-            # mean_ = means[xi]
             qo_    = qo[xi].detach()
-            # var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*mean_, var_)
             var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
-            # var_loss += self.var_crt(qomean_, qo_, var_)
 
         self.log_dict(
             {"train_loss": loss},
@@ -491,11 +486,6 @@ TINYIMAGE_NORMALIZE = {'mean':(0.4802, 0.4481, 0.3975), 'std':(0.2302, 0.2265, 0
 STL10_NORMALIZE     = {'mean':(0.4408, 0.4279, 0.3867), 'std':(0.2682, 0.2610, 0.2686)}
 
 transforms = {
-"Cifar10":      DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.20, 1.0),
-                            n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=CIFAR10_NORMALIZE),
 "Cifar10-2":    DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.08, 1.0),
                             n_local_views=0,
@@ -509,31 +499,6 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR10_NORMALIZE),
 
-
-"Cifar100-weak":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.08, 1.0),
-                            weak_crop_scale=(0.08, 1.0),
-                            n_global_views=2,
-                            n_weak_views=1,
-                            n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=CIFAR100_NORMALIZE),
-"Cifar100-weak-2":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.08, 1.0),
-                            weak_crop_scale=(0.08, 1.0),
-                            n_global_views=2,
-                            n_weak_views=2,
-                            n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=CIFAR100_NORMALIZE),
-"Cifar100-weak-4":JSREPATransform(global_crop_size=32,
-                            global_crop_scale=(0.08, 1.0),
-                            weak_crop_scale=(0.08, 1.0),
-                            n_global_views=2,
-                            n_weak_views=4,
-                            n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=CIFAR100_NORMALIZE),
 "Cifar100-2":   DINOTransform(global_crop_size=32,
                             global_crop_scale=(0.08, 1.0),
                             n_local_views=0,
@@ -546,29 +511,7 @@ transforms = {
                             local_crop_scale=(0.08, 1.0),
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
-"Cifar100-6":   DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.08, 1.0),
-                            n_local_views=4,
-                            local_crop_size=32,
-                            local_crop_scale=(0.08, 1.0),
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=CIFAR100_NORMALIZE),
-"Cifar100-12":  DINOTransform(global_crop_size=32,
-                            global_crop_scale=(0.08, 1.0),
-                            n_local_views=10,
-                            local_crop_size=32,
-                            local_crop_scale=(0.08, 1.0),
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=CIFAR100_NORMALIZE),
 
-"Tiny-weak":    JSREPATransform(global_crop_size=64,
-                            global_crop_scale=(0.20, 1.0),
-                            weak_crop_scale=(0.20, 1.0),
-                            n_global_views=2,
-                            n_weak_views=1,
-                            n_local_views=0,
-                            gaussian_blur=(0.5, 0.0, 0.0),
-                            normalize=TINYIMAGE_NORMALIZE),
 "Tiny-2":       DINOTransform(global_crop_size=64,
                             global_crop_scale=(0.14, 1.0),
                             n_local_views=0,
@@ -588,8 +531,6 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=STL10_NORMALIZE),
 
-"Im100-8":      DINOTransform(global_crop_scale=(0.14, 1.00),
-                            local_crop_scale=(0.05, 0.14)),
 "Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
                             n_global_views=4),
 "Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
