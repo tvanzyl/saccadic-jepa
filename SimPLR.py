@@ -532,7 +532,13 @@ transforms = {
                             normalize=STL10_NORMALIZE),
 
 "Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
+                            n_global_views=6),
+"Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
                             n_global_views=4),
+"Im100-4-14":   DINOTransform(global_crop_scale=(0.08, 1.0),
+                            n_local_views=2,
+                            local_crop_size=224,
+                            local_crop_scale=(0.14, 1.0),),
 "Im100-2-20":   DINOTransform(global_crop_scale=(0.20, 1.0),
                             n_local_views=0),
 "Im100-2-14":   DINOTransform(global_crop_scale=(0.14, 1.0),
