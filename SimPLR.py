@@ -532,7 +532,7 @@ transforms = {
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=STL10_NORMALIZE),
 
-"Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
+"Im100-6":      JSREPATransform(global_crop_scale=(0.08, 1.0),
                             n_global_views=6),
 "Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
                             n_global_views=4),
