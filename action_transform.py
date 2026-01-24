@@ -748,7 +748,10 @@ class JSREPATransform(MultiViewTransform):
         elif n_global_views == 3:
             transforms = [global_transform_0, global_transform_1, global_transform_1]
         elif n_global_views == 4:
-            transforms = [global_transform_0, global_transform_1, global_transform_0, global_transform_1]
+            transforms = [global_transform_0, global_transform_1]*2
+        elif n_global_views == 6:
+            transforms = [global_transform_0, global_transform_1]*3
+                          
         else:
             raise NotImplementedError("Only Support Max Two Flobal Views")
         transforms.extend(weak_transforms)
