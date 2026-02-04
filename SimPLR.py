@@ -9,8 +9,8 @@ from torch.nn import Identity
 from torch.optim import SGD
 
 from torchvision import transforms as T
-from torchvision.models import resnet50, resnet34, resnet18
-from resnet import resnet18 as resnetjie18
+from torchvision.models import resnet50, resnet34 #, resnet18
+from resnet import resnet18
 
 from pytorch_lightning import LightningModule
 
@@ -69,9 +69,9 @@ def backbones(name):
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
-                  "resnet-50":resnet50}[name]()
+                  "resnet-50":resnet50}[name](zero_init_residual=True)
         emb_width = resnet.fc.in_features
-        resnet.fc = Identity()
+        # resnet.fc = Identity()
     else:
         raise NotImplemented("Backbone Not Supported")
     
@@ -163,7 +163,7 @@ class SimPLR(LightningModule):
                 )
 
         #Use Batchnorm none-affine for centering
-        self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=False)
+        self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=True)
 
         if identity_head:
             if prj_width == prd_width:
@@ -190,20 +190,20 @@ class SimPLR(LightningModule):
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)        
 
-        if not no_ReLU_buttress:
-            self.student_head.insert(0, nn.ReLU())
-            self.teacher_head.insert(0, nn.ReLU())
-
         if not no_bias:
             biaslayer = BiasLayer(prj_width)
-            if cut > 1.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
+            if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 biaslayer.bias.data.div_(cut)
             self.teacher_head.insert(0, biaslayer)
 
+        if not no_ReLU_buttress:
+            self.student_head.insert(0, nn.LeakyReLU())
+            self.teacher_head.insert(0, nn.LeakyReLU())
+
         self.var_head = nn.Sequential(     
-                                nn.BatchNorm1d(prj_width),
-                                nn.ReLU(),
-                                nn.Linear(prj_width, prd_width, bias=False),
+                                # nn.BatchNorm1d(prj_width),
+                                nn.LeakyReLU(),
+                                nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
         
@@ -220,98 +220,53 @@ class SimPLR(LightningModule):
 
         # Two globals
         h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-        h0_ = h[0].detach()
-        if views > self.fwd + 2: # MultiCrops
-            h.extend([self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]])
+        h0_ = h[0].detach()        
         z = [self.projection_head( h_ ) for h_ in h]
-        b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
+        if views > self.fwd + 2: # MultiCrops
+            h_multi = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]]
+            z_multi = [self.projection_head( h_ ) for h_ in h_multi]
+            p.extend([self.student_head( z_ ) for z_ in z_multi])        
+
         vars = [self.var_head( z_.detach() ) for z_ in z]
         
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
-            var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-
             # Fwds Only
             if self.fwd > 0:
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                self.projection_head.train(False)
+                self.buttress.train(False)
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                self.projection_head.train(True)
+                self.buttress.train(True)
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
 
-            q = [self.teacher_head( b_.detach() ) for b_ in b]
-            q0_ = q[0]
-            q1_ = q[1]
+            b = [self.buttress( z_.detach() ) for z_ in z]
+            qo = [self.teacher_head( b_ ) for b_ in b]
+            q0_ = qo[0]
+            q1_ = qo[1]
 
             if self.JS: # For James-Stein                                                 
-                if self.current_epoch == 0:
-                    if self.emm:
-                        self.embedding[idx] = 0.5*(q0_+q1_)
-                    # if self.emm_v in [5,6,7,10]:
-                    #     self.embedding_var[idx] = (0.5*(q0_-q1_))**2.0
-                    # elif self.emm_v in [1]:
-                    #     self.embedding_var[idx] = torch.mean((0.5*(q0_-q1_))**2.0, dim=1, keepdim=True)
+                if self.current_epoch == 0 and self.emm:
+                    self.embedding[idx] = 0.5*(q0_+q1_)
                 else:
-                    if self.emm and self.fwd:
-                        mean_ = (1.0 - self.alpha) * self.embedding[idx] + self.alpha * mean_
-                    elif self.fwd: #Use forwards as the mean
-                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0)
+                    if self.fwd: #Use forwards as the mean
+                        mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0) #speed
                     elif self.emm: #EMM 
                         # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                         mean_ = self.embedding[idx]
-
-                    # if self.emm_v == 8:
-                    #     mean_ = torch.mean(torch.stack(means, dim=0), dim=0).detach()
 
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
                     
                     if self.emm_v == 9:
                         var_ = torch.tensor(self.var, device=self.device)
-                        # qdiff_ = torch.stack(q_fwd, dim=0) - mean_
-                        # var_b = torch.sum(qdiff_**2, dim=0)/self.fwd
-                        # var_u = torch.sum(qdiff_**2, dim=0)/(self.fwd-1)
-                        # self.log_dict({"mean":torch.mean(mean_)})
-                        # self.log_dict({"var_b":torch.mean(var_b)})
-                        # self.log_dict({"var_u":torch.mean(var_u)})
                     elif self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                    # elif self.emm_v in [1,5,6,7,10]:
-                    #     var_ = self.embedding_var[idx]
-                    #     if self.emm_v in [5,7]:
-                    #         qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
-                    #         qdiff2_ = q_fwd[0]  - qmean_
-                    #         qdiff3_ = q_fwd[1]  - qmean_
-                    #         qdiff_s = (qdiff2_**2 + qdiff3_**2)/2.0
-                    #     else:
-                    #         qdiff_s = (qdiff0_**2 + qdiff1_**2)/2.0
-                    #     if self.emm and self.fwd:
-                    #         raise
-                    #     elif self.emm:
-                    #         var_n  = (1.0 - self.gamma)*var_ + \
-                    #                  self.gamma*(1.0 - self.alpha)*qdiff_s
-                    #     elif self.fwd:
-                    #         var_n  = (1.0 - self.gamma)*var_ + \
-                    #                  self.gamma*qdiff_s
-                    #     else:
-                    #         raise                        
-                    #     if self.emm_v in [1,6,5]:
-                    #         var_ = var_n
-                    #     if self.emm_v == 1: # Reduce to scalar
-                    #         self.embedding_var[idx] = torch.mean(var_n, dim=1, keepdim=True)
-                    #     else:
-                    #         self.embedding_var[idx] = var_n
-                    #     self.log_dict({"var_n":torch.mean(var_n)})
-                    # elif self.emm_v == 4:
-                    #     qmean_ = torch.mean(torch.stack(q, dim=0), dim=0)
-                    #     var_ = self.gamma*((q_fwd[0]-qmean_)**2.0 + (q_fwd[1]-qmean_)**2.0)
-                    # elif self.emm_v == 3:
-                    #     pmean_ = torch.mean(torch.stack(p, dim=0), dim=0).detach()
-                    #     var_ = self.gamma*((q0_-pmean_)**2.0 + (q1_-pmean_)**2.0)
-                    # elif self.emm_v == 2:
-                    #     var_ = self.gamma*(len(q)+len(q_fwd))*(torch.var(torch.stack(q+q_fwd, dim=0), unbiased=False, dim=0))
                     else:
                         raise Exception("Not Valid EMM V")
 
@@ -330,9 +285,7 @@ class SimPLR(LightningModule):
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_
                     
-                    if self.emm and self.fwd:
-                        self.embedding[idx] = mean_
-                    elif self.emm:
+                    if self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
                         self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                     elif self.fwd:
@@ -340,11 +293,10 @@ class SimPLR(LightningModule):
                     else:
                         raise Exception("Not Valid Combo")
             
-            qo = q
             q  = [q1_, q0_]            
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
-                q.extend([q_ for _ in range(views-2-self.fwd)])
+                q.extend([q_ for _ in range(views-2-self.fwd)])            
             assert len(p)==len(q)
         return h0_, p, q, qo, vars
 
@@ -354,15 +306,7 @@ class SimPLR(LightningModule):
             if self.emm:
                 self.embedding      = torch.empty((N, self.prd_width),
                                             dtype=torch.float16,
-                                            device=self.device)
-            # if self.emm_v in [1]:
-            #     self.embedding_var  = torch.zeros((N, 1),
-            #                             dtype=torch.float32,
-            #                             device=self.device)
-            # elif self.emm_v in [5,6,7,10]:
-            #     self.embedding_var  = torch.zeros((N, self.prd_width),
-            #                             dtype=torch.float32,
-            #                             device=self.device)
+                                            device=self.device)            
         return super().on_train_start()
 
     def training_step(
@@ -536,6 +480,10 @@ transforms = {
                             n_global_views=6),
 "Im100-4":      JSREPATransform(global_crop_scale=(0.08, 1.0),
                             n_global_views=4),
+"Im100-4-08":   DINOTransform(global_crop_scale=(0.08, 1.0),
+                            n_local_views=2,
+                            local_crop_size=224,
+                            local_crop_scale=(0.08, 1.0),),
 "Im100-4-14":   DINOTransform(global_crop_scale=(0.08, 1.0),
                             n_local_views=2,
                             local_crop_size=224,
