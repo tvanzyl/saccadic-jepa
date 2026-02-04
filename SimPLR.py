@@ -9,8 +9,8 @@ from torch.nn import Identity
 from torch.optim import SGD
 
 from torchvision import transforms as T
-from torchvision.models import resnet50, resnet34 #, resnet18
-from resnet import resnet18
+# from torchvision.models import resnet50, resnet34 #, resnet18
+from resnet import resnet18, resnet34, resnet50
 
 from pytorch_lightning import LightningModule
 
@@ -67,10 +67,10 @@ def backbones(name):
         resnet.maxpool = nn.Sequential()
         resnet.fc = Identity()
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
-        resnet = {"resnet-18":resnet18, 
+        resnet, emb_width = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
                   "resnet-50":resnet50}[name](zero_init_residual=True)
-        emb_width = resnet.fc.in_features
+        # emb_width = resnet.fc.in_features
         # resnet.fc = Identity()
     else:
         raise NotImplemented("Backbone Not Supported")
