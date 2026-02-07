@@ -9,8 +9,8 @@ from torch.nn import Identity
 from torch.optim import SGD
 
 from torchvision import transforms as T
-# from torchvision.models import resnet50, resnet34 #, resnet18
-from resnet import resnet18, resnet34, resnet50
+from torchvision.models import resnet50, resnet34 , resnet18
+# from resnet import resnet18, resnet34, resnet50
 
 from pytorch_lightning import LightningModule
 
@@ -58,6 +58,12 @@ class BiasLayer(nn.Module):
     def forward(self, x):
         return x + self.bias
 
+def update_bn_params(model, momentum=0.01, eps=1e-5):
+    for m in model.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            m.momentum = momentum
+            m.eps = eps
+
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
         resnet = {"resnetjie-9" :resnet18,
@@ -67,16 +73,16 @@ def backbones(name):
         resnet.maxpool = nn.Sequential()
         resnet.fc = Identity()
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
-        resnet, emb_width = {"resnet-18":resnet18, 
+        resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
                   "resnet-50":resnet50}[name](zero_init_residual=True)
-        # emb_width = resnet.fc.in_features
-        # resnet.fc = Identity()
+        emb_width = resnet.fc.in_features
+        resnet.fc = Identity()
+        # update_bn_params(resnet, momentum=0.01)
     else:
-        raise NotImplemented("Backbone Not Supported")
+        raise NotImplemented("Backbone Not Supported")    
     
     return resnet, emb_width
-
 
 class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int,                  
@@ -158,12 +164,13 @@ class SimPLR(LightningModule):
             for _ in range(prj_depth):
                 self.projection_head.extend(
                                     [nn.BatchNorm1d(prj_width),
-                                     nn.LeakyReLU(),
+                                     nn.ReLU(),
                                      nn.Linear(prj_width, prj_width)]
                 )
 
         #Use Batchnorm none-affine for centering
-        self.buttress = nn.BatchNorm1d(prj_width, affine=False, track_running_stats=True)
+        self.buttress = nn.BatchNorm1d(prj_width, 
+                                       affine=False)
 
         if identity_head:
             if prj_width == prd_width:
@@ -197,11 +204,11 @@ class SimPLR(LightningModule):
             self.teacher_head.insert(0, biaslayer)
 
         if not no_ReLU_buttress:
-            self.student_head.insert(0, nn.LeakyReLU())
-            self.teacher_head.insert(0, nn.LeakyReLU())
+            self.student_head.insert(0, nn.ReLU())
+            self.teacher_head.insert(0, nn.ReLU())
 
-        self.var_head = nn.Sequential(     
-                                # nn.BatchNorm1d(prj_width),
+        self.var_head = nn.Sequential(                                     
+                                nn.Linear(prj_width, prj_width),
                                 nn.LeakyReLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
@@ -236,14 +243,12 @@ class SimPLR(LightningModule):
 
             # Fwds Only
             if self.fwd > 0:
+                # self.train(False)
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                self.projection_head.train(False)
-                self.buttress.train(False)
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                self.projection_head.train(True)
-                self.buttress.train(True)
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
+                # self.train(True)
 
             b = [self.buttress( z_.detach() ) for z_ in z]
             qo = [self.teacher_head( b_ ) for b_ in b]
