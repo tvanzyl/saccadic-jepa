@@ -241,19 +241,19 @@ class SimPLR(LightningModule):
         with torch.no_grad():
             self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
-            # Fwds Only
-            if self.fwd > 0:
-                # self.train(False)
-                h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
-                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
-                # self.train(True)
-
             b = [self.buttress( z_.detach() ) for z_ in z]
             qo = [self.teacher_head( b_ ) for b_ in b]
             q0_ = qo[0]
             q1_ = qo[1]
+
+            # Fwds Only
+            if self.fwd > 0:
+                self.train(False)
+                h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
+                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
+                self.train(True)
 
             if self.JS: # For James-Stein                                                 
                 if self.current_epoch == 0 and self.emm:
@@ -272,6 +272,10 @@ class SimPLR(LightningModule):
                         var_ = torch.tensor(self.var, device=self.device)
                     elif self.emm_v == 8:
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+                    elif self.emm_v == 5:
+                        qmean_ = torch.mean(torch.stack(qo, dim=0), dim=0)
+                        qdiff_s = [(q_fwd_ - qmean_)**2 for q_fwd_ in q_fwd]
+                        var_ =  self.gamma*torch.mean(torch.stack(qdiff_s, dim=0), dim=0)
                     else:
                         raise Exception("Not Valid EMM V")
 
