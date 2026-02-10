@@ -69,13 +69,13 @@ def backbones(name):
         resnet = {"resnetjie-9" :resnet18,
                   "resnetjie-18":resnet18}[name]()
         emb_width = resnet.fc.in_features
-        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1), bias=False)
         resnet.maxpool = nn.Sequential()
         resnet.fc = Identity()
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
-                  "resnet-50":resnet50}[name](zero_init_residual=True)
+                  "resnet-50":resnet50}[name](zero_init_residual=(name!="resnet-18"))
         emb_width = resnet.fc.in_features
         resnet.fc = Identity()
         # update_bn_params(resnet, momentum=0.01)
@@ -159,14 +159,14 @@ class SimPLR(LightningModule):
         self.projection_head = nn.Sequential()
         if L2:
             self.projection_head.extend([L2NormalizationLayer(),])
-        if not no_projection_head:
-            self.projection_head.extend([nn.Linear(emb_width, prj_width),])
+        if not no_projection_head:            
             for _ in range(prj_depth):
                 self.projection_head.extend(
-                                    [nn.BatchNorm1d(prj_width),
-                                     nn.ReLU(),
-                                     nn.Linear(prj_width, prj_width)]
+                                    [nn.Linear(prj_width, prj_width, bias=False),
+                                     nn.BatchNorm1d(prj_width),
+                                     nn.ReLU()]
                 )
+            self.projection_head.extend([nn.Linear(emb_width, prj_width),])
 
         #Use Batchnorm none-affine for centering
         self.buttress = nn.BatchNorm1d(prj_width, 
@@ -209,7 +209,7 @@ class SimPLR(LightningModule):
 
         self.var_head = nn.Sequential(                                     
                                 nn.Linear(prj_width, prj_width),
-                                nn.LeakyReLU(),
+                                nn.ReLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
@@ -248,12 +248,14 @@ class SimPLR(LightningModule):
 
             # Fwds Only
             if self.fwd > 0:
-                self.train(False)
+                # self.train(False)
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
-                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
-                self.train(True)
+                # b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                # q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
+                q_fwd = [self.student_head( z_ ) for z_ in z_fwd]
+                # q_fwd.extend(p_fwd)
+                # self.train(True)
 
             if self.JS: # For James-Stein                                                 
                 if self.current_epoch == 0 and self.emm:
