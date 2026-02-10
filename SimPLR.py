@@ -159,14 +159,14 @@ class SimPLR(LightningModule):
         self.projection_head = nn.Sequential()
         if L2:
             self.projection_head.extend([L2NormalizationLayer(),])
-        if not no_projection_head:            
-            for _ in range(prj_depth):
+        if not no_projection_head:
+            self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
+            for i in range(prj_depth):
                 self.projection_head.extend(
-                                    [nn.Linear(prj_width, prj_width, bias=False),
-                                     nn.BatchNorm1d(prj_width),
-                                     nn.ReLU()]
+                                    [nn.BatchNorm1d(prj_width),
+                                     nn.ReLU(),
+                                     nn.Linear(prj_width, prj_width, bias=(i<prj_depth-1)),]
                 )
-            self.projection_head.extend([nn.Linear(emb_width, prj_width),])
 
         #Use Batchnorm none-affine for centering
         self.buttress = nn.BatchNorm1d(prj_width, 
@@ -251,9 +251,9 @@ class SimPLR(LightningModule):
                 # self.train(False)
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
-                # b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                # q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
-                q_fwd = [self.student_head( z_ ) for z_ in z_fwd]
+                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
+                # q_fwd = [self.student_head( z_ ) for z_ in z_fwd]
                 # q_fwd.extend(p_fwd)
                 # self.train(True)
 
