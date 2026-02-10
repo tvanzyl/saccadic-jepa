@@ -165,7 +165,7 @@ class SimPLR(LightningModule):
                 self.projection_head.extend(
                                     [nn.BatchNorm1d(prj_width),
                                      nn.ReLU(),
-                                     nn.Linear(prj_width, prj_width, bias=(i<prj_depth-1)),]
+                                     nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1)),]
                 )
 
         #Use Batchnorm none-affine for centering
