@@ -287,7 +287,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision='32-true',
                 train_transform=METHODS[method]["train_transform"],
                 val_transform=METHODS[method]["val_transform"],
                 linear_lr=linear_lr,
@@ -306,7 +306,7 @@ def main(
                 num_workers=num_workers,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision='32-true',
                 train_transform=METHODS[method]["train_transform"],
                 val_transform=METHODS[method]["val_transform"]
             )
@@ -342,6 +342,7 @@ def pretrain(
         num_workers=num_workers,
         drop_last=True,
         persistent_workers=False,
+        pin_memory=True,
     )
 
     # Setup validation data.
@@ -354,6 +355,7 @@ def pretrain(
         shuffle=False,
         num_workers=num_workers,
         persistent_workers=False,
+        pin_memory=True,
     )
 
     # Train model.

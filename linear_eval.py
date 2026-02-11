@@ -59,6 +59,7 @@ def linear_eval(
         num_workers=num_workers,
         drop_last=True,
         persistent_workers=False,
+        pin_memory=True,
     )
 
     # Setup validation data.    
@@ -69,6 +70,7 @@ def linear_eval(
         shuffle=False,
         num_workers=num_workers,
         persistent_workers=False,
+        pin_memory=True,
     )
     # Train linear classifier.
     metric_callback = MetricCallback()

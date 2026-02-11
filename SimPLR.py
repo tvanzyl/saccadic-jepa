@@ -246,6 +246,11 @@ class SimPLR(LightningModule):
             q0_ = qo[0]
             q1_ = qo[1]
 
+            hm_ = torch.mean(torch.stack(h, dim=0), dim=0).detach()
+            zm_ = self.projection_head( hm_ )
+            bm_ = self.buttress( zm_ )
+            qm_ = self.teacher_head( bm_ )
+
             # Fwds Only
             if self.fwd > 0:
                 # self.train(False)
@@ -259,7 +264,7 @@ class SimPLR(LightningModule):
 
             if self.JS: # For James-Stein                                                 
                 if self.current_epoch == 0 and self.emm:
-                    self.embedding[idx] = 0.5*(q0_+q1_)
+                    self.embedding[idx] = qm_ #0.5*(q0_+q1_)
                 else:
                     if self.fwd: #Use forwards as the mean
                         mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0) #speed
@@ -298,7 +303,7 @@ class SimPLR(LightningModule):
                     
                     if self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = qm_ #mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                     elif self.fwd:
                         pass
                     else:

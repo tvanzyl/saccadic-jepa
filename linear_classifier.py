@@ -36,6 +36,11 @@ class BaseClassifier(LightningModule, ABC):
         self.classification_head: Union[Linear, Sequential] = Linear(
             feature_dim, num_classes
         )
+        
+        # init the fc layer
+        self.classification_head.weight.data.normal_(mean=0.0, std=0.01)
+        self.classification_head.bias.data.zero_()
+
         self.criterion = CrossEntropyLoss()
 
     @abstractmethod

@@ -48,6 +48,7 @@ def knn_eval(
         shuffle=False,
         num_workers=num_workers,
         drop_last=False,
+        pin_memory=True,
     )
 
     # Setup validation data.
@@ -57,6 +58,7 @@ def knn_eval(
         batch_size=batch_size_per_device,
         shuffle=False,
         num_workers=num_workers,
+        pin_memory=True,
     )
 
     metrics_dict: dict[str, float] = dict()
