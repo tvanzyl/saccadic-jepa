@@ -260,15 +260,18 @@ class SimPLR(LightningModule):
 
             # Fwds Only
             if self.fwd > 0:
+                # Fwds Only                
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
-                # q_fwd = [self.student_head( z_ ) for z_ in z_fwd]
-                # q_fwd.extend(p_fwd)
+                p_fwd = [self.student_head( z_ ) for z_ in z_fwd]
+                q_fwd.extend(p_fwd)
 
             if self.JS: # For James-Stein
                 if self.current_epoch == 0 and self.emm:
+                    self.embedding[idx] = 0.5*(q0_+q1_)
                     self.embedding[idx] = 0.5*(q0_+q1_)
                 else:
                     if self.fwd and self.emm:
@@ -299,6 +302,7 @@ class SimPLR(LightningModule):
                     
                     if self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
+                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                         self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                     elif self.fwd:
                         pass
