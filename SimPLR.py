@@ -235,38 +235,45 @@ class SimPLR(LightningModule):
             h_multi = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[self.fwd+2:]]
             z_multi = [self.projection_head( h_ ) for h_ in h_multi]
             p.extend([self.student_head( z_ ) for z_ in z_multi])        
-
-        vars = [self.var_head( z_.detach() ) for z_ in z]
         
-        with torch.no_grad():
-            self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
+        if self.emm_v == 8:
+            vars = [self.var_head( z_.detach() ) for z_ in z]
+        
+        self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
+        with torch.no_grad():
             b = [self.buttress( z_.detach() ) for z_ in z]
             qo = [self.teacher_head( b_ ) for b_ in b]
             q0_ = qo[0]
             q1_ = qo[1]
 
-            hm_ = torch.mean(torch.stack(h, dim=0), dim=0).detach()
-            zm_ = self.projection_head( hm_ )
-            bm_ = self.buttress( zm_ )
-            qm_ = self.teacher_head( bm_ )
+            if self.emm_v == 9:            
+                var_ = torch.tensor(self.var, device=self.device)
+            elif self.emm_v == 8:                
+                var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+            elif self.emm_v == 5:
+                qmean_ = torch.mean(torch.stack(qo, dim=0), dim=0)
+                qdiff_s = [(q_fwd_ - qmean_)**2 for q_fwd_ in q_fwd]
+                var_ =  self.gamma*torch.mean(torch.stack(qdiff_s, dim=0), dim=0)
+            else:
+                raise Exception("Not Valid EMM V")
 
             # Fwds Only
             if self.fwd > 0:
-                # self.train(False)
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
                 # q_fwd = [self.student_head( z_ ) for z_ in z_fwd]
                 # q_fwd.extend(p_fwd)
-                # self.train(True)
 
-            if self.JS: # For James-Stein                                                 
+            if self.JS: # For James-Stein
                 if self.current_epoch == 0 and self.emm:
-                    self.embedding[idx] = qm_ #0.5*(q0_+q1_)
+                    self.embedding[idx] = 0.5*(q0_+q1_)
                 else:
-                    if self.fwd: #Use forwards as the mean
+                    if self.fwd and self.emm:
+                        mean_ = 0.5*(torch.mean(torch.stack(q_fwd, dim=0), dim=0) + self.embedding[idx]) #speed
+                    elif self.fwd: #Use forwards as the mean
                         mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0) #speed
                     elif self.emm: #EMM 
                         # EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
@@ -274,17 +281,6 @@ class SimPLR(LightningModule):
 
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
-                    
-                    if self.emm_v == 9:
-                        var_ = torch.tensor(self.var, device=self.device)
-                    elif self.emm_v == 8:
-                        var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                    elif self.emm_v == 5:
-                        qmean_ = torch.mean(torch.stack(qo, dim=0), dim=0)
-                        qdiff_s = [(q_fwd_ - qmean_)**2 for q_fwd_ in q_fwd]
-                        var_ =  self.gamma*torch.mean(torch.stack(qdiff_s, dim=0), dim=0)
-                    else:
-                        raise Exception("Not Valid EMM V")
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
@@ -303,7 +299,7 @@ class SimPLR(LightningModule):
                     
                     if self.emm:
                         # zic_ = (qincr0_+qincr1_)/2.0
-                        self.embedding[idx] = qm_ #mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
                     elif self.fwd:
                         pass
                     else:
@@ -339,10 +335,10 @@ class SimPLR(LightningModule):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
-
-            var_  = vars[xi]
-            qo_    = qo[xi].detach()
-            var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
+            if self.emm_v == 8:
+                var_  = vars[xi]
+                qo_    = qo[xi].detach()
+                var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
 
         self.log_dict(
             {"train_loss": loss},
