@@ -238,6 +238,8 @@ class SimPLR(LightningModule):
         
         if self.emm_v == 8:
             vars = [self.var_head( z_.detach() ) for z_ in z]
+        else:
+            vars = None
         
         self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
