@@ -73,6 +73,7 @@ parser.add_argument("--emm-v", type=int, default=0)
 parser.add_argument("--var", type=float, default=0.1)
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--end-value", type=float, default=0.001)
+parser.add_argument("--accumulate", type=int, default=1)
 
 METHODS = {
     "Cifar10-2":    {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -189,6 +190,7 @@ def main(
     emm: bool, emm_v: int, var: float,
     fwd: int,    
     end_value: float,
+    accumulate: int,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -254,6 +256,7 @@ def main(
                 devices=devices,
                 precision=precision,
                 ckpt_path=ckpt_path,
+                accumulate=accumulate,
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
         if skip_knn_eval:
@@ -329,6 +332,7 @@ def pretrain(
     devices: int,
     precision: str,
     ckpt_path: Union[Path, None],
+    accumulate: int,
 ) -> None:
     print_rank_zero(f"Running pretraining for {method}...")
 
@@ -376,6 +380,7 @@ def pretrain(
         strategy="ddp_find_unused_parameters_true",
         sync_batchnorm=accelerator != "cpu",  # Sync batchnorm is not supported on CPU.
         num_sanity_val_steps=0,
+        accumulate_grad_batches=accumulate,
     )
 
     trainer.fit(

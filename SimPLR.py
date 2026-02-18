@@ -157,8 +157,8 @@ class SimPLR(LightningModule):
         self.prd_width = prd_width
         
         self.projection_head = nn.Sequential()
-        if L2:
-            self.projection_head.extend([L2NormalizationLayer(),])
+        # if L2:
+        #     self.projection_head.extend([L2NormalizationLayer(),])
         if not no_projection_head:
             self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
             for i in range(prj_depth):
@@ -171,6 +171,9 @@ class SimPLR(LightningModule):
         #Use Batchnorm none-affine for centering
         self.buttress = nn.BatchNorm1d(prj_width, 
                                        affine=False)
+        if L2:
+            self.buttress = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False),
+                                          L2NormalizationLayer())
 
         if identity_head:
             if prj_width == prd_width:
@@ -208,8 +211,8 @@ class SimPLR(LightningModule):
             self.teacher_head.insert(0, nn.ReLU())
 
         self.var_head = nn.Sequential(                                     
-                                nn.Linear(prj_width, prj_width),
-                                nn.ReLU(),
+                                nn.Linear(emb_width, prj_width),
+                                nn.SiLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
@@ -237,7 +240,8 @@ class SimPLR(LightningModule):
             p.extend([self.student_head( z_ ) for z_ in z_multi])        
         
         if self.emm_v == 8:
-            vars = [self.var_head( z_.detach() ) for z_ in z]
+            # vars = [self.var_head( z_.detach() ) for z_ in z]
+            vars = [self.var_head( h_.detach() ) for h_ in h]
         else:
             vars = None
         
@@ -248,6 +252,17 @@ class SimPLR(LightningModule):
             qo = [self.teacher_head( b_ ) for b_ in b]
             q0_ = qo[0]
             q1_ = qo[1]
+
+            # Fwds Only
+            if self.fwd > 0:
+                # Fwds Only                
+                h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
+                # p_fwd = [self.student_head( z_ ) for z_ in z_fwd]
+                # q_fwd.extend(p_fwd)
 
             if self.emm_v == 9:            
                 var_ = torch.tensor(self.var, device=self.device)
@@ -260,23 +275,14 @@ class SimPLR(LightningModule):
             else:
                 raise Exception("Not Valid EMM V")
 
-            # Fwds Only
-            if self.fwd > 0:
-                # Fwds Only                
-                h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
-                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
-                p_fwd = [self.student_head( z_ ) for z_ in z_fwd]
-                q_fwd.extend(p_fwd)
-
             if self.JS: # For James-Stein
                 if self.current_epoch == 0 and self.emm:
                     self.embedding[idx] = 0.5*(q0_+q1_)
                     self.embedding[idx] = 0.5*(q0_+q1_)
                 else:
-                    if self.fwd and self.emm:
+                    if self.fwd and self.emm and self.emm_v == 5:
+                        mean_ = self.embedding[idx]
+                    elif self.fwd and self.emm:
                         mean_ = 0.5*(torch.mean(torch.stack(q_fwd, dim=0), dim=0) + self.embedding[idx]) #speed
                     elif self.fwd: #Use forwards as the mean
                         mean_ = torch.mean(torch.stack(q_fwd, dim=0), dim=0) #speed
