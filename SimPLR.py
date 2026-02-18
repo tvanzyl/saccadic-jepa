@@ -240,7 +240,7 @@ class SimPLR(LightningModule):
             p.extend([self.student_head( z_ ) for z_ in z_multi])        
         
         if self.emm_v == 8:
-            vars = [self.var_head( z_.detach() ) for z_ in z]
+            vars = [self.var_head( h_.detach() ) for z_ in h]
         else:
             vars = None
         
