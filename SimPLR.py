@@ -229,9 +229,7 @@ class SimPLR(LightningModule):
         views = len(x)
 
         # Two globals
-        # x_ = torch.cat(x[:2])
         h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-        # h = torch.chunk(self.backbone( x_ ).flatten(start_dim=1), 2)
         h0_ = h[0].detach()        
         z = [self.projection_head( h_ ) for h_ in h]
         p = [self.student_head( z_ ) for z_ in z]
