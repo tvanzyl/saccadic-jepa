@@ -157,8 +157,8 @@ class SimPLR(LightningModule):
         self.prd_width = prd_width
         
         self.projection_head = nn.Sequential()
-        # if L2:
-        #     self.projection_head.extend([L2NormalizationLayer(),])
+        if L2:
+            self.projection_head.extend([L2NormalizationLayer(),])
         if not no_projection_head:
             self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
             for i in range(prj_depth):
@@ -170,10 +170,8 @@ class SimPLR(LightningModule):
 
         #Use Batchnorm none-affine for centering
         self.buttress = nn.BatchNorm1d(prj_width, 
-                                       affine=False)
-        if L2:
-            self.buttress = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False),
-                                          L2NormalizationLayer())
+                                       affine=False,
+                                       momentum=0.9)
 
         if identity_head:
             if prj_width == prd_width:
@@ -247,7 +245,11 @@ class SimPLR(LightningModule):
         self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
         with torch.no_grad():
+            self.buttress(torch.cat(z))
+            self.buttress.train(False)
+            # Use Momentum Statistics, can speedup hack
             b = [self.buttress( z_.detach() ) for z_ in z]
+            self.buttress.train(True)
             qo = [self.teacher_head( b_ ) for b_ in b]
             q0_ = qo[0]
             q1_ = qo[1]
@@ -258,7 +260,9 @@ class SimPLR(LightningModule):
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                self.buttress.train(False)
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
+                self.buttress.train(True)
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
 
             if self.emm_v == 9:            
@@ -518,9 +522,9 @@ transforms = {
 "Im100-2-05":   DINOTransform(global_crop_scale=(0.05, 1.0),
                             n_local_views=0),
 
-"Im1k-8":       DINOTransform(global_crop_scale=(0.14, 1.00),
+"Im1k-8":       DINOTransform(global_crop_scale=(0.08, 1.00),
                             local_crop_scale =(0.05, 0.14)),
-"Im1k-2":       DINOTransform(global_crop_scale=(0.14, 1.00),
+"Im1k-2":       DINOTransform(global_crop_scale=(0.08, 1.00),
                             n_local_views=0),
 }
 
