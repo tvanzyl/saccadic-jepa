@@ -1,22 +1,16 @@
 name: saccadic-jepa
 channels:
-  - nvidia
-  - pytorch
   - conda-forge
 dependencies:
-  - python=3.11
-  - pytorch
-  - torchvision
+  - python=3.14
   - ca-certificates
   - openssl
-  - lightning
   - certifi
   - tensorboard
   - scikit-learn
-  - torchaudio
-  - pytorch-cuda=12.1
   - pip
   - timm
   - pip:
+    - lightning
     - lightly
-    - torch-tb-profiler
+    - torch-tb-profiler    

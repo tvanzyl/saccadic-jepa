@@ -39,6 +39,19 @@ def dataset_with_indices(cls):
         '__getitem__': __getitem__,
     })
 
+class BatchScale1D(nn.Module):
+    def __init__(self, dim:int=0, momentum=1.0, eps:float=1e-12):
+        super(BatchScale1D, self).__init__()
+        self.dim = dim
+        self.eps = eps
+        self.mom = momentum
+        self.var = 0
+
+    def forward(self, x: Tensor) -> Tensor:   
+        self.var = self.mom*torch.var(x, dim=self.dim, unbiased=False) + (1-self.mom)*self.var + self.eps
+        return x/torch.sqrt( self.var )
+
+
 class L2NormalizationLayer(nn.Module):
     def __init__(self, dim:int=1, eps:float=1e-12):
         super(L2NormalizationLayer, self).__init__()
@@ -172,6 +185,11 @@ class SimPLR(LightningModule):
         self.buttress = nn.BatchNorm1d(prj_width, 
                                        affine=False,
                                        momentum=0.9)
+        # self.buttress = BatchScale1D(momentum=0.9)
+        # self.buttress = nn.Sequential(
+        #                         # L2NormalizationLayer(),
+        #                         BatchScale1D(momentum=0.9),
+        #                     )
 
         if identity_head:
             if prj_width == prd_width:
@@ -258,25 +276,24 @@ class SimPLR(LightningModule):
             if self.fwd > 0:
                 # Fwds Only                
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
                 self.buttress.train(False)
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
                 self.buttress.train(True)
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
 
-            if self.emm_v == 9:            
-                var_ = torch.tensor(self.var, device=self.device)
-            elif self.emm_v == 8:                
-                var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-            elif self.emm_v == 5:
-                qmean_ = torch.mean(torch.stack(qo, dim=0), dim=0)
-                qdiff_s = [(q_fwd_ - qmean_)**2 for q_fwd_ in q_fwd]
-                var_ =  self.gamma*torch.mean(torch.stack(qdiff_s, dim=0), dim=0)
-            else:
-                raise Exception("Not Valid EMM V")
-
             if self.JS: # For James-Stein
+                if self.emm_v == 9:            
+                    var_ = torch.tensor(self.var, device=self.device)
+                elif self.emm_v == 8:                
+                    var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+                elif self.emm_v == 5:
+                    qmean_ = torch.mean(torch.stack(qo, dim=0), dim=0)
+                    qdiff_s = [(q_fwd_ - qmean_)**2 for q_fwd_ in q_fwd]
+                    var_ =  self.gamma*torch.mean(torch.stack(qdiff_s, dim=0), dim=0)
+                else:
+                    raise Exception("Not Valid EMM V")
+                
                 if self.current_epoch == 0 and self.emm:
                     self.embedding[idx] = 0.5*(q0_+q1_)
                     self.embedding[idx] = 0.5*(q0_+q1_)
