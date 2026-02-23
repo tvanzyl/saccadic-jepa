@@ -185,11 +185,6 @@ class SimPLR(LightningModule):
         self.buttress = nn.BatchNorm1d(prj_width, 
                                        affine=False,
                                        momentum=0.9)
-        # self.buttress = BatchScale1D(momentum=0.9)
-        # self.buttress = nn.Sequential(
-        #                         # L2NormalizationLayer(),
-        #                         BatchScale1D(momentum=0.9),
-        #                     )
 
         if identity_head:
             if prj_width == prd_width:
@@ -263,9 +258,10 @@ class SimPLR(LightningModule):
         self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
         with torch.no_grad():
+            # Update Momentum Statistics
             self.buttress(torch.cat(z))
             self.buttress.train(False)
-            # Use Momentum Statistics, can speedup hack
+            # Use Momentum Statistics
             b = [self.buttress( z_.detach() ) for z_ in z]
             self.buttress.train(True)
             qo = [self.teacher_head( b_ ) for b_ in b]
