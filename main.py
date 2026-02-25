@@ -59,7 +59,7 @@ parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=1.00)
 parser.add_argument("--gamma", type=float, default=0.50)
 parser.add_argument("--linear-lr", type=float, default=0.5)
-parser.add_argument("--cut", type=float, default=2.0)
+parser.add_argument("--cut", type=float, default=0.0)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
@@ -69,11 +69,12 @@ parser.add_argument("--no-student-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
 parser.add_argument("--emm", action="store_true")
-parser.add_argument("--emm-v", type=int, default=0)
+parser.add_argument("--emm-v", type=int, default=8)
 parser.add_argument("--var", type=float, default=0.1)
 parser.add_argument("--fwd", type=int, default=0)
 parser.add_argument("--end-value", type=float, default=0.001)
 parser.add_argument("--accumulate", type=int, default=1)
+parser.add_argument("--momentum-butt", action="store_true")
 
 METHODS = {
     "Cifar10-2":    {"model": SimPLR.SimPLR, "n_local_views":0,
@@ -191,6 +192,7 @@ def main(
     fwd: int,    
     end_value: float,
     accumulate: int,
+    momentum_butt: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -231,6 +233,7 @@ def main(
             emm=emm, emm_v=emm_v, var=var,
             fwd=fwd,
             end_value=end_value,
+            momentum_butt=momentum_butt,
         )
 
         if compile_model and hasattr(torch, "compile"):
@@ -345,7 +348,7 @@ def pretrain(
         shuffle=True,
         num_workers=num_workers,
         drop_last=True,
-        persistent_workers=False,
+        persistent_workers=True,
         pin_memory=True,
     )
 
@@ -358,7 +361,7 @@ def pretrain(
         batch_size=batch_size_per_device,
         shuffle=False,
         num_workers=num_workers,
-        persistent_workers=False,
+        persistent_workers=True,
         pin_memory=True,
     )
 

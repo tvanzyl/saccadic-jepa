@@ -109,7 +109,7 @@ class SimPLR(LightningModule):
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
                  alpha:float = 1.00, gamma:float = 0.50,
-                 cut:float = 2.0,
+                 cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -118,9 +118,10 @@ class SimPLR(LightningModule):
                  no_student_head:bool=False,
                  JS:bool=False, 
                  no_bias:bool=False,
-                 emm:bool=False, emm_v:int=0, var:float=0.1,
+                 emm:bool=False, emm_v:int=8, var:float=0.1,
                  fwd:int=0,
-                 end_value:float=0.001) -> None:
+                 end_value:float=0.001,
+                 momentum_butt:bool=False) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 'warmup',
@@ -153,6 +154,7 @@ class SimPLR(LightningModule):
         self.gamma = gamma
         self.no_ReLU_buttress = no_ReLU_buttress
         self.end_value = end_value
+        self.momentum_butt = momentum_butt
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
@@ -181,10 +183,11 @@ class SimPLR(LightningModule):
                                      nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1)),]
                 )
 
-        #Use Batchnorm none-affine for centering
+        #Use Batchnorm none-affine for centering        
         self.buttress = nn.BatchNorm1d(prj_width, 
                                        affine=False,
                                        momentum=0.9)
+        # self.buttress = BatchScale1D()
 
         if identity_head:
             if prj_width == prd_width:
@@ -241,7 +244,7 @@ class SimPLR(LightningModule):
 
         # Two globals
         h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-        h0_ = h[0].detach()        
+        h0_ = h[0].detach()
         z = [self.projection_head( h_ ) for h_ in h]
         p = [self.student_head( z_ ) for z_ in z]
         
@@ -258,12 +261,12 @@ class SimPLR(LightningModule):
         self.log_dict({"h_quality":std_of_l2_normalized(h0_)})
 
         with torch.no_grad():
-            # Update Momentum Statistics
-            self.buttress(torch.cat(z))
-            self.buttress.train(False)
-            # Use Momentum Statistics
+            if self.momentum_butt:
+                # Use Momentum Statistics
+                self.buttress(torch.cat(z))
+                self.buttress.train(False)
+            
             b = [self.buttress( z_.detach() ) for z_ in z]
-            self.buttress.train(True)
             qo = [self.teacher_head( b_ ) for b_ in b]
             q0_ = qo[0]
             q1_ = qo[1]
@@ -272,11 +275,11 @@ class SimPLR(LightningModule):
             if self.fwd > 0:
                 # Fwds Only                
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
-                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]                
-                self.buttress.train(False)
-                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
-                self.buttress.train(True)
+                z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
+                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]                
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
+
+            self.buttress.train(True)
 
             if self.JS: # For James-Stein
                 if self.emm_v == 9:            
