@@ -278,8 +278,9 @@ class SimPLR(LightningModule):
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
                 b_fwd = [self.buttress( z_ ) for z_ in z_fwd]                
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
-
-            self.buttress.train(True)
+            
+            if self.momentum_butt:
+                self.buttress.train(True)
 
             if self.JS: # For James-Stein
                 if self.emm_v == 9:            
