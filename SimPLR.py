@@ -39,6 +39,98 @@ def dataset_with_indices(cls):
         '__getitem__': __getitem__,
     })
 
+
+#https://proceedings.mlr.press/v202/garrido23a/garrido23a.pdf
+@torch.no_grad()
+def effective_rank(embeddings, eps=1e-9):
+    """
+    Computes the effective rank and condition number of a batch of embeddings.
+    
+    Args:
+        embeddings: Tensor of shape [Batch_Size, Dimension]
+        eps: Small value for numerical stability
+        
+    Returns:
+        effective_rank: Float representing the continuous dimensionality.
+        condition_number: Float representing the ratio of max to min variance.
+    """
+    # 1. Mean-center the embeddings
+    centered = embeddings - embeddings.mean(dim=0, keepdim=True)
+    
+    # 2. Compute SVD
+    # full_matrices=False is critical for performance when Batch_Size > Dimension
+    _, S, _ = torch.linalg.svd(centered, full_matrices=False)
+    
+    # 3. Convert singular values to eigenvalues (variance along principal components)
+    eigenvalues = (S ** 2) / (centered.size(0) - 1)
+    
+    # 4. Normalize to a probability distribution
+    p = eigenvalues / (eigenvalues.sum() + eps)
+    
+    # 5. Compute Shannon Entropy and Effective Rank
+    entropy = -torch.sum(p * torch.log(p + eps))
+    effective_rank = torch.exp(entropy).item()
+    
+    # 6. Compute Condition Number (Optional but highly recommended)
+    # A spiking condition number is the earliest warning sign of collapse.
+    condition_number = (eigenvalues[0] / (eigenvalues[-1] + eps)).item()
+    
+    return effective_rank, condition_number
+
+class JamesSteinTeacherNorm(nn.Module):
+    def __init__(self, eps=1e-5, alpha=1.0):
+        super().__init__()
+        # self.num_features = num_features
+        self.eps = eps
+        
+        # alpha controls the degree of freedom scaling for the shrinkage.
+        # In a highly volatile setup (like an initialized random projection), 
+        # tuning this can drastically speed up the initial learning phases.
+        self.alpha = alpha 
+        
+        # The non-trainable bias (b) from the AR(1) model. 
+        # This breaks symmetry and provides the constant drift (C).
+        # self.bias = nn.Parameter(torch.randn(num_features), requires_grad=False)
+
+    def forward(self, x):
+        # x shape: [Batch_Size, Dimensions]
+        
+        # 1. Compute empirical batch statistics
+        batch_mean = x.mean(dim=0)
+        batch_var = x.var(dim=0, unbiased=False) 
+        
+        # 2. Define the James-Stein Shrinkage Target
+        # We shrink the highly variable individual dimension variances 
+        # towards the more stable global mean variance across all dimensions.
+        global_mean_var = batch_var.mean()
+        
+        # 3. Compute the L2 distance between empirical vars and the target
+        diff = batch_var - global_mean_var
+        l2_norm_sq = torch.sum(diff ** 2)
+        
+        # 4. Calculate the Shrinkage Factor
+        # We add eps to the denominator to prevent division by zero if 
+        # the batch is perfectly uniform across dimensions.
+        shrinkage_factor = self.alpha / (l2_norm_sq + self.eps)
+        
+        # Enforce the Stein positive-part constraint: (1 - c)_+
+        # This ensures the shrinkage factor never exceeds 1.0, which would 
+        # mathematically flip the sign of the variance differences.
+        shrinkage_factor = torch.clamp(shrinkage_factor, max=1.0)
+        
+        # 5. Apply the JS Shrinkage
+        js_var = global_mean_var + (1.0 - shrinkage_factor) * diff
+        
+        # 6. Standardize the inputs using the stabilized variance
+        # Adding eps to the shrunk variance for numerical stability before sqrt
+        js_std = torch.sqrt(js_var + self.eps)
+        x_standardized = (x - batch_mean) / js_std
+        
+        # 7. Add the non-trainable random bias
+        out = x_standardized #+ self.bias
+        
+        return out
+
 class BatchScale1D(nn.Module):
     def __init__(self, dim:int=0, momentum=1.0, eps:float=1e-12):
         super(BatchScale1D, self).__init__()
@@ -187,7 +279,7 @@ class SimPLR(LightningModule):
         self.buttress = nn.BatchNorm1d(prj_width, 
                                        affine=False,
                                        momentum=0.9)
-        # self.buttress = BatchScale1D()
+        # self.buttress = JamesSteinTeacherNorm()
 
         if identity_head:
             if prj_width == prd_width:
@@ -206,10 +298,11 @@ class SimPLR(LightningModule):
             student_head = nn.AdaptiveAvgPool1d(self.prd_width)
         else:
             student_head = nn.Linear(prj_width, self.prd_width, False)
-            if cut == 0.0:
-                cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
-                print(f"Cut: {cut}")
-            student_head.weight.data = teacher_head.weight.data.clone()
+            if not identity_head:
+                if cut == 0.0:
+                    cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
+                    print(f"Cut: {cut}")            
+                student_head.weight.data = teacher_head.weight.data.clone()
             if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)        
@@ -273,19 +366,19 @@ class SimPLR(LightningModule):
 
             # Fwds Only
             if self.fwd > 0:
-                # Fwds Only                
+                # Fwds Only
                 h_fwd = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:self.fwd+2]]
                 z_fwd = [self.projection_head( h_ ) for h_ in h_fwd]
-                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]                
+                b_fwd = [self.buttress( z_ ) for z_ in z_fwd]
                 q_fwd = [self.teacher_head( b_ ) for b_ in b_fwd]
             
             if self.momentum_butt:
                 self.buttress.train(True)
 
             if self.JS: # For James-Stein
-                if self.emm_v == 9:            
+                if self.emm_v == 9:
                     var_ = torch.tensor(self.var, device=self.device)
-                elif self.emm_v == 8:                
+                elif self.emm_v == 8:
                     var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
                 elif self.emm_v == 5:
                     qmean_ = torch.mean(torch.stack(qo, dim=0), dim=0)
@@ -295,8 +388,7 @@ class SimPLR(LightningModule):
                     raise Exception("Not Valid EMM V")
                 
                 if self.current_epoch == 0 and self.emm:
-                    self.embedding[idx] = 0.5*(q0_+q1_)
-                    self.embedding[idx] = 0.5*(q0_+q1_)
+                    self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
                 else:
                     if self.fwd and self.emm and self.emm_v == 5:
                         mean_ = self.embedding[idx]
@@ -324,18 +416,16 @@ class SimPLR(LightningModule):
                     self.log_dict({"var_var":torch.var(var_)})
 
                     q0_ = n0*q0_ + (1.-n0)*mean_
-                    q1_ = n1*q1_ + (1.-n1)*mean_
+                    q1_ = n1*q1_ + (1.-n1)*mean_                    
                     
-                    if self.emm:
-                        # zic_ = (qincr0_+qincr1_)/2.0
-                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
-                        self.embedding[idx] = mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0
+                    if self.emm:                        
+                        self.embedding[idx] = (mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0).to(torch.float32)
                     elif self.fwd:
                         pass
                     else:
                         raise Exception("Not Valid Combo")
             
-            q  = [q1_, q0_]            
+            q  = [q1_, q0_]
             if views > self.fwd + 2:
                 q_ = 0.5*(q0_+q1_)
                 q.extend([q_ for _ in range(views-2-self.fwd)])            
@@ -347,8 +437,8 @@ class SimPLR(LightningModule):
             N = len(self.trainer.train_dataloader.dataset)
             if self.emm:
                 self.embedding      = torch.empty((N, self.prd_width),
-                                            dtype=torch.float16,
-                                            device=self.device)            
+                                            dtype=torch.float32,
+                                            device=self.device)
         return super().on_train_start()
 
     def training_step(
@@ -390,7 +480,13 @@ class SimPLR(LightningModule):
         #These lines give us classical EMA v1
         if self.momentum_head:
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
-            _do_momentum_update(self.teacher_head.weight, self.student_head.weight, momentum)
+            _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
+
+        # Efective Rank
+        self.log_dict({"student_e_rank":effective_rank(torch.cat(p).to(torch.float32))[0]},
+                    sync_dist=True)
+        self.log_dict({"teacher_e_rank":effective_rank(torch.cat(q).to(torch.float32))[0]},
+                    sync_dist=True)
 
         return loss + cls_loss + var_loss
 
@@ -402,6 +498,10 @@ class SimPLR(LightningModule):
         cls_loss, cls_log = self.online_classifier.validation_step(
             (features.detach(), targets), batch_idx
         )
+
+        self.log_dict({"val_e_rank":effective_rank(features.to(torch.float32))[0]}, 
+                    batch_size=len(targets),
+                    sync_dist=True)
         self.log_dict(cls_log, prog_bar=True, sync_dist=True, batch_size=len(targets))
         return cls_loss
 
