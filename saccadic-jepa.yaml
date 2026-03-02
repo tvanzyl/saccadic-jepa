@@ -15,6 +15,7 @@ dependencies:
     - torch
     - torchvision
     - torchaudio
+  - pip:
     - lightning
     - lightly
     - torch-tb-profiler
