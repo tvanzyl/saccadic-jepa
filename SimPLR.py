@@ -136,11 +136,11 @@ class BatchScale1D(nn.Module):
         super(BatchScale1D, self).__init__()
         self.dim = dim
         self.eps = eps
-        self.mom = momentum
-        self.var = 0
+        # self.mom = momentum
+        # self.var = 0
 
     def forward(self, x: Tensor) -> Tensor:   
-        self.var = self.mom*torch.var(x, dim=self.dim, unbiased=False) + (1-self.mom)*self.var + self.eps
+        self.var = torch.var(x, dim=self.dim, unbiased=False) + self.eps #+ (1-self.mom)*self.var + self.eps
         return x/torch.sqrt( self.var )
 
 
@@ -315,6 +315,7 @@ class SimPLR(LightningModule):
 
         if not no_ReLU_buttress:
             self.student_head.insert(0, nn.ReLU())
+            self.student_head.insert(0, BatchScale1D())
             self.teacher_head.insert(0, nn.ReLU())
 
         self.var_head = nn.Sequential(                                     
@@ -326,7 +327,8 @@ class SimPLR(LightningModule):
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
         
-        self.criterion = NegativeCosineSimilarity()
+        # self.criterion = NegativeCosineSimilarity()
+        self.criterion = nn.MSELoss()
         self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -591,13 +593,18 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
-"Cifar100-4":   DINOTransform(global_crop_size=32,
+"Cifar100-4":   JSREPATransform(global_crop_size=32,
                             global_crop_scale=(0.08, 1.0),
-                            n_local_views=2,
-                            local_crop_size=32,
-                            local_crop_scale=(0.08, 1.0),
+                            n_global_views=4,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
+# "Cifar100-4":   DINOTransform(global_crop_size=32,
+#                             global_crop_scale=(0.08, 1.0),
+#                             n_local_views=2,
+#                             local_crop_size=32,
+#                             local_crop_scale=(0.08, 1.0),
+#                             gaussian_blur=(0.5, 0.0, 0.0),
+#                             normalize=CIFAR100_NORMALIZE),
 
 "Tiny-2":       DINOTransform(global_crop_size=64,
                             global_crop_scale=(0.14, 1.0),
