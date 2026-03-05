@@ -77,59 +77,37 @@ def effective_rank(embeddings, eps=1e-9):
     
     return effective_rank, condition_number
 
-class JamesSteinTeacherNorm(nn.Module):
-    def __init__(self, eps=1e-5, alpha=1.0):
+class SIGReg(torch.nn.Module):
+    def __init__(self, knots=17):
         super().__init__()
-        # self.num_features = num_features
-        self.eps = eps
-        
-        # alpha controls the degree of freedom scaling for the shrinkage.
-        # In a highly volatile setup (like an initialized random projection), 
-        # tuning this can drastically speed up the initial learning phases.
-        self.alpha = alpha 
-        
-        # The non-trainable bias (b) from the AR(1) model. 
-        # This breaks symmetry and provides the constant drift (C).
-        # self.bias = nn.Parameter(torch.randn(num_features), requires_grad=False)
+        t = torch.linspace(0, 3, knots, dtype=torch.float32)
+        dt = 3 / (knots - 1)
+        weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
+        weights[[0, -1]] = dt
+        window = torch.exp(-t.square() / 2.0)
+        self.register_buffer("t", t)
+        self.register_buffer("phi", window)
+        self.register_buffer("weights", weights * window)
 
-    def forward(self, x):
-        # x shape: [Batch_Size, Dimensions]
-        
-        # 1. Compute empirical batch statistics
-        batch_mean = x.mean(dim=0)
-        batch_var = x.var(dim=0, unbiased=False) 
-        
-        # 2. Define the James-Stein Shrinkage Target
-        # We shrink the highly variable individual dimension variances 
-        # towards the more stable global mean variance across all dimensions.
-        global_mean_var = batch_var.mean()
-        
-        # 3. Compute the L2 distance between empirical vars and the target
-        diff = batch_var - global_mean_var
-        l2_norm_sq = torch.sum(diff ** 2)
-        
-        # 4. Calculate the Shrinkage Factor
-        # We add eps to the denominator to prevent division by zero if 
-        # the batch is perfectly uniform across dimensions.
-        shrinkage_factor = self.alpha / (l2_norm_sq + self.eps)
-        
-        # Enforce the Stein positive-part constraint: (1 - c)_+
-        # This ensures the shrinkage factor never exceeds 1.0, which would 
-        # mathematically flip the sign of the variance differences.
-        shrinkage_factor = torch.clamp(shrinkage_factor, max=1.0)
-        
-        # 5. Apply the JS Shrinkage
-        js_var = global_mean_var + (1.0 - shrinkage_factor) * diff
-        
-        # 6. Standardize the inputs using the stabilized variance
-        # Adding eps to the shrunk variance for numerical stability before sqrt
-        js_std = torch.sqrt(js_var + self.eps)
-        x_standardized = (x - batch_mean) / js_std
-        
-        # 7. Add the non-trainable random bias
-        out = x_standardized #+ self.bias
-        
-        return out
+    def forward(self, proj):
+        A = torch.randn(proj.size(-1), 256, device="cuda")
+        A = A.div_(A.norm(p=2, dim=0))
+        x_t = (proj @ A).unsqueeze(-1) * self.t
+        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
+        statistic = (err @ self.weights) * proj.size(-2)
+        return statistic.mean()
+
+class BatchCenter1D(nn.Module):
+    def __init__(self, dim:int=0, momentum=1.0, eps:float=1e-12):
+        super(BatchCenter1D, self).__init__()
+        self.dim = dim
+        self.eps = eps
+        # self.mom = momentum
+        # self.mean = 0
+
+    def forward(self, x: Tensor) -> Tensor:   
+        self.mean = torch.mean(x, dim=self.dim)
+        return x-self.mean
 
 class BatchScale1D(nn.Module):
     def __init__(self, dim:int=0, momentum=1.0, eps:float=1e-12):
@@ -140,8 +118,8 @@ class BatchScale1D(nn.Module):
         # self.var = 0
 
     def forward(self, x: Tensor) -> Tensor:   
-        self.var = torch.var(x, dim=self.dim, unbiased=False) + self.eps #+ (1-self.mom)*self.var + self.eps
-        return x/torch.sqrt( self.var )
+        self.var = torch.var(x, dim=self.dim, unbiased=False)  #+ (1-self.mom)*self.var
+        return x/torch.sqrt( self.var + self.eps )
 
 
 class L2NormalizationLayer(nn.Module):
@@ -200,12 +178,13 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,                 
-                 alpha:float = 1.00, gamma:float = 0.50,
+                 alpha:float = 1.00, gamma:float = 0.50, lambd:float = 0.00,
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
                  L2:bool=False,
+                 no_buttress:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_student_head:bool=False,
                  JS:bool=False, 
@@ -224,14 +203,16 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_student_head',
-                                  'alpha', 'gamma',
+                                  'alpha', 'gamma', 'lambd',
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width", 'L2',
+                                  'no_buttress',
                                   'no_ReLU_buttress',
                                   'emm', 'emm_v', 'var',
                                   'no_bias',
                                   'fwd', 
-                                  'end_value')
+                                  'end_value',
+                                  'momentum_butt')
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
@@ -244,7 +225,7 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head
         self.alpha = alpha
         self.gamma = gamma
-        self.no_ReLU_buttress = no_ReLU_buttress
+        self.lambd = lambd
         self.end_value = end_value
         self.momentum_butt = momentum_butt
 
@@ -275,12 +256,13 @@ class SimPLR(LightningModule):
                                      nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1)),]
                 )
 
-        #Use Batchnorm none-affine for centering        
-        self.buttress = nn.BatchNorm1d(prj_width, 
-                                       affine=False,
-                                       momentum=0.9)
-        # self.buttress = JamesSteinTeacherNorm()
-
+        #Use Batchnorm none-affine for centering
+        if no_buttress:
+            self.buttress = nn.Identity()
+        else:
+            self.buttress = nn.BatchNorm1d(prj_width, 
+                                       affine=True,
+                                       momentum=0.9)        
         if identity_head:
             if prj_width == prd_width:
                 teacher_head = nn.Identity()
@@ -315,7 +297,6 @@ class SimPLR(LightningModule):
 
         if not no_ReLU_buttress:
             self.student_head.insert(0, nn.ReLU())
-            self.student_head.insert(0, BatchScale1D())
             self.teacher_head.insert(0, nn.ReLU())
 
         self.var_head = nn.Sequential(                                     
@@ -327,8 +308,9 @@ class SimPLR(LightningModule):
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
         
-        # self.criterion = NegativeCosineSimilarity()
-        self.criterion = nn.MSELoss()
+        self.criterion = NegativeCosineSimilarity()
+        # self.criterion = nn.MSELoss()
+        self.regularisation = SIGReg()
         self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -456,11 +438,17 @@ class SimPLR(LightningModule):
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
-            loss += self.criterion( p_, q_ ) / len(q)
+            loss += self.criterion( p_, q_ ) / len(q)            
+
             if self.emm_v == 8:
                 var_  = vars[xi]
                 qo_    = qo[xi].detach()
                 var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
+        
+        if self.lambd > 0.0:
+            sigreg_loss = self.regularisation(torch.stack(p).transpose(0, 1))
+            loss = sigreg_loss * self.lambd + loss * (1.0 - self.lambd)
+
 
         self.log_dict(
             {"train_loss": loss},
