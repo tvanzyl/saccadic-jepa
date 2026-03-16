@@ -163,8 +163,7 @@ class SimPLR(LightningModule):
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 'warmup',
-                                  'backbone',
-                                  'n_local_views',
+                                  'backbone',                                  
                                   'lr', 'decay', 'JS',
                                   'momentum_head',
                                   'identity_head',
