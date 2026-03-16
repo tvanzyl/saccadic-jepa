@@ -16,6 +16,7 @@ from pytorch_lightning.callbacks import (
     DeviceStatsMonitor,
     EarlyStopping,
     LearningRateMonitor,
+    StochasticWeightAveraging
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
@@ -70,85 +71,42 @@ parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-student-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--no-bias", action="store_true")
-parser.add_argument("--emm", action="store_true")
+parser.add_argument("--ema", action="store_true")
 parser.add_argument("--emm-v", type=int, default=8)
 parser.add_argument("--var", type=float, default=0.1)
-parser.add_argument("--fwd", type=int, default=0)
-parser.add_argument("--end-value", type=float, default=0.001)
-parser.add_argument("--accumulate", type=int, default=1)
 parser.add_argument("--momentum-butt", action="store_true")
 
 METHODS = {
-    "Cifar10-2":    {"model": SimPLR.SimPLR, "n_local_views":0,
+    "Cifar10-2":    {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Cifar10"],  
                      "val_transform": SimPLR.val_transforms["Cifar10"], 
                      "transform": SimPLR.transforms["Cifar10-2"],},
-    "Cifar10-4":    {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": SimPLR.train_transforms["Cifar10"],  
-                     "val_transform": SimPLR.val_transforms["Cifar10"], 
-                     "transform": SimPLR.transforms["Cifar10-4"],},
 
-    "Cifar100-2":   {"model": SimPLR.SimPLR, "n_local_views":0,
+    "Cifar100-2":   {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Cifar100"],  
                      "val_transform": SimPLR.val_transforms["Cifar100"], 
                      "transform": SimPLR.transforms["Cifar100-2"],},
-    "Cifar100-4":   {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": SimPLR.train_transforms["Cifar100"],  
-                     "val_transform": SimPLR.val_transforms["Cifar100"], 
-                     "transform": SimPLR.transforms["Cifar100-4"],},
 
-    "Tiny-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
+    "Tiny-2":       {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Tiny"],  
                      "val_transform": SimPLR.val_transforms["Tiny"],
                      "transform": SimPLR.transforms["Tiny-2"],},
-    "Tiny-4":       {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": SimPLR.train_transforms["Tiny"],  
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-4"],},
 
-    "STL-2":        {"model": SimPLR.SimPLR, "n_local_views":0,
+    "STL-2":        {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["STL"],  
                      "val_transform": SimPLR.val_transforms["STL"],
                      "transform": SimPLR.transforms["STL-2"],},
 
-    "Im100-6":      {"model": SimPLR.SimPLR, "n_local_views":4,
+    "Im100-2":      {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-6"],},
-    "Im100-4":      {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-4"],},
-    "Im100-4-08":   {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-4-08"],},
-    "Im100-4-14":   {"model": SimPLR.SimPLR, "n_local_views":2,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-4-14"],},
-    "Im100-2-20":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-2-20"],},
-    "Im100-2-14":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-2-14"],},
-    "Im100-2-08":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-2-08"],},
-    "Im100-2-05":   {"model": SimPLR.SimPLR, "n_local_views":0,
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-2-05"],},
+                     "transform": SimPLR.transforms["Im100-2"],},
     
-    "Im1k-8":       {"model": SimPLR.SimPLR, "n_local_views":6,
+    "Im1k-8":       {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Im1k"],
                      "val_transform": SimPLR.val_transforms["Im1k"],
                      "transform": SimPLR.transforms["Im1k-8"],},
-    "Im1k-2":       {"model": SimPLR.SimPLR, "n_local_views":0,
+    "Im1k-2":       {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Im1k"],
                      "val_transform": SimPLR.val_transforms["Im1k"],
                      "transform": SimPLR.transforms["Im1k-2"],},
@@ -191,10 +149,7 @@ def main(
     no_student_head: bool,
     JS: bool, 
     no_bias: bool,
-    emm: bool, emm_v: int, var: float,
-    fwd: int,    
-    end_value: float,
-    accumulate: int,
+    ema: bool, emm_v: int, var: float,        
     momentum_butt: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
@@ -216,8 +171,7 @@ def main(
             batch_size_per_device=batch_size_per_device,             
             num_classes=num_classes, 
             warmup=warmup,
-            backbone=backbone,
-            n_local_views=METHODS[method]["n_local_views"],
+            backbone=backbone,            
             lr=lr,
             decay=decay,                        
             momentum_head=momentum_head,
@@ -234,9 +188,7 @@ def main(
             no_student_head=no_student_head,
             JS=JS, 
             no_bias=no_bias,
-            emm=emm, emm_v=emm_v, var=var,
-            fwd=fwd,
-            end_value=end_value,
+            ema=ema, emm_v=emm_v, var=var,
             momentum_butt=momentum_butt,
         )
 
@@ -262,8 +214,7 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 precision=precision,
-                ckpt_path=ckpt_path,
-                accumulate=accumulate,
+                ckpt_path=ckpt_path,                
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
         if skip_knn_eval:
@@ -338,8 +289,7 @@ def pretrain(
     accelerator: str,
     devices: int,
     precision: str,
-    ckpt_path: Union[Path, None],
-    accumulate: int,
+    ckpt_path: Union[Path, None],        
 ) -> None:
     print_rank_zero(f"Running pretraining for {method}...")
 
@@ -380,14 +330,13 @@ def pretrain(
             # Stop if training loss diverges.
             EarlyStopping(monitor="train_loss", patience=int(1e12), check_finite=True),
             DeviceStatsMonitor(),
-            metric_callback,
+            metric_callback,            
         ],
         logger=TensorBoardLogger(save_dir=str(log_dir), name="pretrain"),
         precision=precision,
         strategy="ddp_find_unused_parameters_true",
         sync_batchnorm=accelerator != "cpu",  # Sync batchnorm is not supported on CPU.
-        num_sanity_val_steps=0,
-        accumulate_grad_batches=accumulate,
+        num_sanity_val_steps=0,        
     )
 
     trainer.fit(
