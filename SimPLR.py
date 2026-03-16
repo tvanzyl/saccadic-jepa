@@ -554,7 +554,7 @@ train_transforms = {
 "Cifar10":   train_identity(CIFAR10_NORMALIZE),
 "Cifar100":  train_identity(CIFAR100_NORMALIZE),
 "Tiny":      train_identity(TINYIMAGE_NORMALIZE),
-"STL":       train_transform(96, STL10_NORMALIZE),
+"STL":       train_transform(96, NORMALIZE=STL10_NORMALIZE),
 "Im100":     train_transform(224),
 "Im1k":      train_transform(224),
 }
