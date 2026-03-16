@@ -109,16 +109,6 @@ class L2NormalizationLayer(nn.Module):
     def forward(self, x: Tensor) -> Tensor:    
         return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
 
-class BiasLayer(nn.Module):
-    def __init__(self, size:int):
-        super(BiasLayer, self).__init__()
-        self.bias = nn.Parameter(torch.zeros(size))
-        bound_w = 1 / math.sqrt(size)
-        nn.init.normal_(self.bias, 0, bound_w)
-
-    def forward(self, x):
-        return x + self.bias
-
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
         resnet = {"resnetjie-9" :resnet18,
@@ -234,7 +224,7 @@ class SimPLR(LightningModule):
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:            
-            teacher_head = nn.Linear(prj_width, self.prd_width, False)
+            teacher_head = nn.Linear(prj_width, self.prd_width, not no_bias)
             nn.init.orthogonal_(teacher_head.weight)
         self.teacher_head = nn.Sequential(teacher_head)
 
@@ -245,17 +235,11 @@ class SimPLR(LightningModule):
             if not identity_head:
                 if cut == 0.0:
                     cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
-                    print(f"Cut: {cut}")            
+                    print(f"Cut: {cut}")
                 student_head.weight.data = teacher_head.weight.data.clone()
             if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)
-
-        if not no_bias:
-            biaslayer = BiasLayer(prj_width)
-            if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
-                biaslayer.bias.data.div_(cut)
-            self.teacher_head.insert(0, biaslayer)
 
         if not no_ReLU_buttress:
             self.student_head.insert(0, nn.ReLU())
@@ -386,7 +370,7 @@ class SimPLR(LightningModule):
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
-            loss += self.criterion( p_, q_ ) / len(q)            
+            loss += self.criterion( p_, q_ ) / len(q)
 
             if self.emm_v == 8:
                 var_  = vars[xi]
