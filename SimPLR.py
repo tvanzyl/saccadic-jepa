@@ -176,7 +176,6 @@ class SimPLR(LightningModule):
                                   'no_ReLU_buttress',
                                   'ema', 'emm_v', 'var',
                                   'no_bias',                                  
-                                  'end_value',
                                   'momentum_butt')
         self.warmup = warmup
         self.lr = lr
