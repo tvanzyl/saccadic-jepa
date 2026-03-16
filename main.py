@@ -15,8 +15,7 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import (
     DeviceStatsMonitor,
     EarlyStopping,
-    LearningRateMonitor,
-    StochasticWeightAveraging
+    LearningRateMonitor,    
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
@@ -52,20 +51,18 @@ parser.add_argument("--skip-knn-eval", action="store_true")
 parser.add_argument("--skip-linear-eval", action="store_true")
 parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn-k", type=int, nargs="+")
-parser.add_argument("--lr", type=float, default=0.15)
-parser.add_argument("--decay", type=float, default=1e-4)
+parser.add_argument("--lr", type=float, default=0.5)
+parser.add_argument("--decay", type=float, default=1e-5)
 parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=1.00)
-parser.add_argument("--gamma", type=float, default=0.50)
 parser.add_argument("--lambd", type=float, default=0.00)
 parser.add_argument("--linear-lr", type=float, default=0.5)
 parser.add_argument("--cut", type=float, default=0.0)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
-parser.add_argument("--L2", action="store_true")
 parser.add_argument("--no-buttress", action="store_true")
 parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-student-head", action="store_true")
@@ -137,13 +134,12 @@ def main(
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,    
-    alpha: float, gamma: float, lambd: float,
+    alpha: float, lambd: float,
     linear_lr: float,
     cut: float,
     prd_width: int,
     prj_depth: int,
-    prj_width: int,
-    L2: bool,
+    prj_width: int,    
     no_buttress: bool,
     no_ReLU_buttress: bool,
     no_student_head: bool,
@@ -177,12 +173,11 @@ def main(
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,            
-            alpha=alpha, gamma=gamma, lambd=lambd,
+            alpha=alpha, lambd=lambd,
             cut=cut,
             prd_width=prd_width,
             prj_depth=prj_depth,
-            prj_width=prj_width,
-            L2=L2,
+            prj_width=prj_width,            
             no_buttress=no_buttress,
             no_ReLU_buttress=no_ReLU_buttress,
             no_student_head=no_student_head,
@@ -217,6 +212,7 @@ def main(
                 ckpt_path=ckpt_path,                
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
+        
         if skip_knn_eval:
             print_rank_zero("Skipping KNN eval.")
         else:
@@ -234,7 +230,7 @@ def main(
                 knn_k=knn_k,
                 transform=METHODS[method]["val_transform"]
             )
-
+        
         if skip_linear_eval:
             print_rank_zero("Skipping linear eval.")
         else:            

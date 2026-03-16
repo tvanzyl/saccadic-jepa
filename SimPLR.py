@@ -142,17 +142,16 @@ class SimPLR(LightningModule):
                  num_classes: int, 
                  warmup: int = 0,
                  backbone:str = "resnet-50",                 
-                 lr:float = 0.15,
-                 decay:float=1e-4,                                  
+                 lr:float = 0.5,
+                 decay:float=1e-5,                                  
                  momentum_head:bool=False,
                  identity_head:bool=False,
-                 no_projection_head:bool=False,                 
-                 alpha:float = 1.00, gamma:float = 0.50, lambd:float = 0.00,
+                 no_projection_head:bool=False,
+                 alpha:float = 1.00, lambd:float = 0.00,
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
-                 prj_width:int = 2048,
-                 L2:bool=False,
+                 prj_width:int = 2048,                 
                  no_buttress:bool=False,
                  no_ReLU_buttress:bool=False,
                  no_student_head:bool=False,
@@ -169,9 +168,9 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_student_head',
-                                  'alpha', 'gamma', 'lambd',
+                                  'alpha', 'lambd',
                                   'cut','prd_width', 
-                                  "prj_depth", "prj_width", 'L2',
+                                  "prj_depth", "prj_width",
                                   'no_buttress',
                                   'no_ReLU_buttress',
                                   'ema', 'emm_v', 'var',
@@ -180,15 +179,14 @@ class SimPLR(LightningModule):
         self.warmup = warmup
         self.lr = lr
         self.decay = decay
-        self.batch_size_per_device = batch_size_per_device                
+        self.batch_size_per_device = batch_size_per_device
         self.JS = JS        
         self.ema = ema
         self.emm_v = emm_v
-        self.var = var        
+        self.var = var
         self.momentum_head = momentum_head
         self.alpha = alpha
-        self.gamma = gamma
-        self.lambd = lambd        
+        self.lambd = lambd
         self.momentum_butt = momentum_butt
 
         if identity_head and momentum_head:
@@ -207,8 +205,6 @@ class SimPLR(LightningModule):
         self.prd_width = prd_width
         
         self.projection_head = nn.Sequential()
-        if L2:
-            self.projection_head.extend([L2NormalizationLayer(),])
         if not no_projection_head:
             self.projection_head.extend([nn.Linear(self.emb_width, prj_width, bias=False),])
             for i in range(prj_depth):
@@ -378,7 +374,7 @@ class SimPLR(LightningModule):
         momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
         if self.ema: #These lines give us classical EMA 
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)
-            update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)        
+            update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
         if self.momentum_head: 
             _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
 
