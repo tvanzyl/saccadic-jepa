@@ -329,7 +329,7 @@ class SimPLR(LightningModule):
                 else:
                     raise Exception("Not Valid EMM V")
                 
-                if self.current_epoch == 0 and self.emm:
+                if self.current_epoch == 0:
                     self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
                 else:
                     #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
