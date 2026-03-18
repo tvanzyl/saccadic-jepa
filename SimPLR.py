@@ -4,14 +4,11 @@ from typing import List, Tuple, Union
 
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 from torch import Tensor
-from torch.nn import Identity
 from torch.optim import SGD
 
 from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34 , resnet18
-# from resnet import resnet18, resnet34, resnet50
 
 from pytorch_lightning import LightningModule
 
@@ -27,8 +24,6 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
 
-from action_transform import JSREPATransform
-
 def dataset_with_indices(cls):
     """
     Modifies the given Dataset class to return a tuple data, target, index
@@ -41,7 +36,6 @@ def dataset_with_indices(cls):
     return type(cls.__name__, (cls,), {
         '__getitem__': __getitem__,
     })
-
 
 #https://proceedings.mlr.press/v202/garrido23a/garrido23a.pdf
 @torch.no_grad()
@@ -100,15 +94,6 @@ class SIGReg(torch.nn.Module):
         statistic = (err @ self.weights) * proj.size(-2)
         return statistic.mean()
 
-class L2NormalizationLayer(nn.Module):
-    def __init__(self, dim:int=1, eps:float=1e-12):
-        super(L2NormalizationLayer, self).__init__()
-        self.dim = dim
-        self.eps = eps
-
-    def forward(self, x: Tensor) -> Tensor:    
-        return F.normalize(x, p=2, dim=self.dim, eps=self.eps)
-
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
         resnet = {"resnetjie-9" :resnet18,
@@ -116,13 +101,13 @@ def backbones(name):
         emb_width = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1), bias=False)
         resnet.maxpool = nn.Sequential()
-        resnet.fc = Identity()
+        resnet.fc = nn.Identity()
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
                   "resnet-50":resnet50}[name](zero_init_residual=(name!="resnet-18"))
         emb_width = resnet.fc.in_features
-        resnet.fc = Identity()        
+        resnet.fc = nn.Identity()
     else:
         raise NotImplemented("Backbone Not Supported")
     return resnet, emb_width
@@ -132,12 +117,12 @@ class SimPLR(LightningModule):
                  num_classes: int, 
                  warmup: int = 0,
                  backbone:str = "resnet-50",                 
-                 lr:float = 0.5,
+                 lr:float = 0.5, 
                  decay:float=1e-5,                                  
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 alpha:float = 1.00, lambd:float = 0.00,
+                 alpha:float = 1.00,
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
@@ -158,7 +143,7 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_student_head',
-                                  'alpha', 'lambd',
+                                  'alpha', 
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
@@ -174,9 +159,8 @@ class SimPLR(LightningModule):
         self.ema = ema
         self.emm_v = emm_v
         self.var = var
-        self.momentum_head = momentum_head
-        self.alpha = alpha
-        self.lambd = lambd
+        self.momentum_head = momentum_head        
+        self.alpha_alpha = alpha        
         self.momentum_butt = momentum_butt
 
         if identity_head and momentum_head:
@@ -213,8 +197,8 @@ class SimPLR(LightningModule):
             self.buttress = nn.Identity()
         else:
             self.buttress = nn.BatchNorm1d(prj_width,
-                                       affine=True,
-                                       momentum=0.9)        
+                                        affine=True,
+                                        momentum=0.9)
         if identity_head:
             if prj_width == prd_width:
                 teacher_head = nn.Identity()
@@ -225,7 +209,7 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:            
             teacher_head = nn.Linear(prj_width, self.prd_width, not no_bias)
-            nn.init.orthogonal_(teacher_head.weight)
+            nn.init.orthogonal_(teacher_head.weight)            
         self.teacher_head = nn.Sequential(teacher_head)
 
         if no_student_head:
@@ -256,8 +240,7 @@ class SimPLR(LightningModule):
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=self.emb_width, num_classes=num_classes)
         
-        self.criterion = NegativeCosineSimilarity()        
-        self.regularisation = SIGReg()
+        self.criterion = NegativeCosineSimilarity()
         self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -302,16 +285,16 @@ class SimPLR(LightningModule):
                 self.buttress.train(True)
 
             if self.JS: # For James-Stein
-                if self.emm_v == 9:
-                    var_ = torch.tensor(self.var, device=self.device)
-                elif self.emm_v == 8:
-                    var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                else:
-                    raise Exception("Not Valid EMM V")
-                
                 if self.current_epoch == 0:
                     self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
                 else:
+                    if self.emm_v == 9:
+                        var_ = torch.tensor(self.var, device=self.device)
+                    elif self.emm_v == 8:
+                        var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+                    else:
+                        raise Exception("Not Valid EMM V")
+                    
                     #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     mean_ = self.embedding[idx]
 
@@ -327,8 +310,7 @@ class SimPLR(LightningModule):
 
                     self.log_dict({"qdiff":qdiff0_.mean()})
                     self.log_dict({"JS_n0_n1":n0.mean()})
-                    self.log_dict({"var":torch.mean(var_)})
-                    self.log_dict({"var_var":torch.var(var_)})
+                    self.log_dict({"var":torch.mean(var_)})                    
 
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_                    
@@ -340,6 +322,7 @@ class SimPLR(LightningModule):
                 q_ = 0.5*(q0_+q1_)
                 q.extend([q_ for _ in range(views-2)])
             assert len(p)==len(q)
+
         return h0_, p, q, z, qo, vars
 
     def on_train_start(self):
@@ -355,11 +338,13 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
+        self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, self.alpha_alpha)
+
         momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
         if self.ema: #These lines give us classical EMA 
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
-        if self.momentum_head: 
+        if self.momentum_head:
             _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
 
         h0_, p, q, z, qo, vars = self.forward_student( x, idx )
@@ -377,10 +362,6 @@ class SimPLR(LightningModule):
                 qo_   = qo[xi].detach()
                 var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
         
-        if self.lambd > 0.0:
-            sigreg_loss = self.regularisation(torch.stack(z))
-            loss = sigreg_loss * self.lambd + loss*(1.0 - self.lambd)
-
         self.log_dict(
             {"train_loss": loss},
             prog_bar=True,
@@ -396,9 +377,7 @@ class SimPLR(LightningModule):
         cls_loss, cls_log = self.online_classifier.training_step(
             (h0_, targets), batch_idx
         )
-        self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
-
-        # self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, 0.9)
+        self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))       
 
         self.log_dict(
             {"h_quality":std_of_l2_normalized(h0_)},
@@ -442,7 +421,8 @@ class SimPLR(LightningModule):
                     "params": params_no_weight_decay,                    
                 },                
                 {   "name": "online_classifier",
-                    "params": self.online_classifier.parameters(),                           
+                    "params": self.online_classifier.parameters(),
+                    "lr": 0.1
                 },
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),                    

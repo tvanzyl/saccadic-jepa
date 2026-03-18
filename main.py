@@ -57,7 +57,6 @@ parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--identity-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
 parser.add_argument("--alpha", type=float, default=1.00)
-parser.add_argument("--lambd", type=float, default=0.00)
 parser.add_argument("--linear-lr", type=float, default=0.5)
 parser.add_argument("--cut", type=float, default=0.0)
 parser.add_argument("--prd-width", type=int, default=256)
@@ -134,7 +133,7 @@ def main(
     momentum_head: bool,
     identity_head: bool,
     no_projection_head: bool,    
-    alpha: float, lambd: float,
+    alpha: float,
     linear_lr: float,
     cut: float,
     prd_width: int,
@@ -173,7 +172,7 @@ def main(
             momentum_head=momentum_head,
             identity_head=identity_head,
             no_projection_head=no_projection_head,            
-            alpha=alpha, lambd=lambd,
+            alpha=alpha,
             cut=cut,
             prd_width=prd_width,
             prj_depth=prj_depth,
