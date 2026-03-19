@@ -334,7 +334,7 @@ class SimPLR(LightningModule):
         return h0_, p, q, qo, vars
 
     def on_train_start(self):
-        if self.JS and self.emm_v == 8:
+        if self.JS:
             N = len(self.trainer.train_dataloader.dataset)            
             self.embedding  = torch.empty((N, self.prd_width),
                                         dtype=torch.float16,
