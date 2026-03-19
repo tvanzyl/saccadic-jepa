@@ -158,7 +158,7 @@ class SimPLR(LightningModule):
         self.JS = JS        
         self.ema = ema
         self.emm_v = emm_v
-        self.var = var
+        self.var = torch.tensor(var, device=self.device)
         self.momentum_head = momentum_head        
         self.alpha_alpha = alpha        
         self.momentum_butt = momentum_butt
@@ -209,7 +209,10 @@ class SimPLR(LightningModule):
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         else:            
             teacher_head = nn.Linear(prj_width, self.prd_width, not no_bias)
-            nn.init.orthogonal_(teacher_head.weight)            
+            nn.init.orthogonal_(teacher_head.weight)
+            if not no_bias:
+                bound_w = 1 / math.sqrt(self.prd_width)
+                nn.init.normal_(teacher_head.bias, 0, bound_w)
         self.teacher_head = nn.Sequential(teacher_head)
 
         if no_student_head:
@@ -223,6 +226,8 @@ class SimPLR(LightningModule):
                 student_head.weight.data = teacher_head.weight.data.clone()
             if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
+                if not no_bias:
+                    teacher_head.bias.data.div_(cut)
         self.student_head = nn.Sequential(student_head)
 
         if not no_ReLU_buttress:
@@ -276,8 +281,8 @@ class SimPLR(LightningModule):
                 zt = [self.teacher_projection_head( h_ ) for h_ in ht]
             else:
                 zt = z
-            b = [self.buttress( z_.detach() ) for z_ in zt]
-            qo = [self.teacher_head( b_ ) for b_ in b]
+            bt = [self.buttress( z_.detach() ) for z_ in zt]
+            qo = [self.teacher_head( b_ ) for b_ in bt]
             q0_ = qo[0]
             q1_ = qo[1]
             
@@ -286,20 +291,23 @@ class SimPLR(LightningModule):
 
             if self.JS: # For James-Stein
                 if self.current_epoch == 0:
-                    self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
+                    self.embedding[idx] = (0.5*(q0_+q1_)) #.to(torch.float32)
                 else:
-                    if self.emm_v == 9:
-                        var_ = torch.tensor(self.var, device=self.device)
-                    elif self.emm_v == 8:
-                        var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
-                    else:
-                        raise Exception("Not Valid EMM V")
-                    
                     #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     mean_ = self.embedding[idx]
-
                     qdiff0_ = q0_  - mean_
                     qdiff1_ = q1_  - mean_
+                    incr_ = (qdiff0_+ qdiff1_)/2.0
+
+                    if self.emm_v == 9:
+                        var_ = self.var
+                    elif self.emm_v == 8:
+                        var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
+                    elif self.emm_v == 6:
+                        var_ = self.var 
+                        self.var =  torch.mean( (1.0 - self.alpha)*(self.var + self.alpha*incr_*incr_) )
+                    else:
+                        raise Exception("Not Valid EMM V")                    
 
                     # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                     norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
@@ -315,7 +323,7 @@ class SimPLR(LightningModule):
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_                    
                     
-                    self.embedding[idx] = (mean_ + self.alpha*(qdiff0_+ qdiff1_)/2.0).to(torch.float32)
+                    self.embedding[idx] = (mean_ + self.alpha*incr_) #.to(torch.float32)
             
             q  = [q1_, q0_]
             if views > 2:
@@ -323,13 +331,13 @@ class SimPLR(LightningModule):
                 q.extend([q_ for _ in range(views-2)])
             assert len(p)==len(q)
 
-        return h0_, p, q, z, qo, vars
+        return h0_, p, q, qo, vars
 
     def on_train_start(self):
-        if self.JS:
+        if self.JS and self.emm_v == 8:
             N = len(self.trainer.train_dataloader.dataset)            
             self.embedding  = torch.empty((N, self.prd_width),
-                                        dtype=torch.float32,
+                                        dtype=torch.float16,
                                         device=self.device)
         return super().on_train_start()
 
@@ -347,7 +355,7 @@ class SimPLR(LightningModule):
         if self.momentum_head:
             _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
 
-        h0_, p, q, z, qo, vars = self.forward_student( x, idx )
+        h0_, p, q, qo, vars = self.forward_student( x, idx )
 
         loss = 0
         var_loss = 0        
