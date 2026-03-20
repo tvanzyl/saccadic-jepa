@@ -289,13 +289,13 @@ class SimPLR(LightningModule):
 
             if self.JS: # For James-Stein
                 if self.current_epoch == 0:
-                    self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
+                    self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)                    
+                    self.var  = torch.mean( (q0_-q1_)**2.0 )
                 else:
                     #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     mean_ = self.embedding[idx]
                     qdiff0_ = q0_  - mean_
-                    qdiff1_ = q1_  - mean_
-                    incr_ = (qdiff0_+ qdiff1_)/2.0
+                    qdiff1_ = q1_  - mean_                    
 
                     if self.emm_v == 9:
                         var_ = self.var
@@ -303,7 +303,7 @@ class SimPLR(LightningModule):
                         var_ = torch.mean(torch.stack(vars, dim=0), dim=0).detach()
                     elif self.emm_v == 6:
                         var_ = self.var 
-                        self.var =  torch.mean( (1.0 - self.alpha)*(self.var + self.alpha*incr_*incr_) )
+                        self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
                     else:
                         raise Exception("Not Valid EMM V")                    
 
@@ -321,7 +321,8 @@ class SimPLR(LightningModule):
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_                    
                     
-                    self.embedding[idx] = (mean_ + self.alpha*incr_).to(torch.float32)
+                    incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
+                    self.embedding[idx] = (mean_ + incr_).to(torch.float32)
             
             q  = [q1_, q0_]
             if views > 2:
@@ -344,7 +345,7 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.0, self.alpha_alpha)
+        self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.99, self.alpha_alpha)
 
         momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
         if self.ema: #These lines give us classical EMA 
