@@ -410,7 +410,7 @@ class SimPLR(LightningModule):
                 
         if self.lambd > 0.0:
             sigreg_loss = self.regularisation(torch.stack(z).transpose(0,1))
-            loss = sigreg_loss * self.lambd + loss*(1.0 - self.lambd)
+            loss = sigreg_loss*self.lambd + loss*(1.0-self.lambd)
 
         self.log_dict(
             {"train_loss": loss},
