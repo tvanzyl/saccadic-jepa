@@ -231,7 +231,7 @@ class SimPLR(LightningModule):
             self.buttress = nn.Identity()
         else:
             self.buttress = nn.BatchNorm1d(prj_width,
-                                        affine=True,
+                                        affine=False,
                                         momentum=0.9)
         if identity_head:
             if prj_width > prd_width:
