@@ -24,6 +24,36 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
 
+class SIGReg(torch.nn.Module):
+    def __init__(self, knots=17):
+        super().__init__()
+        t = torch.linspace(0, 3, knots, dtype=torch.float32)
+        dt = 3 / (knots - 1)
+        weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
+        weights[[0, -1]] = dt
+        window = torch.exp(-t.square() / 2.0)
+        self.register_buffer("t", t)
+        self.register_buffer("phi", window)
+        self.register_buffer("weights", weights * window)
+
+    def forward(self, proj):
+        A = torch.randn(proj.size(-1), 256, device="cuda")
+        A = A.div_(A.norm(p=2, dim=0))
+        x_t = (proj @ A).unsqueeze(-1) * self.t
+        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
+        statistic = (err @ self.weights) * proj.size(-2)
+        return statistic.mean()
+
+class BiasLayer(nn.Module):
+    def __init__(self, size:int, fan_in_size:int):
+        super(BiasLayer, self).__init__()
+        self.bias = nn.Parameter(torch.zeros(size))
+        bound_w = 1 / math.sqrt(fan_in_size)
+        nn.init.normal_(self.bias, 0, bound_w)
+
+    def forward(self, x):
+        return x + self.bias
+
 def dataset_with_indices(cls):
     """
     Modifies the given Dataset class to return a tuple data, target, index
@@ -122,7 +152,7 @@ class SimPLR(LightningModule):
                  momentum_head:bool=False,
                  identity_head:bool=False,
                  no_projection_head:bool=False,
-                 alpha:float = 1.00,
+                 alpha:float = 1.00, lambd:float = 0.00,
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
@@ -143,7 +173,7 @@ class SimPLR(LightningModule):
                                   'identity_head',
                                   'no_projection_head',
                                   'no_student_head',
-                                  'alpha', 
+                                  'alpha', 'lambd',
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
@@ -160,33 +190,37 @@ class SimPLR(LightningModule):
         self.emm_v = emm_v
         self.var = torch.tensor(var, device=self.device)
         self.momentum_head = momentum_head        
-        self.alpha_alpha = alpha        
+        self.alpha_alpha = alpha
+        self.lambd = lambd
         self.momentum_butt = momentum_butt
+        
+        self.prd_width = prd_width
 
         if identity_head and momentum_head:
             raise Exception("Invalid Arguments, can't select identity and momentum")
         
         self.backbone, self.emb_width = backbones(backbone)
+        emb_width = self.emb_width
 
         if self.ema:
             self.teacher_backbone = copy.deepcopy(self.backbone)
             deactivate_requires_grad(self.teacher_backbone)
 
         if no_projection_head:
-            prj_width = self.emb_width
-        
-        self.prj_width = prj_width
-        self.prd_width = prd_width
+            prj_width = emb_width
         
         self.projection_head = nn.Sequential()
-        if not no_projection_head:
-            self.projection_head.extend([nn.Linear(self.emb_width, prj_width, bias=False),])
+        if no_projection_head:            
+            prj_width = emb_width
+        else:
+            self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
             for i in range(prj_depth):
                 self.projection_head.extend(
                                     [nn.BatchNorm1d(prj_width),
                                      nn.ReLU(),
                                      nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1)),]
                 )
+        
         
         if self.ema:
             self.teacher_projection_head = copy.deepcopy(self.projection_head)
@@ -200,25 +234,28 @@ class SimPLR(LightningModule):
                                         affine=True,
                                         momentum=0.9)
         if identity_head:
-            if prj_width == prd_width:
-                teacher_head = nn.Identity()
-            elif prj_width > prd_width:
+            if prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
-                teacher_head = nn.AdaptiveAvgPool1d(self.prd_width)
+                teacher_head = nn.AdaptiveAvgPool1d(prd_width)
+            elif prj_width == prd_width:
+                teacher_head = nn.Identity()
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
-        else:            
-            teacher_head = nn.Linear(prj_width, self.prd_width, not no_bias)
+        else:
+            teacher_head = nn.Linear(prj_width, self.prd_width, False)
             nn.init.orthogonal_(teacher_head.weight)
-            if not no_bias:
-                bound_w = 1 / math.sqrt(self.prj_width)
-                nn.init.normal_(teacher_head.bias, 0, bound_w)
-        self.teacher_head = nn.Sequential(teacher_head)
+        if no_bias:        
+            self.teacher_head = nn.Sequential(teacher_head)
+        else:
+            self.teacher_head = nn.Sequential(
+                                            teacher_head,
+                                            BiasLayer(prd_width, prj_width),
+                                        )
 
         if no_student_head:
-            student_head = nn.AdaptiveAvgPool1d(self.prd_width)
+            student_head = nn.AdaptiveAvgPool1d(prd_width)
         else:
-            student_head = nn.Linear(prj_width, self.prd_width, False)
+            student_head = nn.Linear(prj_width, prd_width, False)
             if not identity_head:
                 if cut == 0.0:
                     cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
@@ -235,15 +272,16 @@ class SimPLR(LightningModule):
         deactivate_requires_grad(self.teacher_head)
 
         self.var_head = nn.Sequential(                                     
-                                nn.Linear(self.emb_width, prj_width),
+                                nn.Linear(emb_width, prj_width),
                                 nn.SiLU(),
                                 nn.Linear(prj_width, prd_width),
                                 nn.Softplus()
                             )
         
-        self.online_classifier = OnlineLinearClassifier(feature_dim=self.emb_width, num_classes=num_classes)
+        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
         
         self.criterion = NegativeCosineSimilarity()
+        self.regularisation = SIGReg()
         self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -256,7 +294,8 @@ class SimPLR(LightningModule):
         h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
         h0_ = h[0].detach()
         z = [self.projection_head( h_ ) for h_ in h]
-        p = [self.student_head( z_ ) for z_ in z]
+        b = [self.buttress( z_ ) for z_ in z]
+        p = [self.student_head( b_ ) for b_ in b]
         
         if views > 2: # MultiCrops
             h_multi = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:]]
@@ -296,7 +335,7 @@ class SimPLR(LightningModule):
                     #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                     mean_ = self.embedding[idx]
                     qdiff0_ = q0_  - mean_
-                    qdiff1_ = q1_  - mean_                    
+                    qdiff1_ = q1_  - mean_
 
                     if self.emm_v == 9:
                         var_ = self.var
@@ -316,7 +355,7 @@ class SimPLR(LightningModule):
 
                     self.log_dict({"qdiff":qdiff0_.mean()})
                     self.log_dict({"JS_n0_n1":n0.mean()})
-                    self.log_dict({"var":torch.mean(var_)})                    
+                    self.log_dict({"var":torch.mean(var_)})
 
                     q0_ = n0*q0_ + (1.-n0)*mean_
                     q1_ = n1*q1_ + (1.-n1)*mean_                    
@@ -330,7 +369,7 @@ class SimPLR(LightningModule):
                 q.extend([q_ for _ in range(views-2)])
             assert len(p)==len(q)
 
-        return h0_, p, q, qo, vars
+        return h0_, p, q, z, qo, vars
 
     def on_train_start(self):
         if self.JS:
@@ -354,7 +393,7 @@ class SimPLR(LightningModule):
         if self.momentum_head:
             _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
 
-        h0_, p, q, qo, vars = self.forward_student( x, idx )
+        h0_, p, q, z, qo, vars = self.forward_student( x, idx )
 
         loss = 0
         var_loss = 0        
@@ -369,6 +408,11 @@ class SimPLR(LightningModule):
                 qo_   = qo[xi].detach()
                 var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
         
+        # self.lambd = 1e-3
+        if self.lambd > 0.0:
+            sigreg_loss = self.regularisation(torch.cat(z).transpose(0,1))
+            loss = sigreg_loss * self.lambd + loss*(1.0 - self.lambd)
+
         self.log_dict(
             {"train_loss": loss},
             prog_bar=True,
@@ -388,6 +432,9 @@ class SimPLR(LightningModule):
 
         self.log_dict(
             {"h_quality":std_of_l2_normalized(h0_)},
+            sync_dist=True)
+        self.log_dict(
+            {"butt_e_rank":effective_rank(torch.cat(z).to(torch.float32))[0]},
             sync_dist=True)
         self.log_dict(
             {"student_e_rank":effective_rank(torch.cat(p).to(torch.float32))[0]},
