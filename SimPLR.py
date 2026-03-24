@@ -294,8 +294,8 @@ class SimPLR(LightningModule):
         h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
         h0_ = h[0].detach()
         z = [self.projection_head( h_ ) for h_ in h]
-        b = [self.buttress( z_ ) for z_ in z]
-        p = [self.student_head( b_ ) for b_ in b]
+        # b = [self.buttress( z_ ) for z_ in z]
+        p = [self.student_head( z_ ) for z_ in z]
         
         if views > 2: # MultiCrops
             h_multi = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:]]
@@ -407,10 +407,9 @@ class SimPLR(LightningModule):
                 var_  = vars[xi]
                 qo_   = qo[xi].detach()
                 var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
-        
-        # self.lambd = 1e-3
+                
         if self.lambd > 0.0:
-            sigreg_loss = self.regularisation(torch.cat(z).transpose(0,1))
+            sigreg_loss = self.regularisation(torch.stack(z).transpose(0,1))
             loss = sigreg_loss * self.lambd + loss*(1.0 - self.lambd)
 
         self.log_dict(
