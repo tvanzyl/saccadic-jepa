@@ -147,7 +147,7 @@ class SimPLR(LightningModule):
                  num_classes: int, 
                  warmup: int = 0,
                  backbone:str = "resnet-50",                 
-                 lr:float = 0.5, 
+                 lr:float = 0.5, linear_lr:float = 0.1,
                  decay:float=1e-5,                                  
                  momentum_head:bool=False,
                  identity_head:bool=False,
@@ -183,6 +183,7 @@ class SimPLR(LightningModule):
                                   'momentum_butt')
         self.warmup = warmup
         self.lr = lr
+        self.linear_lr = linear_lr
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
         self.JS = JS        
@@ -475,7 +476,7 @@ class SimPLR(LightningModule):
                 },                
                 {   "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
-                    "lr": 0.1
+                    "lr": self.linear_lr * self.batch_size_per_device * self.trainer.world_size / 256,
                 },
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),                    
