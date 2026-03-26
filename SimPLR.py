@@ -345,8 +345,11 @@ class SimPLR(LightningModule):
                         var_ = self.var
                     elif self.emm_v == 8:
                         var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
+                    elif self.emm_v == 7:
+                        var_ = self.var 
+                        self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.detach().abs()*qdiff1_.detach().abs() )
                     elif self.emm_v == 6:
-                        var_ = torch.mean( self.alpha*qdiff0_.detach().abs()*qdiff1_.detach().abs() )
+                        var_ = torch.mean( qdiff0_.detach().abs()*qdiff1_.detach().abs() )
                     else:
                         raise Exception("Not Valid EMM V")                    
 
