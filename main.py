@@ -195,7 +195,10 @@ def main(
         if epochs <= 0:
             print_rank_zero("Epochs <= 0, skipping pretraining.")
             if ckpt_path is not None:
-                model.load_state_dict(torch.load(ckpt_path)["state_dict"])
+                model.load_state_dict(
+                            torch.load(ckpt_path, weights_only=False)["state_dict"], 
+                            strict=False
+                        )
         else:
             pretrain(
                 model=model,
@@ -330,7 +333,7 @@ def pretrain(
         ],
         logger=TensorBoardLogger(save_dir=str(log_dir), name="pretrain"),
         precision=precision,
-        strategy="ddp_find_unused_parameters_true",
+        # strategy="ddp_find_unused_parameters_true",
         sync_batchnorm=accelerator != "cpu",  # Sync batchnorm is not supported on CPU.
         num_sanity_val_steps=0,        
     )

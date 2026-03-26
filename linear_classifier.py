@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple, Union
 import torch
 from pytorch_lightning import LightningModule
 from torch import Tensor
-from torch.nn import CrossEntropyLoss, Linear, Module, Parameter, Sequential
+from torch.nn import CrossEntropyLoss, Linear, Module, Parameter, Sequential, LayerNorm
 from torch.optim import SGD, Optimizer, Adam
 from torch.optim.lr_scheduler import ExponentialLR, MultiStepLR
 
@@ -33,13 +33,15 @@ class BaseClassifier(LightningModule, ABC):
         self.num_classes = num_classes
         self.topk = topk
 
-        self.classification_head: Union[Linear, Sequential] = Linear(
-            feature_dim, num_classes
-        )
+        self.classification_head: Union[Linear, Sequential] = Sequential(
+                    LayerNorm(feature_dim),
+                    Linear(feature_dim, num_classes)
+                )
+                    
         
         # init the fc layer
-        self.classification_head.weight.data.normal_(mean=0.0, std=0.01)
-        self.classification_head.bias.data.zero_()
+        self.classification_head[1].weight.data.normal_(mean=0.0, std=0.01)
+        self.classification_head[1].bias.data.zero_()
 
         self.criterion = CrossEntropyLoss()
 
@@ -84,7 +86,7 @@ class BaseClassifier(LightningModule, ABC):
         return self.lr * self.batch_size_per_device * self.trainer.world_size / 256
 
     @abstractmethod
-    def get_trainable_parameters(self) -> List[torch.nn.Parameter]:
+    def get_trainable_parameters(self) -> List[Parameter]:
         """Return the parameters that should be updated during training."""
         pass
 
@@ -99,7 +101,7 @@ class BaseClassifier(LightningModule, ABC):
             parameters,
             lr=self.get_effective_lr(),
             momentum=0.9,
-            weight_decay=0.0,
+            weight_decay=1e-7,
         )
         scheduler = {
             # "scheduler": MultiStepLR(

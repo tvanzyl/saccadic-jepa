@@ -7,19 +7,21 @@ import torch.nn as nn
 from torch import Tensor
 from torch.optim import SGD
 
-from torchvision import transforms as T
 from torchvision.models import resnet50, resnet34 , resnet18
+from torchvision.transforms import v2 as T
 
 from pytorch_lightning import LightningModule
 
-from lightly.transforms.utils import IMAGENET_NORMALIZE
-from lightly.models._momentum import _do_momentum_update
-from lightly.loss import NegativeCosineSimilarity
-from lightly.models.utils import get_weight_decay_parameters
-
-from lightly.models.utils import deactivate_requires_grad, update_momentum
-
 from lightly.transforms import DINOTransform
+from lightly.transforms.utils import IMAGENET_NORMALIZE
+from lightly.loss import NegativeCosineSimilarity
+from lightly.models.utils import (
+    get_weight_decay_parameters,
+    deactivate_requires_grad, 
+    update_momentum
+)
+from lightly.models._momentum import _do_momentum_update
+
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
@@ -208,12 +210,13 @@ class SimPLR(LightningModule):
             deactivate_requires_grad(self.teacher_backbone)
 
         if no_projection_head:
-            prj_width = emb_width
+            prj_width = emb_width        
         
         self.projection_head = nn.Sequential()
-        if no_projection_head:            
+        if no_projection_head:   
+            self.projection_head.append(nn.Identity())
             prj_width = emb_width
-        else:
+        else:            
             self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
             for i in range(prj_depth):
                 self.projection_head.extend(
@@ -292,7 +295,7 @@ class SimPLR(LightningModule):
         views = len(x)
         
         # Two globals
-        h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
+        h = [self.backbone( x_ ) for x_ in x[:2]]
         h0_ = h[0].detach()
         z = [self.projection_head( h_ ) for h_ in h]
         # b = [self.buttress( z_ ) for z_ in z]
@@ -303,7 +306,7 @@ class SimPLR(LightningModule):
             z_multi = [self.projection_head( h_ ) for h_ in h_multi]
             p.extend([self.student_head( z_ ) for z_ in z_multi])        
         
-        if self.emm_v == 8:
+        if self.ema and self.emm_v == 8:
             vars = [self.var_head( h_.detach() ) for h_ in h]
         else:
             vars = None       
@@ -383,7 +386,7 @@ class SimPLR(LightningModule):
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
     ) -> Tensor:
-        x, targets, idx = batch
+        x, targets, idx = batch        
         
         self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.99, self.alpha_alpha)
 
@@ -404,15 +407,21 @@ class SimPLR(LightningModule):
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
 
-            if self.emm_v == 8:
+            if self.ema and self.emm_v == 8:
                 var_  = vars[xi]
                 qo_   = qo[xi].detach()
                 var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
                 
         if self.lambd > 0.0:
-            sigreg_loss = self.regularisation(torch.stack(z).transpose(0,1))
+            sigreg_loss = self.regularisation(torch.stack(z))
             loss = sigreg_loss*self.lambd + loss*(1.0-self.lambd)
 
+            self.log_dict(
+                {"sigreg_loss": sigreg_loss},            
+                sync_dist=True,
+                batch_size=len(targets),
+            )
+        
         self.log_dict(
             {"train_loss": loss},
             prog_bar=True,
@@ -453,11 +462,11 @@ class SimPLR(LightningModule):
         cls_loss, cls_log = self.online_classifier.validation_step(
             (features.detach(), targets), batch_idx
         )
+        self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
 
         self.log_dict({"val_e_rank":effective_rank(features.to(torch.float32))[0]}, 
                     batch_size=len(targets),
                     sync_dist=True)
-        self.log_dict(cls_log, prog_bar=True, sync_dist=True, batch_size=len(targets))
 
         return cls_loss
 
@@ -502,7 +511,7 @@ class SimPLR(LightningModule):
         return [optimizer], [scheduler]
 
 train_identity= lambda NORMALIZE: T.Compose([                    
-                    T.RandomHorizontalFlip(), T.ToTensor(),
+                    T.RandomHorizontalFlip(), T.ToImage(),  T.ToDtype(torch.float32, scale=True),
                     T.Normalize(mean=NORMALIZE["mean"], std=NORMALIZE["std"]),
                 ])
 # For ResNet50 we adjust crop scales as recommended by the authors:
@@ -511,15 +520,15 @@ train_identity= lambda NORMALIZE: T.Compose([
 def train_transform(size, scale=(0.08, 1.0), NORMALIZE=IMAGENET_NORMALIZE):
     return T.Compose([
                     T.RandomResizedCrop(size, scale=scale),
-                    T.RandomHorizontalFlip(), T.ToTensor(),
+                    T.RandomHorizontalFlip(), T.ToImage(),  T.ToDtype(torch.float32, scale=True),
                     T.Normalize(mean=NORMALIZE["mean"], std=NORMALIZE["std"]),
                 ])
 val_identity  = lambda size, NORMALIZE: T.Compose([
-                    T.Resize(size), T.ToTensor(),
+                    T.Resize(size), T.ToImage(),  T.ToDtype(torch.float32, scale=True),
                     T.Normalize(mean=NORMALIZE["mean"], std=NORMALIZE["std"]),
                 ])
 val_transform = T.Compose([
-                    T.Resize(256), T.CenterCrop(224), T.ToTensor(),
+                    T.Resize(256), T.CenterCrop(224), T.ToImage(),  T.ToDtype(torch.float32, scale=True),
                     T.Normalize(mean=IMAGENET_NORMALIZE["mean"], std=IMAGENET_NORMALIZE["std"]),
                 ])
 
