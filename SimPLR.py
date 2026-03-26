@@ -488,7 +488,7 @@ class SimPLR(LightningModule):
                 },                
                 {   "name": "online_classifier",
                     "params": self.online_classifier.parameters(),
-                    "lr": self.linear_lr * self.batch_size_per_device * self.trainer.world_size / 256,
+                    # "lr": self.linear_lr * self.batch_size_per_device * self.trainer.world_size / 256,
                 },
                 {   "name": "var_regressor",
                     "params": self.var_head.parameters(),                    
