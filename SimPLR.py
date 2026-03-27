@@ -275,12 +275,15 @@ class SimPLR(LightningModule):
         
         deactivate_requires_grad(self.teacher_head)
 
-        self.var_head = nn.Sequential(                                     
-                                nn.Linear(emb_width, prj_width),
-                                nn.SiLU(),
-                                nn.Linear(prj_width, prd_width),
-                                nn.Softplus()
-                            )
+        if self.emm_v == 8 and self.JS:
+            self.var_head = nn.Sequential(                                     
+                                    nn.Linear(emb_width, prj_width),
+                                    nn.SiLU(),
+                                    nn.Linear(prj_width, prd_width),
+                                    nn.Softplus()
+                                )
+        else:
+            self.var_head = nn.Sequential()
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
         
