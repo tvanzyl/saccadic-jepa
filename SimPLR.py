@@ -306,7 +306,7 @@ class SimPLR(LightningModule):
             z_multi = [self.projection_head( h_ ) for h_ in h_multi]
             p.extend([self.student_head( z_ ) for z_ in z_multi])        
         
-        if self.ema and self.emm_v == 8:
+        if self.emm_v == 8 and self.JS:
             vars = [self.var_head( h_.detach() ) for h_ in h]
         else:
             vars = None       
@@ -410,7 +410,7 @@ class SimPLR(LightningModule):
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
 
-            if self.ema and self.emm_v == 8:
+            if self.emm_v == 8 and self.JS:
                 var_  = vars[xi]
                 qo_   = qo[xi].detach()
                 var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
