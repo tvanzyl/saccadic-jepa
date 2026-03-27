@@ -220,10 +220,10 @@ class SimPLR(LightningModule):
             self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
             for i in range(prj_depth):
                 self.projection_head.extend(
-                                    [nn.BatchNorm1d(prj_width),
-                                     nn.ReLU(),
-                                     nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1)),]
-                )
+                                        [nn.BatchNorm1d(prj_width),
+                                         nn.ReLU(),
+                                         nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1))]
+                                        )
         
         
         if self.ema:
@@ -275,15 +275,14 @@ class SimPLR(LightningModule):
         
         deactivate_requires_grad(self.teacher_head)
 
+        self.var_head = nn.Sequential()
         if self.emm_v == 8 and self.JS:
-            self.var_head = nn.Sequential(                                     
-                                    nn.Linear(emb_width, prj_width),
-                                    nn.SiLU(),
-                                    nn.Linear(prj_width, prd_width),
-                                    nn.Softplus()
-                                )
-        else:
-            self.var_head = nn.Sequential()
+            self.var_head.extend(
+                                [nn.Linear(emb_width, prj_width),
+                                 nn.SiLU(),
+                                 nn.Linear(prj_width, prd_width),
+                                 nn.Softplus()]
+                            )
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
         
@@ -301,7 +300,6 @@ class SimPLR(LightningModule):
         h = [self.backbone( x_ ) for x_ in x[:2]]
         h0_ = h[0].detach()
         z = [self.projection_head( h_ ) for h_ in h]
-        # b = [self.buttress( z_ ) for z_ in z]
         p = [self.student_head( z_ ) for z_ in z]
         
         if views > 2: # MultiCrops
@@ -314,64 +312,63 @@ class SimPLR(LightningModule):
         else:
             vars = None       
 
-        with torch.no_grad():
-            if self.momentum_butt:
-                # Use Momentum Statistics
-                self.buttress(torch.cat(z))
-                self.buttress.train(False)
+        # with torch.no_grad():
+        if self.momentum_butt:
+            # Use Momentum Statistics
+            self.buttress(torch.cat(z))
+            self.buttress.train(False)
 
-            if self.ema:
-                ht = [self.teacher_backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-                zt = [self.teacher_projection_head( h_ ) for h_ in ht]
+        if self.ema:
+            ht = [self.teacher_backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
+            zt = [self.teacher_projection_head( h_ ) for h_ in ht]
+        else:
+            zt = z
+        bt = [self.buttress( z_.detach() ) for z_ in zt]
+        qo = [self.teacher_head( b_ ) for b_ in bt]
+        q0_ = qo[0]
+        q1_ = qo[1]
+        
+        if self.momentum_butt:
+            self.buttress.train(True)
+
+        if self.JS: # For James-Stein
+            if self.current_epoch == 0:
+                self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
+                if self.emm_v in [7,8]:
+                    self.var  = torch.mean( (q0_-q1_)**2.0 )
             else:
-                zt = z
-            bt = [self.buttress( z_.detach() ) for z_ in zt]
-            qo = [self.teacher_head( b_ ) for b_ in bt]
-            q0_ = qo[0]
-            q1_ = qo[1]
-            
-            if self.momentum_butt:
-                self.buttress.train(True)
+                #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
+                mean_ = self.embedding[idx]
+                qdiff0_ = q0_  - mean_
+                qdiff1_ = q1_  - mean_
 
-            if self.JS: # For James-Stein
-                if self.current_epoch == 0:
-                    self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
-                    if self.emm_v in [7,8]:
-                        self.var  = torch.mean( (q0_-q1_)**2.0 )
+                if self.emm_v == 9:
+                    var_ = self.var
+                elif self.emm_v == 8:
+                    var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
+                elif self.emm_v == 7:
+                    var_ = self.var 
+                    self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
+                elif self.emm_v == 6:
+                    var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
                 else:
-                    #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                    mean_ = self.embedding[idx]
-                    qdiff0_ = q0_  - mean_
-                    qdiff1_ = q1_  - mean_
+                    raise Exception("Not Valid EMM V")                    
 
-                    if self.emm_v == 9:
-                        var_ = self.var
-                    elif self.emm_v == 8:
-                        var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
-                    elif self.emm_v == 7:
-                        var_ = self.var 
-                        self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.detach().abs()*qdiff1_.detach().abs() )
-                    elif self.emm_v == 6:
-                        var_ = torch.mean( qdiff0_.detach().abs()*qdiff1_.detach().abs() )
-                    else:
-                        raise Exception("Not Valid EMM V")                    
+                # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
+                norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
+                norm1_ = torch.linalg.vector_norm((qdiff1_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
 
-                    # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                    norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
-                    norm1_ = torch.linalg.vector_norm((qdiff1_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
+                n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
+                n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
 
-                    n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
-                    n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
+                self.log_dict({"JS_n0_n1":n0.mean()})
+                self.log_dict({"var":torch.mean(var_)})
 
-                    self.log_dict({"qdiff":qdiff0_.mean()})
-                    self.log_dict({"JS_n0_n1":n0.mean()})
-                    self.log_dict({"var":torch.mean(var_)})
-
-                    q0_ = n0*q0_ + (1.-n0)*mean_
-                    q1_ = n1*q1_ + (1.-n1)*mean_                    
-                    
-                    incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
-                    self.embedding[idx] = (mean_ + incr_).to(torch.float32)
+                q0_ = n0*q0_ + (1.-n0)*mean_
+                q1_ = n1*q1_ + (1.-n1)*mean_                    
+                
+                incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
+                self.embedding[idx] = (mean_ + incr_).to(torch.float32)
             
             q  = [q1_, q0_]
             if views > 2:
@@ -387,6 +384,7 @@ class SimPLR(LightningModule):
             self.embedding  = torch.empty((N, self.prd_width),
                                         # dtype=torch.float16,
                                         device=self.device)
+            deactivate_requires_grad(self.embedding)
         return super().on_train_start()
 
     def training_step(
@@ -398,7 +396,7 @@ class SimPLR(LightningModule):
 
         momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
         if self.ema: #These lines give us classical EMA 
-            update_momentum(self.backbone, self.teacher_backbone, m=momentum)
+            update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
         if self.momentum_head:
             _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
