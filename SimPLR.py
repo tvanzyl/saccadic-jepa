@@ -191,7 +191,7 @@ class SimPLR(LightningModule):
         self.JS = JS        
         self.ema = ema
         self.emm_v = emm_v
-        self.var = torch.tensor(var, device=self.device)
+        self.var = torch.tensor(var, device=self.device, requires_grad=False)
         self.momentum_head = momentum_head        
         self.alpha_alpha = alpha
         self.lambd = lambd
@@ -383,8 +383,8 @@ class SimPLR(LightningModule):
             N = len(self.trainer.train_dataloader.dataset)            
             self.embedding  = torch.empty((N, self.prd_width),
                                         # dtype=torch.float16,
-                                        device=self.device)
-            deactivate_requires_grad(self.embedding)
+                                        device=self.device,
+                                        requires_grad=False)
         return super().on_train_start()
 
     def training_step(
