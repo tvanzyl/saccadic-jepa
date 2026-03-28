@@ -370,11 +370,11 @@ class SimPLR(LightningModule):
                 incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
                 self.embedding[idx] = (mean_ + incr_).to(torch.float32)
             
-            q  = [q1_, q0_]
-            if views > 2:
-                q_ = 0.5*(q0_+q1_)
-                q.extend([q_ for _ in range(views-2)])
-            assert len(p)==len(q)
+        q  = [q1_, q0_]
+        if views > 2:
+            q_ = 0.5*(q0_+q1_)
+            q.extend([q_ for _ in range(views-2)])
+        assert len(p)==len(q)
 
         return h0_, p, q, z, qo, vars
 
