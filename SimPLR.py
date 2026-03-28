@@ -346,9 +346,9 @@ class SimPLR(LightningModule):
                     var_ = self.var
                 elif self.emm_v == 8:
                     var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
-                elif self.emm_v == 7:
-                    var_ = self.var 
+                elif self.emm_v == 7:                    
                     self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
+                    var_ = self.var 
                 elif self.emm_v == 6:
                     var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
                 else:
@@ -466,7 +466,10 @@ class SimPLR(LightningModule):
         cls_loss, cls_log = self.online_classifier.validation_step(
             (features.detach(), targets), batch_idx
         )
-        self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))
+        self.log_dict(cls_log, 
+                      prog_bar=True,
+                      sync_dist=True, 
+                      batch_size=len(targets))
 
         self.log_dict({"val_e_rank":effective_rank(features.to(torch.float32))[0]}, 
                     batch_size=len(targets),
