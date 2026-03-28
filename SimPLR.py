@@ -405,7 +405,8 @@ class SimPLR(LightningModule):
 
         loss = 0
         var_loss = 0        
-        qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
+        if self.emm_v == 8 and self.JS:
+            qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
