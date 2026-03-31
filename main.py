@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Sequence, Union
 
+import wandb
 import SimPLR
 from SimPLR import (
     dataset_with_indices,
@@ -17,7 +18,7 @@ from pytorch_lightning.callbacks import (
     EarlyStopping,
     LearningRateMonitor,    
 )
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
@@ -320,6 +321,9 @@ def pretrain(
 
     # Train model.
     metric_callback = MetricCallback()
+    logger = TensorBoardLogger(save_dir=str(log_dir), name="pretrain")    
+    wandb_logger = WandbLogger(save_dir=str(log_dir), name="js-repa")
+    wandb_logger.experiment.config["batch_size"] = batch_size_per_device
     trainer = Trainer(
         max_epochs=epochs,
         accelerator=accelerator,
@@ -331,7 +335,7 @@ def pretrain(
             DeviceStatsMonitor(),
             metric_callback,            
         ],
-        logger=TensorBoardLogger(save_dir=str(log_dir), name="pretrain"),
+        logger=[logger,wandb_logger],
         precision=precision,
         # strategy="ddp_find_unused_parameters_true",
         sync_batchnorm=accelerator != "cpu",  # Sync batchnorm is not supported on CPU.
