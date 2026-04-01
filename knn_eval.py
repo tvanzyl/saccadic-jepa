@@ -49,6 +49,7 @@ def knn_eval(
         num_workers=num_workers,
         drop_last=False,
         pin_memory=True,
+        persistent_workers=True,
     )
 
     # Setup validation data.
@@ -59,6 +60,7 @@ def knn_eval(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
+        persistent_workers=True,
     )
 
     metrics_dict: dict[str, float] = dict()
@@ -87,7 +89,7 @@ def knn_eval(
                     metric_callback,
                 ],
                 precision=precision,
-                # strategy="ddp_find_unused_parameters_true",
+                strategy="ddp_find_unused_parameters_true",
                 num_sanity_val_steps=0,
             )
             trainer.validate(
