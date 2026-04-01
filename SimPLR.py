@@ -172,7 +172,7 @@ class SimPLR(LightningModule):
                                   'backbone',                                  
                                   'lr', 'decay', 'JS',
                                   'momentum_head',
-                                  'identity_head',
+                                  'random_head',
                                   'no_projection_head',
                                   'no_student_head',
                                   'alpha', 'lambd',
@@ -181,7 +181,7 @@ class SimPLR(LightningModule):
                                   'no_buttress',
                                   'no_ReLU_buttress',
                                   'ema', 'emm_v', 'var',
-                                  'no_bias',                                  
+                                  'bias',                                  
                                   'momentum_butt')
         self.warmup = warmup
         self.lr = lr
