@@ -152,7 +152,7 @@ class SimPLR(LightningModule):
                  lr:float = 0.5, linear_lr:float = 0.1,
                  decay:float=1e-5,                                  
                  momentum_head:bool=False,
-                 identity_head:bool=False,
+                 random_head:bool=False,
                  no_projection_head:bool=False,
                  alpha:float = 1.00, lambd:float = 0.00,
                  cut:float = 0.0,
@@ -163,7 +163,7 @@ class SimPLR(LightningModule):
                  no_ReLU_buttress:bool=False,
                  no_student_head:bool=False,
                  JS:bool=False, 
-                 no_bias:bool=False,
+                 bias:bool=False,
                  ema:bool=False, emm_v:int=8, var:float=0.1,                 
                  momentum_butt:bool=False) -> None:
         super().__init__()
@@ -198,9 +198,11 @@ class SimPLR(LightningModule):
         self.momentum_butt = momentum_butt
         
         self.prd_width = prd_width
-
-        if identity_head and momentum_head:
-            raise Exception("Invalid Arguments, can't select identity and momentum")
+        
+        if random_head and momentum_head:
+            raise Exception("Invalid Arguments, can't select random and momentum")
+        
+        identity_head = not (random_head or momentum_head)
         
         self.backbone, self.emb_width = backbones(backbone)
         emb_width = self.emb_width
@@ -248,7 +250,7 @@ class SimPLR(LightningModule):
         else:
             teacher_head = nn.Linear(prj_width, self.prd_width, False)
             nn.init.orthogonal_(teacher_head.weight)
-        if no_bias:        
+        if not bias:        
             self.teacher_head = nn.Sequential(teacher_head)
         else:
             self.teacher_head = nn.Sequential(
