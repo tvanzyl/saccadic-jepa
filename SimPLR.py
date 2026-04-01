@@ -53,7 +53,7 @@ class BiasLayer(nn.Module):
         bound_w = 1 / math.sqrt(fan_in_size)
         nn.init.normal_(self.bias, 0, bound_w)
 
-    def forward(self, x):
+    def forward(self, x:Tensor):
         return x + self.bias
 
 def dataset_with_indices(cls):
@@ -270,8 +270,7 @@ class SimPLR(LightningModule):
         self.student_head = nn.Sequential(student_head)
 
         if not no_ReLU_buttress:
-            self.student_head.insert(0, nn.ReLU())
-            self.teacher_head.insert(0, nn.ReLU())
+            self.projection_head.append(nn.ReLU())            
         
         deactivate_requires_grad(self.teacher_head)
 
@@ -346,13 +345,13 @@ class SimPLR(LightningModule):
                     var_ = self.var
                 elif self.emm_v == 8:
                     var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
-                elif self.emm_v == 7:                    
+                elif self.emm_v == 7:
                     self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
-                    var_ = self.var 
+                    var_ = self.var
                 elif self.emm_v == 6:
                     var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
                 else:
-                    raise Exception("Not Valid EMM V")                    
+                    raise Exception("Not Valid EMM V")
 
                 # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                 norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
