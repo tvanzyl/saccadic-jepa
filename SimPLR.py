@@ -271,8 +271,9 @@ class SimPLR(LightningModule):
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)
 
-        if not no_ReLU_buttress:
-            self.projection_head.append(nn.ReLU())            
+        if not no_ReLU_buttress:            
+            self.student_head.insert(0, nn.ReLU())
+            self.teacher_head.insert(0, nn.ReLU())    
         
         deactivate_requires_grad(self.teacher_head)
 
