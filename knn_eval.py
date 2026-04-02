@@ -89,7 +89,7 @@ def knn_eval(
                     metric_callback,
                 ],
                 precision=precision,
-                strategy="ddp_find_unused_parameters_true",
+                # strategy="ddp_find_unused_parameters_true",
                 num_sanity_val_steps=0,
             )
             trainer.validate(
