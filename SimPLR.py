@@ -133,10 +133,11 @@ class SimPLR(LightningModule):
                  backbone:str = "resnet-50",                 
                  lr:float = 0.5, linear_lr:float = 0.1,
                  decay:float=1e-5,                                  
-                 momentum_head:bool=False,
+                #  momentum_head:bool=False,
                  random_head:bool=False,
                  no_projection_head:bool=False,
-                 alpha:float = 1.00, lambd:float = 0.00,
+                 alpha:float = 1.00, 
+                #  lambd:float = 0.00,
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
@@ -156,11 +157,12 @@ class SimPLR(LightningModule):
                                   'num_classes', 'warmup',
                                   'backbone',                                  
                                   'lr', 'decay', 'JS',
-                                  'momentum_head',
+                                #   'momentum_head',
                                   'random_head',
                                   'no_projection_head',
                                   'no_student_head',
-                                  'alpha', 'lambd',
+                                  'alpha', 
+                                #   'lambd',
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
@@ -178,17 +180,17 @@ class SimPLR(LightningModule):
         self.ema = ema
         # self.emm_v = emm_v
         self.var = torch.tensor(var, device=self.device, requires_grad=False)
-        self.momentum_head = momentum_head        
+        # self.momentum_head = momentum_head        
         self.alpha_alpha = alpha
-        self.lambd = lambd
+        # self.lambd = lambd
         # self.momentum_butt = momentum_butt
         
         self.prd_width = prd_width
         
-        if random_head and momentum_head:
-            raise Exception("Invalid Arguments, can't select random and momentum")
+        # if random_head and momentum_head:
+        #     raise Exception("Invalid Arguments, can't select random and momentum")
         
-        identity_head = not (random_head or momentum_head)
+        identity_head = not (random_head )# or momentum_head)
         
         self.backbone, self.emb_width = backbones(backbone)
         emb_width = self.emb_width
