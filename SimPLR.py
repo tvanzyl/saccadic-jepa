@@ -127,12 +127,12 @@ def backbones(name):
     return resnet, emb_width
 
 class SimPLR(LightningModule):
-    def __init__(self, batch_size_per_device: int,                  
+    def __init__(self, batch_size_per_device: int,
                  num_classes: int, 
                  warmup: int = 0,
-                 backbone:str = "resnet-50",                 
+                 backbone:str = "resnet-50",
                  lr:float = 0.5, linear_lr:float = 0.1,
-                 decay:float=1e-5,                                  
+                 decay:float=1e-5,
                 #  momentum_head:bool=False,
                  random_head:bool=False,
                  no_projection_head:bool=False,
@@ -141,7 +141,7 @@ class SimPLR(LightningModule):
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
-                 prj_width:int = 2048,                 
+                 prj_width:int = 2048,
                  no_buttress:bool=False,
                 #  no_ReLU_buttress:bool=False,
                  no_student_head:bool=False,
@@ -155,7 +155,7 @@ class SimPLR(LightningModule):
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 'warmup',
-                                  'backbone',                                  
+                                  'backbone',
                                   'lr', 'decay', 'JS',
                                 #   'momentum_head',
                                   'random_head',
@@ -169,7 +169,7 @@ class SimPLR(LightningModule):
                                 #   'no_ReLU_buttress',
                                   'ema',  'var',)
                                 #   'emm_v',
-                                #   'bias',                                  
+                                #   'bias',
                                 #   'momentum_butt')
         self.warmup = warmup
         self.lr = lr
@@ -180,7 +180,7 @@ class SimPLR(LightningModule):
         self.ema = ema
         # self.emm_v = emm_v
         self.var = torch.tensor(var, device=self.device, requires_grad=False)
-        # self.momentum_head = momentum_head        
+        # self.momentum_head = momentum_head
         self.alpha_alpha = alpha
         # self.lambd = lambd
         # self.momentum_butt = momentum_butt
@@ -294,7 +294,7 @@ class SimPLR(LightningModule):
         if views > 2: # MultiCrops
             h_multi = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:]]
             z_multi = [self.projection_head( h_ ) for h_ in h_multi]
-            p.extend([self.student_head( z_ ) for z_ in z_multi])        
+            p.extend([self.student_head( z_ ) for z_ in z_multi])
         
         # if self.emm_v == 8 and self.JS:
         #     vars = [self.var_head( h_.detach() ) for h_ in h]
@@ -370,7 +370,7 @@ class SimPLR(LightningModule):
 
     def on_train_start(self):
         if self.JS:
-            N = len(self.trainer.train_dataloader.dataset)            
+            N = len(self.trainer.train_dataloader.dataset)
             self.embedding  = torch.empty((N, self.prd_width),
                                         # dtype=torch.float16,
                                         device=self.device,
