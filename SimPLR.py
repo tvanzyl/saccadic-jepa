@@ -147,7 +147,8 @@ class SimPLR(LightningModule):
                  JS:bool=False, 
                  bias:bool=False,
                  ema:bool=False, emm_v:int=8, var:float=0.1,                 
-                 momentum_butt:bool=False) -> None:
+                 momentum_butt:bool=False
+                 ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 'warmup',
@@ -162,7 +163,8 @@ class SimPLR(LightningModule):
                                   "prj_depth", "prj_width",
                                   'no_buttress',
                                   'no_ReLU_buttress',
-                                  'ema', 'emm_v', 'var',)
+                                  'ema',  'var',)
+                                #   'emm_v',
                                 #   'bias',                                  
                                 #   'momentum_butt')
         self.warmup = warmup
@@ -172,7 +174,7 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device
         self.JS = JS        
         self.ema = ema
-        self.emm_v = emm_v
+        # self.emm_v = emm_v
         self.var = torch.tensor(var, device=self.device, requires_grad=False)
         self.momentum_head = momentum_head        
         self.alpha_alpha = alpha
@@ -326,17 +328,18 @@ class SimPLR(LightningModule):
                 qdiff0_ = q0_  - mean_
                 qdiff1_ = q1_  - mean_
 
-                if self.emm_v == 9:
+                if self.var > 0.0:
                     var_ = self.var
                 # elif self.emm_v == 8:
                 #     var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
                 # elif self.emm_v == 7:
                 #     self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
                 #     var_ = self.var
-                elif self.emm_v == 6:
-                    var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
+                # elif self.emm_v == 6:
+                #     var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
                 else:
-                    raise Exception("Not Valid EMM V")
+                    var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
+                    # raise Exception("Not Valid EMM V")
 
                 # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
                 norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
