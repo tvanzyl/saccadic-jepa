@@ -380,11 +380,12 @@ class SimPLR(LightningModule):
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
     ) -> Tensor:
         x, targets, idx = batch        
-        
-        self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.000, self.alpha_alpha)
 
-        momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+        if self.JS:        
+            self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.000, self.alpha_alpha)
+        
         if self.ema: #These lines give us classical EMA 
+            momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
         # if self.momentum_head:
