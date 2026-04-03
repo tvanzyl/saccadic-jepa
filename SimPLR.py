@@ -26,35 +26,36 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
 
-class SIGReg(torch.nn.Module):
-    def __init__(self, knots=17):
-        super().__init__()
-        t = torch.linspace(0, 3, knots, dtype=torch.float32)
-        dt = 3 / (knots - 1)
-        weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
-        weights[[0, -1]] = dt
-        window = torch.exp(-t.square() / 2.0)
-        self.register_buffer("t", t)
-        self.register_buffer("phi", window)
-        self.register_buffer("weights", weights * window)
+ 
+# class SIGReg(torch.nn.Module):
+#     def __init__(self, knots=17):
+#         super().__init__()
+#         t = torch.linspace(0, 3, knots, dtype=torch.float32)
+#         dt = 3 / (knots - 1)
+#         weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
+#         weights[[0, -1]] = dt
+#         window = torch.exp(-t.square() / 2.0)
+#         self.register_buffer("t", t)
+#         self.register_buffer("phi", window)
+#         self.register_buffer("weights", weights * window)
 
-    def forward(self, proj):
-        A = torch.randn(proj.size(-1), 256, device="cuda")
-        A = A.div_(A.norm(p=2, dim=0))
-        x_t = (proj @ A).unsqueeze(-1) * self.t
-        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
-        statistic = (err @ self.weights) * proj.size(-2)
-        return statistic.mean()
+#     def forward(self, proj):
+#         A = torch.randn(proj.size(-1), 256, device="cuda")
+#         A = A.div_(A.norm(p=2, dim=0))
+#         x_t = (proj @ A).unsqueeze(-1) * self.t
+#         err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
+#         statistic = (err @ self.weights) * proj.size(-2)
+#         return statistic.mean()
 
-class BiasLayer(nn.Module):
-    def __init__(self, size:int, fan_in_size:int):
-        super(BiasLayer, self).__init__()
-        self.bias = nn.Parameter(torch.zeros(size))
-        bound_w = 1 / math.sqrt(fan_in_size)
-        nn.init.normal_(self.bias, 0, bound_w)
+# class BiasLayer(nn.Module):
+#     def __init__(self, size:int, fan_in_size:int):
+#         super(BiasLayer, self).__init__()
+#         self.bias = nn.Parameter(torch.zeros(size))
+#         bound_w = 1 / math.sqrt(fan_in_size)
+#         nn.init.normal_(self.bias, 0, bound_w)
 
-    def forward(self, x:Tensor):
-        return x + self.bias
+#     def forward(self, x:Tensor):
+#         return x + self.bias
 
 def dataset_with_indices(cls):
     """
@@ -106,25 +107,6 @@ def effective_rank(embeddings, eps=1e-9):
     
     return effective_rank, condition_number
 
-class SIGReg(torch.nn.Module):
-    def __init__(self, knots=17):
-        super().__init__()
-        t = torch.linspace(0, 3, knots, dtype=torch.float32)
-        dt = 3 / (knots - 1)
-        weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
-        weights[[0, -1]] = dt
-        window = torch.exp(-t.square() / 2.0)
-        self.register_buffer("t", t)
-        self.register_buffer("phi", window)
-        self.register_buffer("weights", weights * window)
-
-    def forward(self, proj):
-        A = torch.randn(proj.size(-1), 256, device="cuda")
-        A = A.div_(A.norm(p=2, dim=0))
-        x_t = (proj @ A).unsqueeze(-1) * self.t
-        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
-        statistic = (err @ self.weights) * proj.size(-2)
-        return statistic.mean()
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
@@ -180,9 +162,9 @@ class SimPLR(LightningModule):
                                   "prj_depth", "prj_width",
                                   'no_buttress',
                                   'no_ReLU_buttress',
-                                  'ema', 'emm_v', 'var',
-                                  'bias',                                  
-                                  'momentum_butt')
+                                  'ema', 'emm_v', 'var',)
+                                #   'bias',                                  
+                                #   'momentum_butt')
         self.warmup = warmup
         self.lr = lr
         self.linear_lr = linear_lr
@@ -195,7 +177,7 @@ class SimPLR(LightningModule):
         self.momentum_head = momentum_head        
         self.alpha_alpha = alpha
         self.lambd = lambd
-        self.momentum_butt = momentum_butt
+        # self.momentum_butt = momentum_butt
         
         self.prd_width = prd_width
         
@@ -250,13 +232,13 @@ class SimPLR(LightningModule):
         else:
             teacher_head = nn.Linear(prj_width, self.prd_width, False)
             nn.init.orthogonal_(teacher_head.weight)
-        if not bias:        
-            self.teacher_head = nn.Sequential(teacher_head)
-        else:
-            self.teacher_head = nn.Sequential(
-                                            teacher_head,
-                                            BiasLayer(prd_width, prj_width),
-                                        )
+        # if not bias:        
+        self.teacher_head = nn.Sequential(teacher_head)
+        # else:
+        #     self.teacher_head = nn.Sequential(
+        #                                     teacher_head,
+        #                                     BiasLayer(prd_width, prj_width),
+                                        # )
 
         if no_student_head:
             student_head = nn.AdaptiveAvgPool1d(prd_width)
@@ -278,19 +260,19 @@ class SimPLR(LightningModule):
         deactivate_requires_grad(self.teacher_head)
 
         self.var_head = nn.Sequential()
-        if self.emm_v == 8 and self.JS:
-            self.var_head.extend(
-                                [nn.Linear(emb_width, prj_width),
-                                 nn.SiLU(),
-                                 nn.Linear(prj_width, prd_width),
-                                 nn.Softplus()]
-                            )
+        # if self.emm_v == 8 and self.JS:
+        #     self.var_head.extend(
+        #                         [nn.Linear(emb_width, prj_width),
+        #                          nn.SiLU(),
+        #                          nn.Linear(prj_width, prd_width),
+        #                          nn.Softplus()]
+        #                     )
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
         
         self.criterion = NegativeCosineSimilarity()
-        self.regularisation = SIGReg()
-        self.var_crt = nn.GaussianNLLLoss()
+        # self.regularisation = SIGReg()
+        # self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
@@ -299,7 +281,7 @@ class SimPLR(LightningModule):
         views = len(x)
         
         # Two globals
-        h = [self.backbone( x_ ) for x_ in x[:2]]
+        h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
         h0_ = h[0].detach()
         z = [self.projection_head( h_ ) for h_ in h]
         p = [self.student_head( z_ ) for z_ in z]
@@ -309,16 +291,16 @@ class SimPLR(LightningModule):
             z_multi = [self.projection_head( h_ ) for h_ in h_multi]
             p.extend([self.student_head( z_ ) for z_ in z_multi])        
         
-        if self.emm_v == 8 and self.JS:
-            vars = [self.var_head( h_.detach() ) for h_ in h]
-        else:
-            vars = None       
+        # if self.emm_v == 8 and self.JS:
+        #     vars = [self.var_head( h_.detach() ) for h_ in h]
+        # else:
+        #     vars = None       
 
         # with torch.no_grad():
-        if self.momentum_butt:
-            # Use Momentum Statistics
-            self.buttress(torch.cat(z))
-            self.buttress.train(False)
+        # if self.momentum_butt:
+        #     # Use Momentum Statistics
+        #     self.buttress(torch.cat(z))
+        #     self.buttress.train(False)
 
         if self.ema:
             ht = [self.teacher_backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
@@ -330,14 +312,14 @@ class SimPLR(LightningModule):
         q0_ = qo[0]
         q1_ = qo[1]
         
-        if self.momentum_butt:
-            self.buttress.train(True)
+        # if self.momentum_butt:
+        #     self.buttress.train(True)
 
         if self.JS: # For James-Stein
             if self.current_epoch == 0:
                 self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
-                if self.emm_v in [7,8]:
-                    self.var  = torch.mean( (q0_-q1_)**2.0 )
+                # if self.emm_v in [7,8]:
+                #     self.var  = torch.mean( (q0_-q1_)**2.0 )
             else:
                 #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 mean_ = self.embedding[idx]
@@ -346,11 +328,11 @@ class SimPLR(LightningModule):
 
                 if self.emm_v == 9:
                     var_ = self.var
-                elif self.emm_v == 8:
-                    var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
-                elif self.emm_v == 7:
-                    self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
-                    var_ = self.var
+                # elif self.emm_v == 8:
+                #     var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
+                # elif self.emm_v == 7:
+                #     self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
+                #     var_ = self.var
                 elif self.emm_v == 6:
                     var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
                 else:
@@ -376,9 +358,9 @@ class SimPLR(LightningModule):
         if views > 2:
             q_ = 0.5*(q0_+q1_)
             q.extend([q_ for _ in range(views-2)])
-        assert len(p)==len(q)
-
-        return h0_, p, q, z, qo, vars
+        # assert len(p)==len(q)
+        
+        return h0_, p, q, #z, qo, vars
 
     def on_train_start(self):
         if self.JS:
@@ -400,34 +382,35 @@ class SimPLR(LightningModule):
         if self.ema: #These lines give us classical EMA 
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
-        if self.momentum_head:
-            _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
+        # if self.momentum_head:
+        #     _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
 
-        h0_, p, q, z, qo, vars = self.forward_student( x, idx )
+        # h0_, p, q, z, qo, vars = self.forward_student( x, idx )
+        h0_, p, q = self.forward_student( x, idx )
 
         loss = 0
-        var_loss = 0        
-        if self.emm_v == 8 and self.JS:
-            qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
+        # var_loss = 0        
+        # if self.emm_v == 8 and self.JS:
+        #     qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
         for xi in range(len(q)):
             p_ = p[xi]
             q_ = q[xi]
             loss += self.criterion( p_, q_ ) / len(q)
 
-            if self.emm_v == 8 and self.JS:
-                var_  = vars[xi]
-                qo_   = qo[xi].detach()
-                var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
+            # if self.emm_v == 8 and self.JS:
+            #     var_  = vars[xi]
+            #     qo_   = qo[xi].detach()
+            #     var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
                 
-        if self.lambd > 0.0:
-            sigreg_loss = self.regularisation(torch.stack(z))
-            loss = sigreg_loss*self.lambd + loss*(1.0-self.lambd)
+        # if self.lambd > 0.0:
+        #     sigreg_loss = self.regularisation(torch.stack(z))
+        #     loss = sigreg_loss*self.lambd + loss*(1.0-self.lambd)
 
-            self.log_dict(
-                {"sigreg_loss": sigreg_loss},            
-                sync_dist=True,
-                batch_size=len(targets),
-            )
+        #     self.log_dict(
+        #         {"sigreg_loss": sigreg_loss},            
+        #         sync_dist=True,
+        #         batch_size=len(targets),
+        #     )
         
         self.log_dict(
             {"train_loss": loss},
@@ -435,31 +418,21 @@ class SimPLR(LightningModule):
             sync_dist=True,
             batch_size=len(targets),
         )
-        self.log_dict(
-            {"var_loss": var_loss}, 
-            sync_dist=True, 
-            batch_size=len(targets))
+        # self.log_dict(
+        #     {"var_loss": var_loss}, 
+        #     sync_dist=True, 
+        #     batch_size=len(targets))
 
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
             (h0_, targets), batch_idx
         )
-        self.log_dict(cls_log, sync_dist=True, batch_size=len(targets))       
+        self.log_dict(
+            cls_log, 
+            sync_dist=True, 
+            batch_size=len(targets))
 
-        self.log_dict(
-            {"h_quality":std_of_l2_normalized(h0_)},
-            sync_dist=True)
-        self.log_dict(
-            {"butt_e_rank":effective_rank(torch.cat(z).to(torch.float32))[0]},
-            sync_dist=True)
-        self.log_dict(
-            {"student_e_rank":effective_rank(torch.cat(p).to(torch.float32))[0]},
-            sync_dist=True)
-        self.log_dict(
-            {"teacher_e_rank":effective_rank(torch.cat(q).to(torch.float32))[0]},
-            sync_dist=True)
-
-        return loss + cls_loss + var_loss
+        return loss + cls_loss #+ var_loss
 
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int
@@ -467,16 +440,38 @@ class SimPLR(LightningModule):
         images, targets = batch[0], batch[1]
         features = self.forward(images).flatten(start_dim=1)
         cls_loss, cls_log = self.online_classifier.validation_step(
-            (features.detach(), targets), batch_idx
+            (features, targets), batch_idx
         )
         self.log_dict(cls_log, 
                       prog_bar=True,
                       sync_dist=True, 
                       batch_size=len(targets))
 
-        self.log_dict({"val_e_rank":effective_rank(features.to(torch.float32))[0]}, 
-                    batch_size=len(targets),
-                    sync_dist=True)
+        z = self.projection_head( features )
+        p = self.student_head( z )
+        b = self.buttress( z )
+        q = self.teacher_head( b )
+
+        self.log_dict(            
+            {"h_quality":std_of_l2_normalized(features)},
+            batch_size=len(targets),
+            sync_dist=True)
+        self.log_dict(
+            {"butt_e_rank":effective_rank(torch.cat(z).to(torch.float32))[0]},
+            batch_size=len(targets),
+            sync_dist=True)
+        self.log_dict(
+            {"student_e_rank":effective_rank(torch.cat(p).to(torch.float32))[0]},
+            batch_size=len(targets),
+            sync_dist=True)
+        self.log_dict(
+            {"teacher_e_rank":effective_rank(torch.cat(q).to(torch.float32))[0]},
+            batch_size=len(targets),
+            sync_dist=True)
+        self.log_dict(
+            {"val_e_rank":effective_rank(features.to(torch.float32))[0]}, 
+            batch_size=len(targets),
+            sync_dist=True)
 
         return cls_loss
 
@@ -494,12 +489,11 @@ class SimPLR(LightningModule):
                     "params": params_no_weight_decay,                    
                 },                
                 {   "name": "online_classifier",
-                    "params": self.online_classifier.parameters(),
-                    # "lr": self.linear_lr * self.batch_size_per_device * self.trainer.world_size / 256,
+                    "params": self.online_classifier.parameters(),                    
                 },
-                {   "name": "var_regressor",
-                    "params": self.var_head.parameters(),                    
-                }               
+                # {   "name": "var_regressor",
+                #     "params": self.var_head.parameters(),                    
+                # }               
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,
