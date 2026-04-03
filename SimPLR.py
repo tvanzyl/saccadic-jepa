@@ -243,7 +243,6 @@ class SimPLR(LightningModule):
         #                                     teacher_head,
         #                                     BiasLayer(prd_width, prj_width),
                                         # )
-
         if no_student_head:
             student_head = nn.AdaptiveAvgPool1d(prd_width)
         else:
@@ -263,7 +262,7 @@ class SimPLR(LightningModule):
         
         deactivate_requires_grad(self.teacher_head)
 
-        self.var_head = nn.Sequential()
+        # self.var_head = nn.Sequential()
         # if self.emm_v == 8 and self.JS:
         #     self.var_head.extend(
         #                         [nn.Linear(emb_width, prj_width),
