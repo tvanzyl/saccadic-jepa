@@ -20,7 +20,7 @@ from lightly.models.utils import (
     deactivate_requires_grad, 
     update_momentum
 )
-from lightly.models._momentum import _do_momentum_update
+# from lightly.models._momentum import _do_momentum_update
 
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
@@ -142,12 +142,14 @@ class SimPLR(LightningModule):
                  prj_depth:int = 2,
                  prj_width:int = 2048,                 
                  no_buttress:bool=False,
-                 no_ReLU_buttress:bool=False,
+                #  no_ReLU_buttress:bool=False,
                  no_student_head:bool=False,
                  JS:bool=False, 
-                 bias:bool=False,
-                 ema:bool=False, emm_v:int=8, var:float=0.1,                 
-                 momentum_butt:bool=False
+                #  bias:bool=False,
+                 ema:bool=False, 
+                #  emm_v:int=8, 
+                 var:float=0.1,                 
+                #  momentum_butt:bool=False
                  ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -162,7 +164,7 @@ class SimPLR(LightningModule):
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
-                                  'no_ReLU_buttress',
+                                #   'no_ReLU_buttress',
                                   'ema',  'var',)
                                 #   'emm_v',
                                 #   'bias',                                  
@@ -255,9 +257,9 @@ class SimPLR(LightningModule):
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(student_head)
 
-        if not no_ReLU_buttress:            
-            self.student_head.insert(0, nn.ReLU())
-            self.teacher_head.insert(0, nn.ReLU())    
+        # if not no_ReLU_buttress:
+        self.student_head.insert(0, nn.ReLU())
+        self.teacher_head.insert(0, nn.ReLU())    
         
         deactivate_requires_grad(self.teacher_head)
 
