@@ -450,15 +450,15 @@ class SimPLR(LightningModule):
             batch_size=len(targets),
             sync_dist=True)
         self.log_dict(
-            {"butt_e_rank":effective_rank(torch.cat(z).to(torch.float32))[0]},
+            {"butt_e_rank":effective_rank(z.to(torch.float32))[0]},
             batch_size=len(targets),
             sync_dist=True)
         self.log_dict(
-            {"student_e_rank":effective_rank(torch.cat(p).to(torch.float32))[0]},
+            {"student_e_rank":effective_rank(p.to(torch.float32))[0]},
             batch_size=len(targets),
             sync_dist=True)
         self.log_dict(
-            {"teacher_e_rank":effective_rank(torch.cat(q).to(torch.float32))[0]},
+            {"teacher_e_rank":effective_rank(q.to(torch.float32))[0]},
             batch_size=len(targets),
             sync_dist=True)
         self.log_dict(
