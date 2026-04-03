@@ -74,7 +74,7 @@ def dataset_with_indices(cls):
 @torch.no_grad()
 def effective_rank(embeddings, eps=1e-9):
     """
-    Computes the effective rank and condition number of a batch of embeddings.
+    GEMINI GENERATED: Computes the effective rank and condition number of a batch of embeddings.
     
     Args:
         embeddings: Tensor of shape [Batch_Size, Dimension]
@@ -84,27 +84,13 @@ def effective_rank(embeddings, eps=1e-9):
         effective_rank: Float representing the continuous dimensionality.
         condition_number: Float representing the ratio of max to min variance.
     """
-    # 1. Mean-center the embeddings
     centered = embeddings - embeddings.mean(dim=0, keepdim=True)
-    
-    # 2. Compute SVD
-    # full_matrices=False is critical for performance when Batch_Size > Dimension
     _, S, _ = torch.linalg.svd(centered, full_matrices=False)
-    
-    # 3. Convert singular values to eigenvalues (variance along principal components)
     eigenvalues = (S ** 2) / (centered.size(0) - 1)
-    
-    # 4. Normalize to a probability distribution
     p = eigenvalues / (eigenvalues.sum() + eps)
-    
-    # 5. Compute Shannon Entropy and Effective Rank
     entropy = -torch.sum(p * torch.log(p + eps))
     effective_rank = torch.exp(entropy).item()
-    
-    # 6. Compute Condition Number (Optional but highly recommended)
-    # A spiking condition number is the earliest warning sign of collapse.
-    condition_number = (eigenvalues[0] / (eigenvalues[-1] + eps)).item()
-    
+    condition_number = (eigenvalues[0] / (eigenvalues[-1] + eps)).item()    
     return effective_rank, condition_number
 
 
@@ -322,7 +308,7 @@ class SimPLR(LightningModule):
 
         if self.JS: # For James-Stein
             if self.current_epoch == 0:
-                self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
+                self.embedding[idx] = ((q0_+q1_)/2.0).to(torch.float32)
                 # if self.emm_v in [7,8]:
                 #     self.var  = torch.mean( (q0_-q1_)**2.0 )
             else:
