@@ -242,7 +242,7 @@ class SimPLR(LightningModule):
                 for i in range(prd_width):
                     start_idx = i * K
                     end_idx = start_idx + K
-                    student_head.weight[i, start_idx:end_idx] = 1.0 / math.sqrt(K)
+                    student_head.weight.data[i, start_idx:end_idx] = 1.0 / math.sqrt(K)
             else:
                 if cut == 0.0:
                     cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
