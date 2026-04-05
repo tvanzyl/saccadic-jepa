@@ -99,7 +99,11 @@ METHODS = {
                      "train_transform": SimPLR.train_transforms["Im100"],
                      "val_transform": SimPLR.val_transforms["Im100"],
                      "transform": SimPLR.transforms["Im100-2"],},
-    
+    "Im100-0":      {"model": SimPLR.SimPLR, 
+                     "train_transform": SimPLR.train_transforms["Im100"],
+                     "val_transform": SimPLR.val_transforms["Im100"],
+                     "transform": SimPLR.transforms["Im100-8"],},
+
     "Im1k-8":       {"model": SimPLR.SimPLR, 
                      "train_transform": SimPLR.train_transforms["Im1k"],
                      "val_transform": SimPLR.val_transforms["Im1k"],

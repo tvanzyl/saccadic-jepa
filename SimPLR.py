@@ -563,18 +563,18 @@ transforms = {
                             normalize=TINYIMAGE_NORMALIZE),
 
 "STL-2":        DINOTransform(global_crop_size=96,
-                            global_crop_scale=(0.20, 1.0),
+                            global_crop_scale=(0.08, 1.0),
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=STL10_NORMALIZE),
 
 "Im100-2":      DINOTransform(global_crop_scale=(0.08, 1.0),
                             n_local_views=0),
+"Im100-8":      DINOTransform(),
 
-"Im1k-8":       DINOTransform(global_crop_scale=(0.08, 1.00),
-                            local_crop_scale =(0.05, 0.14)),
 "Im1k-2":       DINOTransform(global_crop_scale=(0.08, 1.00),
                             n_local_views=0),
+"Im1k-8":       DINOTransform(),
 }
 
 train_transforms = {
