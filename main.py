@@ -71,7 +71,7 @@ parser.add_argument("--JS", action="store_true")
 # parser.add_argument("--bias", action="store_true")
 parser.add_argument("--ema", action="store_true")
 # parser.add_argument("--emm-v", type=int, default=6)
-parser.add_argument("--var", type=float, default=0.1)
+parser.add_argument("--var", type=float, default=0.0)
 # parser.add_argument("--momentum-butt", action="store_true")
 
 METHODS = {
