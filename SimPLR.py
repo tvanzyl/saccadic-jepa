@@ -135,7 +135,7 @@ class SimPLR(LightningModule):
                 #  bias:bool=False,
                  ema:bool=False, 
                 #  emm_v:int=8, 
-                 var:float=0.1,                 
+                 var:float=0.0,                 
                 #  momentum_butt:bool=False
                  ) -> None:
         super().__init__()
