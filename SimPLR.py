@@ -122,7 +122,7 @@ class SimPLR(LightningModule):
                 #  momentum_head:bool=False,
                  random_head:bool=False,
                  no_projection_head:bool=False,
-                 alpha:float = 1.00, 
+                 alpha:float = 0.90, 
                 #  lambd:float = 0.00,
                  cut:float = 0.0,
                  prd_width:int = 256,
@@ -176,7 +176,7 @@ class SimPLR(LightningModule):
         # if random_head and momentum_head:
         #     raise Exception("Invalid Arguments, can't select random and momentum")
         
-        identity_head = not (random_head )# or momentum_head)
+        identity_head = not (random_head)# or momentum_head)
         
         self.backbone, self.emb_width = backbones(backbone)
         emb_width = self.emb_width
@@ -198,8 +198,7 @@ class SimPLR(LightningModule):
                 self.projection_head.extend(
                                         [nn.BatchNorm1d(prj_width),
                                          nn.ReLU(),
-                                         nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1))]
-                                        )
+                                         nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1))])
         
         
         if self.ema:
@@ -224,7 +223,7 @@ class SimPLR(LightningModule):
         else:
             teacher_head = nn.Linear(prj_width, self.prd_width, False)
             nn.init.orthogonal_(teacher_head.weight)
-        # if not bias:        
+        # if not bias:
         self.teacher_head = nn.Sequential(teacher_head)
         # else:
         #     self.teacher_head = nn.Sequential(
@@ -235,6 +234,15 @@ class SimPLR(LightningModule):
             student_head = nn.AdaptiveAvgPool1d(prd_width)                        
         else:
             student_head = nn.Linear(prj_width, prd_width, False)
+            # if identity_head:
+            #     K = prj_width // prd_width
+            #     nn.init.zeros_(student_head.weight)
+            #     # Fill in the 1/K blocks
+            #     for i in range(prd_width):
+            #         start_idx = i * K
+            #         end_idx = start_idx + K
+            #         student_head.weight.data[i, start_idx:end_idx] = 1.0 / K
+            # else:
             if not identity_head:
                 if cut == 0.0:
                     cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
@@ -246,7 +254,7 @@ class SimPLR(LightningModule):
 
         # if not no_ReLU_buttress:
         self.student_head.insert(0, nn.ReLU())
-        self.teacher_head.insert(0, nn.ReLU())    
+        self.teacher_head.insert(0, nn.ReLU())
         
         deactivate_requires_grad(self.teacher_head)
 
@@ -307,11 +315,12 @@ class SimPLR(LightningModule):
         #     self.buttress.train(True)
 
         if self.JS: # For James-Stein
-            if self.current_epoch == 0:
-                self.embedding[idx] = ((q0_+q1_)/2.0).to(torch.float32)
-                # if self.emm_v in [7,8]:
-                #     self.var  = torch.mean( (q0_-q1_)**2.0 )
-            else:
+            # if self.current_epoch == 0:
+            #     self.embedding[idx] = ((q0_+q1_)/2.0).to(torch.float32)
+            #     # if self.emm_v in [7,8]:
+            #     #     self.var  = torch.mean( (q0_-q1_)**2.0 )
+            # else:
+            if True:
                 #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
                 mean_ = self.embedding[idx]
                 qdiff0_ = q0_  - mean_
@@ -357,7 +366,7 @@ class SimPLR(LightningModule):
     def on_train_start(self):
         if self.JS:
             N = len(self.trainer.train_dataloader.dataset)
-            self.embedding  = torch.empty((N, self.prd_width),
+            self.embedding  = torch.zeros((N, self.prd_width),
                                         # dtype=torch.float16,
                                         device=self.device,
                                         requires_grad=False)
