@@ -26,37 +26,6 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
 
- 
-# class SIGReg(torch.nn.Module):
-#     def __init__(self, knots=17):
-#         super().__init__()
-#         t = torch.linspace(0, 3, knots, dtype=torch.float32)
-#         dt = 3 / (knots - 1)
-#         weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
-#         weights[[0, -1]] = dt
-#         window = torch.exp(-t.square() / 2.0)
-#         self.register_buffer("t", t)
-#         self.register_buffer("phi", window)
-#         self.register_buffer("weights", weights * window)
-
-#     def forward(self, proj):
-#         A = torch.randn(proj.size(-1), 256, device="cuda")
-#         A = A.div_(A.norm(p=2, dim=0))
-#         x_t = (proj @ A).unsqueeze(-1) * self.t
-#         err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
-#         statistic = (err @ self.weights) * proj.size(-2)
-#         return statistic.mean()
-
-# class BiasLayer(nn.Module):
-#     def __init__(self, size:int, fan_in_size:int):
-#         super(BiasLayer, self).__init__()
-#         self.bias = nn.Parameter(torch.zeros(size))
-#         bound_w = 1 / math.sqrt(fan_in_size)
-#         nn.init.normal_(self.bias, 0, bound_w)
-
-#     def forward(self, x:Tensor):
-#         return x + self.bias
-
 def dataset_with_indices(cls):
     """
     Modifies the given Dataset class to return a tuple data, target, index
@@ -117,73 +86,49 @@ class SimPLR(LightningModule):
                  num_classes: int, 
                  warmup: int = 0,
                  backbone:str = "resnet-50",
-                 lr:float = 0.5, linear_lr:float = 0.1,
+                 lr:float = 1.0, 
                  decay:float=1e-5,
-                #  momentum_head:bool=False,
                  random_head:bool=False,
                  no_projection_head:bool=False,
-                 alpha:float = 0.90, 
-                #  lambd:float = 0.00,
+                 alpha:float = 0.9, 
                  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
                  no_buttress:bool=False,
-                #  no_ReLU_buttress:bool=False,
                  no_student_head:bool=False,
                  JS:bool=False, 
-                #  bias:bool=False,
                  ema:bool=False, 
-                #  emm_v:int=8, 
                  var:float=0.0,                 
-                #  momentum_butt:bool=False
                  ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
                                   'num_classes', 'warmup',
                                   'backbone',
                                   'lr', 'decay', 'JS',
-                                #   'momentum_head',
                                   'random_head',
                                   'no_projection_head',
                                   'no_student_head',
                                   'alpha', 
-                                #   'lambd',
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
-                                #   'no_ReLU_buttress',
-                                  'ema',  'var',)
-                                #   'emm_v',
-                                #   'bias',
-                                #   'momentum_butt')
+                                  'ema', 'var')
+
         self.warmup = warmup
-        self.lr = lr
-        self.linear_lr = linear_lr
+        self.lr = lr        
         self.decay = decay
         self.batch_size_per_device = batch_size_per_device
         self.JS = JS        
         self.ema = ema
-        # self.emm_v = emm_v
         self.var = torch.tensor(var, device=self.device, requires_grad=False)
-        # self.momentum_head = momentum_head
         self.alpha_alpha = alpha
-        # self.lambd = lambd
-        # self.momentum_butt = momentum_butt
-        
         self.prd_width = prd_width
-        
-        # if random_head and momentum_head:
-        #     raise Exception("Invalid Arguments, can't select random and momentum")
-        
-        identity_head = not (random_head)# or momentum_head)
+                
+        identity_head = not random_head
         
         self.backbone, self.emb_width = backbones(backbone)
         emb_width = self.emb_width
-
-        if self.ema:
-            self.teacher_backbone = copy.deepcopy(self.backbone)
-            deactivate_requires_grad(self.teacher_backbone)
 
         if no_projection_head:
             prj_width = emb_width        
@@ -200,8 +145,9 @@ class SimPLR(LightningModule):
                                          nn.ReLU(),
                                          nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1))])
         
-        
         if self.ema:
+            self.teacher_backbone = copy.deepcopy(self.backbone)
+            deactivate_requires_grad(self.teacher_backbone)
             self.teacher_projection_head = copy.deepcopy(self.projection_head)
             deactivate_requires_grad(self.teacher_projection_head)
 
@@ -209,9 +155,8 @@ class SimPLR(LightningModule):
         if no_buttress:
             self.buttress = nn.Identity()
         else:
-            self.buttress = nn.BatchNorm1d(prj_width,
-                                        affine=False,
-                                        momentum=0.9)
+            self.buttress = nn.BatchNorm1d(prj_width, affine=False)
+            
         if identity_head:
             if prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
@@ -223,55 +168,25 @@ class SimPLR(LightningModule):
         else:
             teacher_head = nn.Linear(prj_width, self.prd_width, False)
             nn.init.orthogonal_(teacher_head.weight)
-        # if not bias:
-        self.teacher_head = nn.Sequential(teacher_head)
-        # else:
-        #     self.teacher_head = nn.Sequential(
-        #                                     teacher_head,
-        #                                     BiasLayer(prd_width, prj_width),
-                                        # )
+        self.teacher_head = nn.Sequential(nn.ReLU(), teacher_head)
+        deactivate_requires_grad(self.teacher_head)
+
         if no_student_head:
-            student_head = nn.AdaptiveAvgPool1d(prd_width)                        
+            student_head = nn.AdaptiveAvgPool1d(prd_width)
         else:
             student_head = nn.Linear(prj_width, prd_width, False)
-            # if identity_head:
-            #     K = prj_width // prd_width
-            #     nn.init.zeros_(student_head.weight)
-            #     # Fill in the 1/K blocks
-            #     for i in range(prd_width):
-            #         start_idx = i * K
-            #         end_idx = start_idx + K
-            #         student_head.weight.data[i, start_idx:end_idx] = 1.0 / K
-            # else:
-            if not identity_head:
+            if random_head:
                 if cut == 0.0:
                     cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
                     print(f"Cut: {cut}")
-                student_head.weight.data = teacher_head.weight.data.clone()                
+                student_head.weight.data = teacher_head.weight.data.clone()
             if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
-        self.student_head = nn.Sequential(student_head)
-
-        # if not no_ReLU_buttress:
-        self.student_head.insert(0, nn.ReLU())
-        self.teacher_head.insert(0, nn.ReLU())
-        
-        deactivate_requires_grad(self.teacher_head)
-
-        # self.var_head = nn.Sequential()
-        # if self.emm_v == 8 and self.JS:
-        #     self.var_head.extend(
-        #                         [nn.Linear(emb_width, prj_width),
-        #                          nn.SiLU(),
-        #                          nn.Linear(prj_width, prd_width),
-        #                          nn.Softplus()]
-        #                     )
+        self.student_head = nn.Sequential(nn.ReLU(), student_head)
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
-        
+
         self.criterion = NegativeCosineSimilarity()
-        # self.regularisation = SIGReg()
-        # self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
         if self.ema:
@@ -294,17 +209,6 @@ class SimPLR(LightningModule):
             z_multi = [self.projection_head( h_ ) for h_ in h_multi]
             p.extend([self.student_head( z_ ) for z_ in z_multi])
         
-        # if self.emm_v == 8 and self.JS:
-        #     vars = [self.var_head( h_.detach() ) for h_ in h]
-        # else:
-        #     vars = None       
-
-        # with torch.no_grad():
-        # if self.momentum_butt:
-        #     # Use Momentum Statistics
-        #     self.buttress(torch.cat(z))
-        #     self.buttress.train(False)
-
         if self.ema:
             ht = [self.teacher_backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
             zt = [self.teacher_projection_head( h_ ) for h_ in ht]
@@ -313,59 +217,41 @@ class SimPLR(LightningModule):
         bt = [self.buttress( z_.detach() ) for z_ in zt]
         qo = [self.teacher_head( b_ ) for b_ in bt]
         q0_ = qo[0]
-        q1_ = qo[1]
-        
-        # if self.momentum_butt:
-        #     self.buttress.train(True)
+        q1_ = qo[1]        
 
         if self.JS: # For James-Stein
-            # if self.current_epoch == 0:
-            #     self.embedding[idx] = ((q0_+q1_)/2.0).to(torch.float32)
-            #     # if self.emm_v in [7,8]:
-            #     #     self.var  = torch.mean( (q0_-q1_)**2.0 )
-            # else:
-            if True:
-                #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-                mean_ = self.embedding[idx]
-                qdiff0_ = q0_  - mean_
-                qdiff1_ = q1_  - mean_
+            #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
+            mean_ = self.embedding[idx]
+            qdiff0_ = q0_  - mean_
+            qdiff1_ = q1_  - mean_
 
-                if self.var > 0.0:
-                    var_ = self.var
-                # elif self.emm_v == 8:
-                #     var_ = torch.mean( torch.stack(vars, dim=0).detach(), dim=0)
-                # elif self.emm_v == 7:
-                #     self.var =  torch.mean( (1.0-self.alpha)*self.var + self.alpha*qdiff0_.abs()*qdiff1_.abs() )
-                #     var_ = self.var
-                # elif self.emm_v == 6:
-                #     var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
-                else:
-                    var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
-                    # raise Exception("Not Valid EMM V")
+            if self.var > 0.0:
+                var_ = self.var 
+            else:
+                var_ = torch.mean( qdiff0_.abs()*qdiff1_.abs() )
 
-                # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
-                norm1_ = torch.linalg.vector_norm((qdiff1_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
+            # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
+            norm0_ = torch.linalg.vector_norm((qdiff0_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
+            norm1_ = torch.linalg.vector_norm((qdiff1_)/((var_**0.5)+1e-9), dim=1, keepdim=True)**2
 
-                n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
-                n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
+            n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
+            n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
 
-                self.log_dict({"JS_n0_n1":n0.mean()})
-                self.log_dict({"var":torch.mean(var_)})
+            self.log_dict({"JS_n0_n1":n0.mean()})
+            self.log_dict({"var":torch.mean(var_)})
 
-                q0_ = n0*q0_ + (1.-n0)*mean_
-                q1_ = n1*q1_ + (1.-n1)*mean_                    
-                
-                incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
-                self.embedding[idx] = (mean_ + incr_).to(torch.float32)
+            q0_ = n0*q0_ + (1.-n0)*mean_
+            q1_ = n1*q1_ + (1.-n1)*mean_                    
+            
+            incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
+            self.embedding[idx] = (mean_ + incr_).to(torch.float32)
             
         q  = [q1_, q0_]
         if views > 2:
             q_ = 0.5*(q0_+q1_)
-            q.extend([q_ for _ in range(views-2)])
-        # assert len(p)==len(q)
+            q.extend([q_ for _ in range(views-2)])        
         
-        return h0_, p, q, #z, qo, vars
+        return h0_, p, q
 
     def on_train_start(self):
         if self.JS:
@@ -388,35 +274,12 @@ class SimPLR(LightningModule):
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
-        # if self.momentum_head:
-        #     _do_momentum_update(self.teacher_head[-1].weight, self.student_head[-1].weight, momentum)
-
-        # h0_, p, q, z, qo, vars = self.forward_student( x, idx )
+        
         h0_, p, q = self.forward_student( x, idx )
 
-        loss = 0
-        # var_loss = 0        
-        # if self.emm_v == 8 and self.JS:
-        #     qomean_ = torch.mean(torch.stack(qo, dim=0), dim=0).detach()
+        loss = 0        
         for xi in range(len(q)):
-            p_ = p[xi]
-            q_ = q[xi]
-            loss += self.criterion( p_, q_ ) / len(q)
-
-            # if self.emm_v == 8 and self.JS:
-            #     var_  = vars[xi]
-            #     qo_   = qo[xi].detach()
-            #     var_loss += self.var_crt(math.sqrt(2)*qomean_, math.sqrt(2)*qo_, var_)
-                
-        # if self.lambd > 0.0:
-        #     sigreg_loss = self.regularisation(torch.stack(z))
-        #     loss = sigreg_loss*self.lambd + loss*(1.0-self.lambd)
-
-        #     self.log_dict(
-        #         {"sigreg_loss": sigreg_loss},            
-        #         sync_dist=True,
-        #         batch_size=len(targets),
-        #     )
+            loss += self.criterion( p[xi], q[xi] ) / len(q)
         
         self.log_dict(
             {"train_loss": loss},
@@ -424,15 +287,12 @@ class SimPLR(LightningModule):
             sync_dist=True,
             batch_size=len(targets),
         )
-        # self.log_dict(
-        #     {"var_loss": var_loss}, 
-        #     sync_dist=True, 
-        #     batch_size=len(targets))
 
         # Online classification.
         cls_loss, cls_log = self.online_classifier.training_step(
             (h0_, targets), batch_idx
         )
+
         self.log_dict(
             cls_log, 
             sync_dist=True, 
@@ -496,10 +356,7 @@ class SimPLR(LightningModule):
                 },                
                 {   "name": "online_classifier",
                     "params": self.online_classifier.parameters(),                    
-                },
-                # {   "name": "var_regressor",
-                #     "params": self.var_head.parameters(),                    
-                # }               
+                },                
             ],            
             lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
             momentum=0.9,

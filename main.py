@@ -54,25 +54,19 @@ parser.add_argument("--skip-finetune-eval", action="store_true")
 parser.add_argument("--knn-k", type=int, nargs="+")
 parser.add_argument("--lr", type=float, default=1.0)
 parser.add_argument("--decay", type=float, default=1e-5)
-# parser.add_argument("--momentum-head", action="store_true")
 parser.add_argument("--random-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
-parser.add_argument("--alpha", type=float, default=0.90)
-# parser.add_argument("--lambd", type=float, default=0.00)
+parser.add_argument("--alpha", type=float, default=0.9)
 parser.add_argument("--linear-lr", type=float, default=0.005)
 parser.add_argument("--cut", type=float, default=0.0)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--no-buttress", action="store_true")
-# parser.add_argument("--no-ReLU-buttress", action="store_true")
 parser.add_argument("--no-student-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
-# parser.add_argument("--bias", action="store_true")
 parser.add_argument("--ema", action="store_true")
-# parser.add_argument("--emm-v", type=int, default=6)
 parser.add_argument("--var", type=float, default=0.0)
-# parser.add_argument("--momentum-butt", action="store_true")
 parser.add_argument("--accumulate", type=int, default=1)
 
 METHODS = {
@@ -137,25 +131,19 @@ def main(
     knn_k: Union[Sequence[int], int],
     lr: float,
     decay: float,        
-    # momentum_head: bool,
     random_head: bool,
     no_projection_head: bool,    
     alpha: float, 
-    # lambd:float,
     linear_lr: float,
     cut: float,
     prd_width: int,
     prj_depth: int,
     prj_width: int,    
     no_buttress: bool,
-    # no_ReLU_buttress: bool,
     no_student_head: bool,
     JS: bool, 
-    # bias: bool,
     ema: bool, 
-    # emm_v: int, 
     var: float,
-    # momentum_butt: bool,
     accumulate: int,
 ) -> None:
     torch.set_float32_matmul_precision("high")
@@ -178,26 +166,20 @@ def main(
             num_classes=num_classes, 
             warmup=warmup,
             backbone=backbone,            
-            lr=lr, linear_lr=linear_lr,
+            lr=lr,
             decay=decay,                        
-            # momentum_head=momentum_head,
             random_head=random_head,
             no_projection_head=no_projection_head,            
             alpha=alpha, 
-            # lambd=lambd,
             cut=cut,
             prd_width=prd_width,
             prj_depth=prj_depth,
             prj_width=prj_width,            
             no_buttress=no_buttress,
-            # no_ReLU_buttress=no_ReLU_buttress,
             no_student_head=no_student_head,
             JS=JS, 
-            # bias=bias,
             ema=ema, 
-            # emm_v=emm_v, 
             var=var,
-            # momentum_butt=momentum_butt,
         )
 
         if compile_model and hasattr(torch, "compile"):
