@@ -73,6 +73,7 @@ parser.add_argument("--ema", action="store_true")
 # parser.add_argument("--emm-v", type=int, default=6)
 parser.add_argument("--var", type=float, default=0.0)
 # parser.add_argument("--momentum-butt", action="store_true")
+parser.add_argument("--accumulate", type=int, default=1)
 
 METHODS = {
     "Cifar10-2":    {"model": SimPLR.SimPLR, 
@@ -155,6 +156,7 @@ def main(
     # emm_v: int, 
     var: float,
     # momentum_butt: bool,
+    accumulate: int,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -223,7 +225,8 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 precision=precision,
-                ckpt_path=ckpt_path,                
+                ckpt_path=ckpt_path,    
+                accumulate=accumulate,
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
         
@@ -299,7 +302,8 @@ def pretrain(
     accelerator: str,
     devices: int,
     precision: str,
-    ckpt_path: Union[Path, None],        
+    ckpt_path: Union[Path, None],
+    accumulate: int,    
 ) -> None:
     print_rank_zero(f"Running pretraining for {method}...")
 
@@ -349,7 +353,8 @@ def pretrain(
         precision=precision,
         # strategy="ddp_find_unused_parameters_true",
         sync_batchnorm=accelerator != "cpu",  # Sync batchnorm is not supported on CPU.
-        num_sanity_val_steps=0,        
+        num_sanity_val_steps=0,
+        accumulate_grad_batches=accumulate,        
     )
 
     trainer.fit(

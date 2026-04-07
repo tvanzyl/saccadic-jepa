@@ -274,7 +274,11 @@ class SimPLR(LightningModule):
         # self.var_crt = nn.GaussianNLLLoss()
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.backbone(x)
+        if self.ema:
+            return self.teacher_backbone(x)
+        else:
+            return self.backbone(x)
+    
 
     def forward_student(self, x: List[Tensor], idx: Tensor) -> Tensor:
         views = len(x)
