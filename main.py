@@ -68,6 +68,7 @@ parser.add_argument("--JS", action="store_true")
 parser.add_argument("--ema", action="store_true")
 parser.add_argument("--var", type=float, default=0.0)
 parser.add_argument("--accumulate", type=int, default=1)
+parser.add_argument("--AdamW", action="store_true")
 
 METHODS = {
     "Cifar10-2":    {"model": SimPLR.SimPLR, 
@@ -145,6 +146,7 @@ def main(
     ema: bool, 
     var: float,
     accumulate: int,
+    AdamW: bool,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -180,6 +182,7 @@ def main(
             JS=JS, 
             ema=ema, 
             var=var,
+            AdamW=AdamW,
         )
 
         if compile_model and hasattr(torch, "compile"):

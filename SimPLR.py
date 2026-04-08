@@ -5,7 +5,7 @@ from typing import List, Tuple, Union
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.optim import SGD
+from torch.optim import SGD, AdamW
 
 from torchvision.models import resnet50, resnet34 , resnet18
 from torchvision.transforms import v2 as T
@@ -18,13 +18,17 @@ from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import (
     get_weight_decay_parameters,
     deactivate_requires_grad, 
-    update_momentum
+    update_momentum,
+    update_drop_path_rate
 )
 # from lightly.models._momentum import _do_momentum_update
 
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
+
+from timm.models.vision_transformer import vit_small_patch16_224
+from lightly.models.modules import MaskedVisionTransformerTIMM
 
 def dataset_with_indices(cls):
     """
@@ -71,15 +75,22 @@ def backbones(name):
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1), bias=False)
         resnet.maxpool = nn.Sequential()
         resnet.fc = nn.Identity()
+        backbone = resnet
     elif name in ["resnet-18", "resnet-34", "resnet-50"]: 
         resnet = {"resnet-18":resnet18, 
                   "resnet-34":resnet34, 
                   "resnet-50":resnet50}[name](zero_init_residual=(name!="resnet-18"))
         emb_width = resnet.fc.in_features
         resnet.fc = nn.Identity()
+        backbone = resnet
+    elif name in ["vit-s/16"]:
+        vit = vit_small_patch16_224(dynamic_img_size=True)
+        mvt = MaskedVisionTransformerTIMM(vit=vit)
+        emb_width = mvt.vit.embed_dim
+        backbone = mvt
     else:
         raise NotImplemented("Backbone Not Supported")
-    return resnet, emb_width
+    return backbone, emb_width
 
 class SimPLR(LightningModule):
     def __init__(self, batch_size_per_device: int,
@@ -99,7 +110,8 @@ class SimPLR(LightningModule):
                  no_student_head:bool=False,
                  JS:bool=False, 
                  ema:bool=False, 
-                 var:float=0.0,                 
+                 var:float=0.0,
+                 AdamW:bool=False,             
                  ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -113,7 +125,7 @@ class SimPLR(LightningModule):
                                   'cut','prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
-                                  'ema', 'var')
+                                  'ema', 'var', 'AdamW')
 
         self.warmup = warmup
         self.lr = lr        
@@ -122,8 +134,9 @@ class SimPLR(LightningModule):
         self.JS = JS        
         self.ema = ema
         self.var = torch.tensor(var, device=self.device, requires_grad=False)
-        self.alpha_alpha = alpha
+        self.alpha = alpha
         self.prd_width = prd_width
+        self.AdamW = AdamW
                 
         identity_head = not random_head
         
@@ -150,6 +163,15 @@ class SimPLR(LightningModule):
             deactivate_requires_grad(self.teacher_backbone)
             self.teacher_projection_head = copy.deepcopy(self.projection_head)
             deactivate_requires_grad(self.teacher_projection_head)
+        
+        #changed after the copy.
+        if backbone in ["vit-s/16"]:
+            update_drop_path_rate(
+                self.backbone.vit,
+                drop_path_rate=0.1,  # we recommend using smaller rates like 0.1 for vit-s-14
+                mode="uniform",
+            )
+            self.teacher_backbone.eval()
 
         #Use Batchnorm non-affine for centering
         if no_buttress:
@@ -194,34 +216,32 @@ class SimPLR(LightningModule):
         else:
             return self.backbone(x)
     
-
-    def forward_student(self, x: List[Tensor], idx: Tensor) -> Tensor:
-        views = len(x)
-        
-        # Two globals
-        h = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-        h0_ = h[0].detach()
-        z = [self.projection_head( h_ ) for h_ in h]
-        p = [self.student_head( z_ ) for z_ in z]
-        
-        if views > 2: # MultiCrops
-            h_multi = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:]]
-            z_multi = [self.projection_head( h_ ) for h_ in h_multi]
-            p.extend([self.student_head( z_ ) for z_ in z_multi])
-        
+    def forward_student(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        h = self.backbone( x ).flatten(start_dim=1)
+        z = self.projection_head( h )
+        p = self.student_head( z )
+        return p, h.detach(), z.detach()
+    
+    def forward_teacher(self, x: Tensor, z: Tensor) -> Tensor:
         if self.ema:
-            ht = [self.teacher_backbone( x_ ).flatten(start_dim=1) for x_ in x[:2]]
-            zt = [self.teacher_projection_head( h_ ) for h_ in ht]
-        else:
-            zt = z
-        bt = [self.buttress( z_.detach() ) for z_ in zt]
-        qo = [self.teacher_head( b_ ) for b_ in bt]
-        q0_ = qo[0]
-        q1_ = qo[1]        
+            h = self.teacher_backbone( x ).flatten(start_dim=1)
+            z = self.teacher_projection_head( h ).detach()
+        b = self.buttress( z )
+        q = self.teacher_head( b )
+        return q    
+
+    def forward_JS(self, x: List[Tensor], idx: Tensor) -> Tuple[Tensor, List[Tensor], List[Tensor]]:
+        # Two globals
+        p0_, h0_, z0_ = self.forward_student(x[0])
+        p1_, h1_, z1_ = self.forward_student(x[1])
+        
+        q0_ = self.forward_teacher(x[0], z0_)
+        q1_ = self.forward_teacher(x[1], z1_)
 
         if self.JS: # For James-Stein
             #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
             mean_ = self.embedding[idx]
+
             qdiff0_ = q0_  - mean_
             qdiff1_ = q1_  - mean_
 
@@ -237,47 +257,50 @@ class SimPLR(LightningModule):
             n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
             n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
 
+            q0_ = n0*q0_ + (1.-n0)*mean_
+            q1_ = n1*q1_ + (1.-n1)*mean_
+            
+            alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
+                                    1.000, self.alpha)
+            incr_ = alpha*(qdiff0_+ qdiff1_)/2.0
+            self.embedding[idx] = (mean_ + incr_).to(torch.float32)
+
             self.log_dict({"JS_n0_n1":n0.mean()})
             self.log_dict({"var":torch.mean(var_)})
 
-            q0_ = n0*q0_ + (1.-n0)*mean_
-            q1_ = n1*q1_ + (1.-n1)*mean_                    
-            
-            incr_ = self.alpha*(qdiff0_+ qdiff1_)/2.0
-            self.embedding[idx] = (mean_ + incr_).to(torch.float32)
-            
-        q  = [q1_, q0_]
-        if views > 2:
+        p = [p0_, p1_]
+        q = [q1_, q0_]
+
+        if len(x) > 2: # MultiCrops            
             q_ = 0.5*(q0_+q1_)
-            q.extend([q_ for _ in range(views-2)])        
+            p.extend([self.forward_student(x_)[0] for x_ in x[2:]])
+            q.extend([q_ for _ in range(len(x)-2)])
         
         return h0_, p, q
 
     def on_train_start(self):
         if self.JS:
             N = len(self.trainer.train_dataloader.dataset)
-            self.embedding  = torch.zeros((N, self.prd_width),
-                                        # dtype=torch.float16,
+            embedding  = torch.zeros((N, self.prd_width),                                        
                                         device=self.device,
                                         requires_grad=False)
+            self.register_buffer("embedding", embedding)
         return super().on_train_start()
 
     def training_step(
         self, batch: Tuple[List[Tensor], Tensor, List[str]], batch_idx: int
     ) -> Tensor:
-        x, targets, idx = batch        
-
-        if self.JS:        
-            self.alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 1.000, self.alpha_alpha)
+        x, targets, idx = batch
         
         if self.ema: #These lines give us classical EMA 
-            momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+            momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
+                                       0.996, 1)
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
         
-        h0_, p, q = self.forward_student( x, idx )
+        h0_, p, q = self.forward_JS( x, idx )
 
-        loss = 0        
+        loss = 0
         for xi in range(len(q)):
             loss += self.criterion( p[xi], q[xi] ) / len(q)
         
@@ -345,23 +368,29 @@ class SimPLR(LightningModule):
         params_weight_decay, params_no_weight_decay = get_weight_decay_parameters(
                     [self.backbone, self.projection_head, self.student_head]                    
                 )
-        optimizer = SGD(
-            [
-                {   "name": "params_weight_decay", 
-                    "params": params_weight_decay,
-                    "weight_decay": self.decay,
-                },
-                {   "name": "params_no_weight_decay", 
-                    "params": params_no_weight_decay,                    
-                },                
-                {   "name": "online_classifier",
-                    "params": self.online_classifier.parameters(),                    
-                },                
-            ],            
-            lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
-            momentum=0.9,
-            weight_decay=0.0,
-        )         
+        param_cfg = [
+                        {   "name": "params_weight_decay", 
+                            "params": params_weight_decay,
+                            "weight_decay": self.decay,
+                        },
+                        {   "name": "params_no_weight_decay", 
+                            "params": params_no_weight_decay,                    
+                        },                
+                        {   "name": "online_classifier",
+                            "params": self.online_classifier.parameters(),
+                        },
+                    ]
+        if self.AdamW:      
+            optimizer = AdamW(param_cfg,
+                lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
+                weight_decay=0.0,
+            )
+        else:  
+            optimizer = SGD(param_cfg,
+                lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
+                momentum=0.9,
+                weight_decay=0.0,
+            )        
         scheduler = {
             "scheduler": CosineWarmupScheduler(
                 optimizer=optimizer,
