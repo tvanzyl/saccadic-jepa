@@ -171,7 +171,8 @@ class SimPLR(LightningModule):
                 drop_path_rate=0.1,  # we recommend using smaller rates like 0.1 for vit-s-14
                 mode="uniform",
             )
-            self.teacher_backbone.eval()
+            if self.ema:
+                self.teacher_backbone.eval()
 
         #Use Batchnorm non-affine for centering
         if no_buttress:
