@@ -183,6 +183,7 @@ def main(
             ema=ema, 
             var=var,
             AdamW=AdamW,
+            accumulate=accumulate,
         )
 
         if compile_model and hasattr(torch, "compile"):

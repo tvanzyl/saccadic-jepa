@@ -111,7 +111,8 @@ class SimPLR(LightningModule):
                  JS:bool=False, 
                  ema:bool=False, 
                  var:float=0.0,
-                 AdamW:bool=False,             
+                 AdamW:bool=False,
+                 accumulate:int=1,
                  ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -137,6 +138,7 @@ class SimPLR(LightningModule):
         self.alpha = alpha
         self.prd_width = prd_width
         self.AdamW = AdamW
+        self.accumulate = accumulate
                 
         identity_head = not random_head
         
@@ -383,12 +385,12 @@ class SimPLR(LightningModule):
                     ]
         if self.AdamW:      
             optimizer = AdamW(param_cfg,
-                lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
+                lr=self.lr * self.accumulate * self.batch_size_per_device * self.trainer.world_size / 256,
                 weight_decay=0.0,
             )
         else:  
             optimizer = SGD(param_cfg,
-                lr=self.lr * self.batch_size_per_device * self.trainer.world_size / 256,
+                lr=self.lr * self.accumulate * self.batch_size_per_device * self.trainer.world_size / 256,
                 momentum=0.9,
                 weight_decay=0.0,
             )        
