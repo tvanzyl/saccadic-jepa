@@ -90,6 +90,7 @@ def backbones(name):
         backbone = mvt
     else:
         raise NotImplemented("Backbone Not Supported")
+    print(f"Emb Width {emb_width}")
     return backbone, emb_width
 
 class SimPLR(LightningModule):
