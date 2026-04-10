@@ -67,14 +67,16 @@ def effective_rank(embeddings, eps=1e-9):
     return effective_rank, condition_number
 
 class MoCoVisionTransformerTIMM(MaskedVisionTransformerTIMM):
-    def __init__(self, vit, mask_token = None, weight_initialization = "", antialias = True, pos_embed_initialization = "sincos"):
+    def __init__(self, vit, mask_token = None, weight_initialization = "", antialias = True, pos_embed_initialization = "sincos", CLScount=4):
         super().__init__(vit, mask_token, weight_initialization, antialias, pos_embed_initialization)
         for param in vit.patch_embed.parameters():
             param.requires_grad = False
+        self.CLScount = CLScount
+        self.emb_width = vit.embed_dim*CLScount
 
     def forward(self, images):
         out, intermediates = self.forward_intermediates(images, norm=True)
-        return torch.stack(intermediates[-4:])[:, :, 0].transpose(0,1).flatten(start_dim=1)
+        return torch.stack(intermediates[-self.CLScount:])[:, :, 0].transpose(0,1).flatten(start_dim=1)
 
 def backbones(name):
     if name in ["resnetjie-9","resnetjie-18"]:
@@ -95,7 +97,7 @@ def backbones(name):
     elif name in ["vit-s/16"]:
         vit = vit_small_patch16_224(dynamic_img_size=True)
         mvt = MoCoVisionTransformerTIMM(vit=vit)
-        emb_width = mvt.vit.embed_dim*4
+        emb_width = mvt.embed_width
         backbone = mvt
     else:
         raise NotImplemented("Backbone Not Supported")
