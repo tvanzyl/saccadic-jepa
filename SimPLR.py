@@ -27,7 +27,7 @@ from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
 
-from timm.models.vision_transformer import vit_small_patch16_224
+from timm.models.vision_transformer import vit_small_patch16_224, vit_small_patch8_224
 from lightly.models.modules import MaskedVisionTransformerTIMM
 
 def dataset_with_indices(cls):
@@ -79,9 +79,8 @@ class MoCoVisionTransformerTIMM(MaskedVisionTransformerTIMM):
         return torch.stack(intermediates[-self.CLScount:])[:, :, 0].transpose(0,1).flatten(start_dim=1)
 
 def backbones(name):
-    if name in ["resnetjie-9","resnetjie-18"]:
-        resnet = {"resnetjie-9" :resnet18,
-                  "resnetjie-18":resnet18}[name]()
+    if name in ["resnetjie-18"]:
+        resnet = {"resnetjie-18":resnet18}[name]()
         emb_width = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(3,3), stride=(1,1), padding=(1,1), bias=False)
         resnet.maxpool = nn.Sequential()
@@ -94,8 +93,9 @@ def backbones(name):
         emb_width = resnet.fc.in_features
         resnet.fc = nn.Identity()
         backbone = resnet
-    elif name in ["vit-s/16"]:
-        vit = vit_small_patch16_224(dynamic_img_size=True)
+    elif name in ["vit-s/8", "vit-s/16"]:
+        vit = {"vit-s/16":vit_small_patch16_224,
+               "vit-s/8": vit_small_patch8_224}[name](dynamic_img_size=True)
         mvt = MoCoVisionTransformerTIMM(vit=vit)
         emb_width = mvt.embed_width
         backbone = mvt
