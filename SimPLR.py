@@ -97,7 +97,7 @@ def backbones(name):
         vit = {"vit-s/16":vit_small_patch16_224,
                "vit-s/8": vit_small_patch8_224}[name](dynamic_img_size=True)
         mvt = MoCoVisionTransformerTIMM(vit=vit)
-        emb_width = mvt.embed_width
+        emb_width = mvt.emb_width
         backbone = mvt
     else:
         raise NotImplemented("Backbone Not Supported")
