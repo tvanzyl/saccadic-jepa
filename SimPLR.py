@@ -283,7 +283,7 @@ class SimPLR(LightningModule):
             self.log_dict({"JS_n0_n1":n0.mean()})
             self.log_dict({"var":torch.mean(var_)})
         else:
-            self.embedding[idx] = (q0_ + q1_)/2.0
+            self.embedding[idx] = ((q0_ + q1_)/2.0).to(torch.float32)
 
         p = [p0_, p1_]
         q = [q1_, q0_]
