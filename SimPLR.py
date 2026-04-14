@@ -253,7 +253,7 @@ class SimPLR(LightningModule):
         q0_ = self.forward_teacher(x[0], z0_)
         q1_ = self.forward_teacher(x[1], z1_)
 
-        if self.JS: # For James-Stein
+        if self.JS and self.trainer.current_epoch > 0: # For James-Stein
             #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
             mean_ = self.embedding[idx]
 
@@ -282,6 +282,8 @@ class SimPLR(LightningModule):
 
             self.log_dict({"JS_n0_n1":n0.mean()})
             self.log_dict({"var":torch.mean(var_)})
+        else:
+            self.embedding[idx] = (q0_ + q1_)/2.0
 
         p = [p0_, p1_]
         q = [q1_, q0_]
