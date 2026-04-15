@@ -7,6 +7,7 @@ import wandb
 import SimPLR
 from SimPLR import (
     dataset_with_indices,
+    OverrideEpochStepCallback
 )
 import finetune_eval
 import knn_eval
@@ -329,6 +330,7 @@ def pretrain(
         accelerator=accelerator,
         devices=devices,
         callbacks=[
+            OverrideEpochStepCallback(),
             LearningRateMonitor(),
             # Stop if training loss diverges.
             EarlyStopping(monitor="train_loss", patience=int(1e12), check_finite=True),

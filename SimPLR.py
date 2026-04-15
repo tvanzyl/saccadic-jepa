@@ -10,6 +10,8 @@ from torch.optim import SGD, AdamW
 from torchvision.models import resnet50, resnet34 , resnet18
 from torchvision.transforms import v2 as T
 
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import Callback
 from pytorch_lightning import LightningModule
 
 from lightly.transforms import DINOTransform
@@ -21,14 +23,29 @@ from lightly.models.utils import (
     update_momentum,
     update_drop_path_rate
 )
-# from lightly.models._momentum import _do_momentum_update
-
 from lightly.utils.benchmarking import OnlineLinearClassifier
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
 from lightly.utils.debug import std_of_l2_normalized
 
 from timm.models.vision_transformer import vit_small_patch16_224, vit_small_patch8_224
 from lightly.models.modules import MaskedVisionTransformerTIMM
+
+class OverrideEpochStepCallback(Callback):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
+        self._log_step_as_current_epoch(trainer, pl_module)
+
+    def on_test_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
+        self._log_step_as_current_epoch(trainer, pl_module)
+
+    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
+        self._log_step_as_current_epoch(trainer, pl_module)
+
+    def _log_step_as_current_epoch(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
+        pl_module.log("step", trainer.current_epoch)
+
 
 def dataset_with_indices(cls):
     """
@@ -363,6 +380,7 @@ class SimPLR(LightningModule):
         self.log_dict(cls_log, 
                       prog_bar=True,
                       sync_dist=True, 
+                      on_epoch=True,
                       batch_size=len(targets))
 
         z = self.projection_head( features )
