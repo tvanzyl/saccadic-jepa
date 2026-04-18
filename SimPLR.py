@@ -235,17 +235,17 @@ class SimPLR(LightningModule):
                     cut = (teacher_head.weight.data.var()/stud_var)**0.5
                     print(f"Cut: {cut}")
                 student_head.weight.data = teacher_head.weight.data.clone()
-            else:
-                K = prj_width // prd_width                
-                nn.init.zeros_(student_head.weight)
-                # Fill in the 1/K blocks
-                for i in range(prd_width):
-                    start_idx = i * K
-                    end_idx = start_idx + K
-                    student_head.weight.data[i, start_idx:end_idx] = 1.0
-                if cut == 0.0:
-                    cut = (student_head.weight.data.var()/stud_var)**0.5
-                    print(f"Cut: {cut}")
+            # else:
+            #     K = prj_width // prd_width                
+            #     nn.init.zeros_(student_head.weight)
+            #     # Fill in the 1/K blocks
+            #     for i in range(prd_width):
+            #         start_idx = i * K
+            #         end_idx = start_idx + K
+            #         student_head.weight.data[i, start_idx:end_idx] = 1.0
+            #     if cut == 0.0:
+            #         cut = (student_head.weight.data.var()/stud_var)**0.5
+            #         print(f"Cut: {cut}")
             if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
                 student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(nn.ReLU(), student_head)
@@ -306,12 +306,13 @@ class SimPLR(LightningModule):
             
             alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
                                     1.000, self.alpha)
-            incr_ = alpha*(qdiff0_+ qdiff1_)/2.0
+            # incr_ = alpha*(qdiff0_+ qdiff1_)/2.0
+            incr_ = alpha*(q0_-mean_+ q1_-mean_)/2.0
             self.embedding[idx] = (mean_ + incr_).to(torch.float32)
 
             self.log_dict({"JS_n0_n1":n0.mean()})
             self.log_dict({"var":torch.mean(var_)})
-        else:
+        elif self.JS:
             self.embedding[idx] = ((q0_ + q1_)/2.0).to(torch.float32)
 
         p = [p0_, p1_]
