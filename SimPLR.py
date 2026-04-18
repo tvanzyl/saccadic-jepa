@@ -303,17 +303,18 @@ class SimPLR(LightningModule):
 
             q0_ = n0*q0_ + (1.-n0)*mean_
             q1_ = n1*q1_ + (1.-n1)*mean_
-            
-            alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
-                                    1.000, self.alpha)
-            # incr_ = alpha*(qdiff0_+ qdiff1_)/2.0
-            incr_ = alpha*(q0_-mean_+ q1_-mean_)/2.0
-            self.embedding[idx] = (mean_ + incr_).to(torch.float32)
 
             self.log_dict({"JS_n0_n1":n0.mean()})
             self.log_dict({"var":torch.mean(var_)})
-        elif self.JS:
-            self.embedding[idx] = ((q0_ + q1_)/2.0).to(torch.float32)
+        
+        if self.JS:
+            alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
+                                    1.000, self.alpha)
+            # incr_ = alpha*(qdiff0_+ qdiff1_)/2.0
+            # incr_ = alpha*(q0_-mean_+ q1_-mean_)/2.0
+            incr_ = alpha*((q0_+q1_)/2.0-mean_)
+            self.embedding[idx] = (mean_ + incr_).to(torch.float32)
+            # self.embedding[idx] = ((q0_ + q1_)/2.0).to(torch.float32)
 
         p = [p0_, p1_]
         q = [q1_, q0_]
