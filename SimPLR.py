@@ -306,6 +306,8 @@ class SimPLR(LightningModule):
 
             self.log_dict({"JS_n0_n1":n0.mean()})
             self.log_dict({"var":torch.mean(var_)})
+        else:
+            mean_ = self.embedding[idx]            
         
         if self.JS:
             alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
