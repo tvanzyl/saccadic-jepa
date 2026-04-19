@@ -323,7 +323,7 @@ def pretrain(
     # Train model.
     metric_callback = MetricCallback()
     logger = TensorBoardLogger(save_dir=str(log_dir), name="pretrain")    
-    wandb_logger = WandbLogger(save_dir=str(log_dir), name="js-repa", prefix=method)
+    wandb_logger = WandbLogger(save_dir=str(log_dir), group=method, job_type="pretrain")
     wandb_logger.experiment.config["batch_size"] = batch_size_per_device
     trainer = Trainer(
         max_epochs=epochs,
