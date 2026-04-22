@@ -65,7 +65,6 @@ parser.add_argument("--no-buttress", action="store_true")
 parser.add_argument("--no-student-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--ema", action="store_true")
-parser.add_argument("--accumulate", type=int, default=1)
 parser.add_argument("--AdamW", action="store_true")
 
 METHODS = {
@@ -139,8 +138,7 @@ def main(
     no_buttress: bool,
     no_student_head: bool,
     JS: bool, 
-    ema: bool, 
-    accumulate: int,
+    ema: bool,     
     AdamW: bool,    
 ) -> None:
     torch.set_float32_matmul_precision("high")
@@ -173,9 +171,9 @@ def main(
             no_buttress=no_buttress,
             no_student_head=no_student_head,
             JS=JS, 
-            ema=ema, 
-            accumulate=accumulate,
-            AdamW=AdamW,            
+            ema=ema,             
+            AdamW=AdamW,
+            linear_lr=linear_lr,            
         )
 
         if compile_model and hasattr(torch, "compile"):
@@ -203,8 +201,7 @@ def main(
                 accelerator=accelerator,
                 devices=devices,
                 precision=precision,
-                ckpt_path=ckpt_path,    
-                accumulate=accumulate,
+                ckpt_path=ckpt_path,                    
             )
         eval_metrics: Dict[str, Dict[str, float]] = dict()
         
@@ -280,8 +277,7 @@ def pretrain(
     accelerator: str,
     devices: int,
     precision: str,
-    ckpt_path: Union[Path, None],
-    accumulate: int,    
+    ckpt_path: Union[Path, None],    
 ) -> None:
     print_rank_zero(f"Running pretraining for {method}...")
 
@@ -332,8 +328,7 @@ def pretrain(
         precision=precision,
         # strategy="ddp_find_unused_parameters_true",
         sync_batchnorm=accelerator != "cpu",  # Sync batchnorm is not supported on CPU.
-        num_sanity_val_steps=0,
-        accumulate_grad_batches=accumulate,        
+        num_sanity_val_steps=0,        
     )
 
     trainer.fit(
