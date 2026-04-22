@@ -139,7 +139,6 @@ class SimPLR(LightningModule):
                  ema:bool=False, 
                  accumulate:int=1,
                  AdamW:bool=False,
-                 fwd:int=0,
                  ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -154,8 +153,7 @@ class SimPLR(LightningModule):
                                   'no_buttress',
                                   'JS', 'ema', 
                                   'accumulate',
-                                  'AdamW',
-                                  'fwd')
+                                  'AdamW')
 
         self.warmup = warmup
         self.lr = lr        
@@ -166,7 +164,6 @@ class SimPLR(LightningModule):
         self.prd_width = prd_width
         self.accumulate = accumulate
         self.AdamW = AdamW
-        self.fwd = fwd                
         
         self.backbone, self.emb_width = backbones(backbone)
 
@@ -259,7 +256,7 @@ class SimPLR(LightningModule):
         q0_ = self.forward_teacher(x[0], z0_)
         q1_ = self.forward_teacher(x[1], z1_)
 
-        if self.JS: # For James-Stein     
+        if self.JS: # For James-Stein
             mean_ = self.embedding[idx]
 
             if self.trainer.current_epoch > 0: 
