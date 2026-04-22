@@ -206,6 +206,9 @@ class OnlineLinearClassifier(LightningModule):
                     LayerNorm(feature_dim),
                     Linear(feature_dim, num_classes)
                 )
+        self.classification_head[1].weight.data.normal_(mean=0.0, std=0.01)
+        self.classification_head[1].bias.data.zero_()
+        
         self.criterion = CrossEntropyLoss()
 
     def forward(self, x: Tensor) -> Tensor:
