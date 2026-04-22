@@ -57,9 +57,7 @@ parser.add_argument("--lr", type=float, default=1.0)
 parser.add_argument("--decay", type=float, default=1e-5)
 parser.add_argument("--random-head", action="store_true")
 parser.add_argument("--no-projection-head", action="store_true")
-# parser.add_argument("--alpha", type=float, default=0.9)
 parser.add_argument("--linear-lr", type=float, default=0.005)
-# parser.add_argument("--cut", type=float, default=0.0)
 parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
@@ -67,9 +65,9 @@ parser.add_argument("--no-buttress", action="store_true")
 parser.add_argument("--no-student-head", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--ema", action="store_true")
-# parser.add_argument("--var", type=float, default=0.0)
 parser.add_argument("--accumulate", type=int, default=1)
 parser.add_argument("--AdamW", action="store_true")
+parser.add_argument("--fwd", type=int, default=0)
 
 METHODS = {
     "Cifar10-2":    {"model": SimPLR.SimPLR, 
@@ -135,9 +133,7 @@ def main(
     decay: float,        
     random_head: bool,
     no_projection_head: bool,    
-    # alpha: float, 
     linear_lr: float,
-    # cut: float,
     prd_width: int,
     prj_depth: int,
     prj_width: int,    
@@ -145,9 +141,9 @@ def main(
     no_student_head: bool,
     JS: bool, 
     ema: bool, 
-    # var: float,
     accumulate: int,
     AdamW: bool,
+    fwd: int,
 ) -> None:
     torch.set_float32_matmul_precision("high")
 
@@ -173,8 +169,6 @@ def main(
             decay=decay,                        
             random_head=random_head,
             no_projection_head=no_projection_head,            
-            # alpha=alpha, 
-            # cut=cut,
             prd_width=prd_width,
             prj_depth=prj_depth,
             prj_width=prj_width,            
@@ -182,9 +176,9 @@ def main(
             no_student_head=no_student_head,
             JS=JS, 
             ema=ema, 
-            # var=var,
-            AdamW=AdamW,
             accumulate=accumulate,
+            AdamW=AdamW,
+            fwd=fwd,
         )
 
         if compile_model and hasattr(torch, "compile"):

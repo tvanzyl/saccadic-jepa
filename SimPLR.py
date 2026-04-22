@@ -130,8 +130,6 @@ class SimPLR(LightningModule):
                  decay:float=1e-5,
                  random_head:bool=False,
                  no_projection_head:bool=False,
-                #  alpha:float = 0.9, 
-                #  cut:float = 0.0,
                  prd_width:int = 256,
                  prj_depth:int = 2,
                  prj_width:int = 2048,
@@ -139,9 +137,9 @@ class SimPLR(LightningModule):
                  no_student_head:bool=False,
                  JS:bool=False, 
                  ema:bool=False, 
-                #  var:float=0.0,
-                 AdamW:bool=False,
                  accumulate:int=1,
+                 AdamW:bool=False,
+                 fwd:int=0,
                  ) -> None:
         super().__init__()
         self.save_hyperparameters('batch_size_per_device',
@@ -151,13 +149,13 @@ class SimPLR(LightningModule):
                                   'random_head',
                                   'no_projection_head',
                                   'no_student_head',
-                                #   'alpha', 'cut',
                                   'prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
                                   'JS', 'ema', 
-                                #   'var', 
-                                  'AdamW')
+                                  'accumulate',
+                                  'AdamW',
+                                  'fwd')
 
         self.warmup = warmup
         self.lr = lr        
@@ -165,26 +163,18 @@ class SimPLR(LightningModule):
         self.batch_size_per_device = batch_size_per_device
         self.JS = JS        
         self.ema = ema
-        # self.var = torch.tensor(var, device=self.device, requires_grad=False)
-        # self.alpha = alpha
         self.prd_width = prd_width
-        self.AdamW = AdamW
         self.accumulate = accumulate
-                
-        identity_head = not random_head
+        self.AdamW = AdamW
+        self.fwd = fwd                
         
         self.backbone, self.emb_width = backbones(backbone)
-        emb_width = self.emb_width
 
         if no_projection_head:
-            prj_width = emb_width        
-        
-        self.projection_head = nn.Sequential()
-        if no_projection_head:   
-            self.projection_head.append(nn.Identity())
-            prj_width = emb_width
+            self.projection_head = nn.Sequential(nn.Identity())
+            prj_width = self.emb_width
         else:            
-            self.projection_head.extend([nn.Linear(emb_width, prj_width, bias=False),])
+            self.projection_head = nn.Sequential(nn.Linear(self.emb_width, prj_width, bias=False))
             for i in range(prj_depth):
                 self.projection_head.extend(
                                         [nn.BatchNorm1d(prj_width),
@@ -213,34 +203,31 @@ class SimPLR(LightningModule):
         else:
             self.buttress = nn.BatchNorm1d(prj_width, affine=False)
             
-        if identity_head:
+        if random_head:
+            teacher_head = nn.Linear(prj_width, self.prd_width, False)
+            nn.init.orthogonal_(teacher_head.weight)
+        else:
             if prj_width > prd_width:
                 #Identity matrix hack for if requires dimensionality reduction
                 teacher_head = nn.AdaptiveAvgPool1d(prd_width)
             elif prj_width == prd_width:
                 teacher_head = nn.Identity()
             else:
-                raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
-        else:
-            teacher_head = nn.Linear(prj_width, self.prd_width, False)
-            nn.init.orthogonal_(teacher_head.weight)
+                raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")            
         self.teacher_head = nn.Sequential(nn.ReLU(), teacher_head)
         deactivate_requires_grad(self.teacher_head)
 
         if no_student_head:
             student_head = nn.AdaptiveAvgPool1d(prd_width)
         else:
-            student_head = nn.Linear(prj_width, prd_width, False)            
-            # if random_head:
-                # if cut == 0.0:
-                # cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
-                # print(f"Cut: {cut}")
-                # student_head.weight.data = teacher_head.weight.data.clone()
-            # if cut > 0.0: # https://arxiv.org/pdf/2406.16468 (Cut Init)
-                # student_head.weight.data.div_(cut)        
+            student_head = nn.Linear(prj_width, prd_width, False)
+            cut = (teacher_head.weight.data.var()/student_head.weight.data.var())**0.5
+            print(f"Cut: {cut}")
+            student_head.weight.data = teacher_head.weight.data.clone()
+            student_head.weight.data.div_(cut)
         self.student_head = nn.Sequential(nn.ReLU(), student_head)
         
-        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
+        self.online_classifier = OnlineLinearClassifier(feature_dim=self.emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -276,36 +263,26 @@ class SimPLR(LightningModule):
             mean_ = self.embedding[idx]
 
             if self.trainer.current_epoch > 0: 
-                qdiff0_ = q0_  - mean_
-                qdiff1_ = q1_  - mean_
+                qdiff0_ = q0_ - mean_
+                qdiff1_ = q1_ - mean_
 
-                # if self.var > 0.0:
-                #     var_ = self.var 
-                # else:
                 var_ = torch.mean( (qdiff0_*qdiff1_).abs() )
-                std_ =  var_**0.5
+                numerator_ = (self.prd_width-2.0)*var_
 
                 # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                norm0_ = torch.linalg.vector_norm((qdiff0_)/(std_+1e-9), dim=1, keepdim=True)**2
-                norm1_ = torch.linalg.vector_norm((qdiff1_)/(std_+1e-9), dim=1, keepdim=True)**2
+                norm0_ = torch.linalg.vector_norm(qdiff0_, dim=1, keepdim=True)
+                norm1_ = torch.linalg.vector_norm(qdiff1_, dim=1, keepdim=True)
 
-                n0 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm0_+1e-9), torch.tensor(0.0))
-                n1 = torch.maximum(1.0 - (self.prd_width-2.0)/(norm1_+1e-9), torch.tensor(0.0))
+                n0 = torch.maximum(1.0 - numerator_/((norm0_**2)+1e-9), torch.tensor(0.0))
+                n1 = torch.maximum(1.0 - numerator_/((norm1_**2)+1e-9), torch.tensor(0.0))
 
-                q0_ = n0*q0_ + (1.-n0)*mean_
-                q1_ = n1*q1_ + (1.-n1)*mean_
+                q0_ = n0*qdiff0_ + mean_
+                q1_ = n1*qdiff1_ + mean_
 
                 self.log_dict({"JS_n0_n1":0.5*(n0.mean()+n1.mean()),"var":torch.mean(var_)})
 
             self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
-
-            # #EMM, EWM-A/V https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-            # alpha = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
-            #                         1.000, self.alpha)
-            # # incr_ = alpha*(qdiff0_+ qdiff1_)/2.0
-            # # incr_ = alpha*(q0_-mean_+ q1_-mean_)/2.0
-            # incr_ = alpha*((q0_+q1_)/2.0-mean_)
-            # self.embedding[idx] = (mean_ + incr_).to(torch.float32)
+            # https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
 
         p = [p0_, p1_]
         q = [q1_, q0_]
