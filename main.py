@@ -5,13 +5,16 @@ from typing import Dict, Sequence, Union
 
 import wandb
 import SimPLR
-from SimPLR import (
+import utils
+from utils import (
     dataset_with_indices,
     OverrideEpochStepCallback
 )
 import finetune_eval
 import knn_eval
 import linear_eval
+
+
 import torch
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import (
@@ -69,42 +72,42 @@ parser.add_argument("--AdamW", action="store_true")
 
 METHODS = {
     "Cifar10-2":    {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Cifar10"],  
-                     "val_transform": SimPLR.val_transforms["Cifar10"], 
-                     "transform": SimPLR.transforms["Cifar10-2"],},
+                     "train_transform": utils.train_transforms["Cifar10"],  
+                     "val_transform": utils.val_transforms["Cifar10"], 
+                     "transform": utils.transforms["Cifar10-2"],},
 
     "Cifar100-2":   {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Cifar100"],  
-                     "val_transform": SimPLR.val_transforms["Cifar100"], 
-                     "transform": SimPLR.transforms["Cifar100-2"],},
+                     "train_transform": utils.train_transforms["Cifar100"],  
+                     "val_transform": utils.val_transforms["Cifar100"], 
+                     "transform": utils.transforms["Cifar100-2"],},
 
     "Tiny-2":       {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Tiny"],  
-                     "val_transform": SimPLR.val_transforms["Tiny"],
-                     "transform": SimPLR.transforms["Tiny-2"],},
+                     "train_transform": utils.train_transforms["Tiny"],  
+                     "val_transform": utils.val_transforms["Tiny"],
+                     "transform": utils.transforms["Tiny-2"],},
 
     "STL-2":        {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["STL"],  
-                     "val_transform": SimPLR.val_transforms["STL"],
-                     "transform": SimPLR.transforms["STL-2"],},
+                     "train_transform": utils.train_transforms["STL"],  
+                     "val_transform": utils.val_transforms["STL"],
+                     "transform": utils.transforms["STL-2"],},
 
     "Im100-2":      {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-2"],},
+                     "train_transform": utils.train_transforms["Im100"],
+                     "val_transform": utils.val_transforms["Im100"],
+                     "transform": utils.transforms["Im100-2"],},
     "Im100-8":      {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Im100"],
-                     "val_transform": SimPLR.val_transforms["Im100"],
-                     "transform": SimPLR.transforms["Im100-8"],},
+                     "train_transform": utils.train_transforms["Im100"],
+                     "val_transform": utils.val_transforms["Im100"],
+                     "transform": utils.transforms["Im100-8"],},
 
-    "Im1k-8":       {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Im1k"],
-                     "val_transform": SimPLR.val_transforms["Im1k"],
-                     "transform": SimPLR.transforms["Im1k-8"],},
     "Im1k-2":       {"model": SimPLR.SimPLR, 
-                     "train_transform": SimPLR.train_transforms["Im1k"],
-                     "val_transform": SimPLR.val_transforms["Im1k"],
-                     "transform": SimPLR.transforms["Im1k-2"],},
+                     "train_transform": utils.train_transforms["Im1k"],
+                     "val_transform": utils.val_transforms["Im1k"],
+                     "transform": utils.transforms["Im1k-2"],},
+    "Im1k-8":       {"model": SimPLR.SimPLR, 
+                    "train_transform": utils.train_transforms["Im1k"],
+                    "val_transform": utils.val_transforms["Im1k"],
+                    "transform": utils.transforms["Im1k-8"],},
 }
 
 def main(
