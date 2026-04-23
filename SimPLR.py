@@ -323,11 +323,13 @@ class SimPLR(LightningModule):
 
         loss_sum = 0
         for xi in range(len(q)):
-            loss = self.criterion( p[xi], q[xi] ) / len(q)
-            loss_sum += loss
+            loss = self.criterion( p[xi], q[xi] ) / len(q)            
             self.manual_backward(loss)
+            loss_sum += loss.detach()
         
         opt.step()
+        sch = self.lr_schedulers()
+        sch.step()
         
         self.log_dict(
             {"train_loss": loss_sum},
@@ -335,9 +337,6 @@ class SimPLR(LightningModule):
             sync_dist=True,
             batch_size=len(targets),
         )
-
-        sch = self.lr_schedulers()
-        sch.step()
 
         # return loss + cls_loss 
 
