@@ -102,38 +102,30 @@ class SimPLR(LightningModule):
             if self.ema:
                 self.teacher_backbone.eval()
 
+        if no_student_head:
+            self.student_head = nn.Sequential(nn.AdaptiveAvgPool1d(prd_width))
+        else:
+            self.student_head = nn.Sequential(nn.Linear(prj_width, prd_width, False))        
+        
         if random_head:
-            teacher_head = nn.Linear(prj_width, self.prd_width, bias=False)
-            nn.init.orthogonal_(teacher_head.weight)
+            self.teacher_head = nn.Sequential(nn.Linear(prj_width, self.prd_width, bias=False))
+            nn.init.orthogonal_(self.teacher_head[0].weight)
+        elif prj_width > prd_width:
+            self.teacher_head = nn.Sequential(nn.AdaptiveAvgPool1d(prd_width))
+        elif prj_width == prd_width:
+            self.teacher_head = nn.Sequential(nn.Identity())
         else:
-            if prj_width > prd_width:                
-                teacher_head = nn.AdaptiveAvgPool1d(prd_width)
-            elif prj_width == prd_width:
-                teacher_head = nn.Identity()
-            else:
-                raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
-        if no_buttress: #Use Batchnorm non-affine for centering
-            if no_relu:
-                self.teacher_head = nn.Sequential(teacher_head)
-            else:
-                self.teacher_head = nn.Sequential(nn.ReLU(), teacher_head)
-            
-        else:
-            if no_relu:
-                self.teacher_head = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False), teacher_head)
-            else:
-                self.teacher_head = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False), nn.ReLU(), teacher_head)
+            raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")        
+        
+        if not no_relu:
+            self.teacher_head.insert(0, nn.ReLU())
+            self.student_head.insert(0, nn.ReLU())
+        
+        if not no_buttress: #Use Batchnorm non-affine for centering
+            self.teacher_head.insert(0, nn.BatchNorm1d(prj_width, affine=False))
+        
         deactivate_requires_grad(self.teacher_head)
 
-        if no_student_head:
-            student_head = nn.AdaptiveAvgPool1d(prd_width)
-        else:
-            if no_relu:
-                student_head = nn.Linear(prj_width, prd_width, False)
-            else:
-                self.student_head = nn.Sequential(nn.ReLU(), student_head)
-        self.student_head = nn.Sequential( student_head)
-        
         self.online_classifier = OnlineLinearClassifier(feature_dim=self.emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
