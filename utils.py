@@ -141,6 +141,14 @@ transforms = {
                             n_local_views=0,
                             gaussian_blur=(0.5, 0.0, 0.0),
                             normalize=CIFAR100_NORMALIZE),
+"Cifar100-4":   DINOTransform(global_crop_size=32,
+                            global_crop_scale=(0.08, 1.0),
+                            n_local_views=2,
+                            local_crop_size=32,
+                            local_crop_scale=(0.08, 1.0),
+                            gaussian_blur=(0.5, 0.0, 0.5),
+                            normalize=CIFAR100_NORMALIZE),
+
 
 "Tiny-2":       DINOTransform(global_crop_size=64,
                             global_crop_scale=(0.08, 1.0),
@@ -181,3 +189,38 @@ val_transforms = {
 "Im1k":      val_transform,
 }
 
+METHODS = {
+    "Cifar10-2":    {"train_transform": train_transforms["Cifar10"],  
+                     "val_transform": val_transforms["Cifar10"], 
+                     "transform": transforms["Cifar10-2"],},
+
+    "Cifar100-2":   {"train_transform": train_transforms["Cifar100"],  
+                     "val_transform": val_transforms["Cifar100"], 
+                     "transform": transforms["Cifar100-2"],},
+    "Cifar100-4":   {"train_transform": train_transforms["Cifar100"],  
+                     "val_transform": val_transforms["Cifar100"], 
+                     "transform": transforms["Cifar100-4"],},
+
+
+    "Tiny-2":       {"train_transform": train_transforms["Tiny"],  
+                     "val_transform": val_transforms["Tiny"],
+                     "transform": transforms["Tiny-2"],},
+
+    "STL-2":        {"train_transform": train_transforms["STL"],  
+                     "val_transform": val_transforms["STL"],
+                     "transform": transforms["STL-2"],},
+
+    "Im100-2":      {"train_transform": train_transforms["Im100"],
+                     "val_transform": val_transforms["Im100"],
+                     "transform": transforms["Im100-2"],},
+    "Im100-8":      {"train_transform": train_transforms["Im100"],
+                     "val_transform": val_transforms["Im100"],
+                     "transform": transforms["Im100-8"],},
+
+    "Im1k-2":       {"train_transform": train_transforms["Im1k"],
+                     "val_transform": val_transforms["Im1k"],
+                     "transform": transforms["Im1k-2"],},
+    "Im1k-8":       {"train_transform": train_transforms["Im1k"],
+                     "val_transform": val_transforms["Im1k"],
+                     "transform": transforms["Im1k-8"],},
+}

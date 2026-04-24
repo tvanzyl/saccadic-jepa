@@ -3,12 +3,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Sequence, Union
 
-import wandb
-import SimPLR
-import utils
+
+from SimPLR import SimPLR
 from utils import (
     dataset_with_indices,
-    OverrideEpochStepCallback
+    OverrideEpochStepCallback,
+    METHODS
 )
 import finetune_eval
 import knn_eval
@@ -72,46 +72,6 @@ parser.add_argument("--JS", action="store_true")
 parser.add_argument("--ema", action="store_true")
 parser.add_argument("--AdamW", action="store_true")
 
-METHODS = {
-    "Cifar10-2":    {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["Cifar10"],  
-                     "val_transform": utils.val_transforms["Cifar10"], 
-                     "transform": utils.transforms["Cifar10-2"],},
-
-    "Cifar100-2":   {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["Cifar100"],  
-                     "val_transform": utils.val_transforms["Cifar100"], 
-                     "transform": utils.transforms["Cifar100-2"],},
-
-    "Tiny-2":       {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["Tiny"],  
-                     "val_transform": utils.val_transforms["Tiny"],
-                     "transform": utils.transforms["Tiny-2"],},
-
-    "STL-2":        {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["STL"],  
-                     "val_transform": utils.val_transforms["STL"],
-                     "transform": utils.transforms["STL-2"],},
-
-    "Im100-2":      {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["Im100"],
-                     "val_transform": utils.val_transforms["Im100"],
-                     "transform": utils.transforms["Im100-2"],},
-    "Im100-8":      {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["Im100"],
-                     "val_transform": utils.val_transforms["Im100"],
-                     "transform": utils.transforms["Im100-8"],},
-
-    "Im1k-2":       {"model": SimPLR.SimPLR, 
-                     "train_transform": utils.train_transforms["Im1k"],
-                     "val_transform": utils.val_transforms["Im1k"],
-                     "transform": utils.transforms["Im1k-2"],},
-    "Im1k-8":       {"model": SimPLR.SimPLR, 
-                    "train_transform": utils.train_transforms["Im1k"],
-                    "val_transform": utils.val_transforms["Im1k"],
-                    "transform": utils.transforms["Im1k-8"],},
-}
-
 def main(
     train_dir: Path,
     val_dir: Path,
@@ -163,7 +123,7 @@ def main(
             if len(paths) > 0:
                 method_dir = Path(paths[0]).resolve()
         
-        model = METHODS[method]["model"](
+        model = SimPLR(
             batch_size_per_device=batch_size_per_device,             
             num_classes=num_classes, 
             warmup=warmup,

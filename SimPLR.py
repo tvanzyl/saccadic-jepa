@@ -1,6 +1,5 @@
-import math
 import copy
-from typing import List, Tuple, Union
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -18,7 +17,6 @@ from lightly.models.utils import (
 )
 
 from lightly.utils.scheduler import CosineWarmupScheduler, cosine_schedule
-from lightly.utils.debug import std_of_l2_normalized
 
 from linear_classifier import OnlineLinearClassifier
 
@@ -73,42 +71,27 @@ class SimPLR(LightningModule):
         self.AdamW = AdamW
         self.fwd_multi_crop = fwd_multi_crop
         
-        self.backbone, self.emb_width = backbones(backbone)
+        self.backbone, emb_width = backbones(backbone)
+        self.emb_width = emb_width #needed for the probes
 
         if no_projection_head:
             self.projection_head = nn.Sequential(nn.Identity())
-            prj_width = self.emb_width
+            prj_width = emb_width
         else:            
-            self.projection_head = nn.Sequential(nn.Linear(self.emb_width, prj_width, bias=False))
+            self.projection_head = nn.Sequential(nn.Linear(emb_width, prj_width, bias=False))
             for i in range(prj_depth):
                 self.projection_head.extend(
                                         [nn.BatchNorm1d(prj_width),
                                          nn.ReLU(),
                                          nn.Linear(prj_width, prj_width, bias=(i==prj_depth-1))])
         
-        if self.ema:
-            self.teacher_backbone = copy.deepcopy(self.backbone)
-            deactivate_requires_grad(self.teacher_backbone)
-            self.teacher_projection_head = copy.deepcopy(self.projection_head)
-            deactivate_requires_grad(self.teacher_projection_head)
-        
-        #changed after the copy for ema.
-        if backbone in ["vit-s/8", "vit-s/16"]:
-            update_drop_path_rate(
-                self.backbone.vit,
-                drop_path_rate=0.1,  # we recommend using smaller rates like 0.1 for vit-s-14
-                mode="uniform",
-            )
-            if self.ema:
-                self.teacher_backbone.eval()
-
         if no_student_head:
             self.student_head = nn.Sequential(nn.AdaptiveAvgPool1d(prd_width))
         else:
-            self.student_head = nn.Sequential(nn.Linear(prj_width, prd_width, False))        
+            self.student_head = nn.Sequential(nn.Linear(prj_width, prd_width, bias=False))
         
         if random_head:
-            self.teacher_head = nn.Sequential(nn.Linear(prj_width, self.prd_width, bias=False))
+            self.teacher_head = nn.Sequential(nn.Linear(prj_width, prd_width, bias=False))
             nn.init.orthogonal_(self.teacher_head[0].weight)
         elif prj_width > prd_width:
             self.teacher_head = nn.Sequential(nn.AdaptiveAvgPool1d(prd_width))
@@ -125,8 +108,24 @@ class SimPLR(LightningModule):
             self.teacher_head.insert(0, nn.BatchNorm1d(prj_width, affine=False))
         
         deactivate_requires_grad(self.teacher_head)
+        if self.ema:
+            self.teacher_backbone = copy.deepcopy(self.backbone)
+            deactivate_requires_grad(self.teacher_backbone)
+            self.teacher_projection_head = copy.deepcopy(self.projection_head)
+            deactivate_requires_grad(self.teacher_projection_head)
+        
+        #changed after the copy for ema.
+        if backbone in ["vit-s/8", "vit-s/16"]:
+            update_drop_path_rate(
+                self.backbone.vit,
+                drop_path_rate=0.1,  # we recommend using smaller rates like 0.1 for vit-s-14
+                mode="uniform",
+            )
+            if self.ema:
+                self.teacher_backbone.eval()
 
-        self.online_classifier = OnlineLinearClassifier(feature_dim=self.emb_width, num_classes=num_classes)
+
+        self.online_classifier = OnlineLinearClassifier(feature_dim=emb_width, num_classes=num_classes)
 
         self.criterion = NegativeCosineSimilarity()
 
@@ -151,6 +150,13 @@ class SimPLR(LightningModule):
         q = self.teacher_head( z )
         return q
 
+    def JamesStein(self, diff: Tensor, mean: Tensor, numerator) -> Tensor:
+        norm = torch.linalg.vector_norm(diff, dim=1, keepdim=True)
+        js_plus = torch.maximum(1.0-numerator/((norm**2)+1e-9), torch.tensor(0.0))
+        self.log_dict({"JS_plus":js_plus.mean()})
+        q = js_plus*diff + mean
+        return q
+
     def forward_JS(self, x: List[Tensor], idx: Tensor) -> Tuple[Tensor, List[Tensor], List[Tensor]]:
         # Two globals
         p0_, h0_, z0_ = self.forward_student(x[0])
@@ -171,24 +177,16 @@ class SimPLR(LightningModule):
             else:
                 mean_ = self.embedding[idx]
 
+            # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
             if self.trainer.current_epoch > 0: 
                 qdiff0_ = q0_ - mean_
                 qdiff1_ = q1_ - mean_
-
-                # https://openaccess.thecvf.com/content/WACV2024/papers/Khoshsirat_Improving_Normalization_With_the_James-Stein_Estimator_WACV_2024_paper.pdf
-                norm0_ = torch.linalg.vector_norm(qdiff0_, dim=1, keepdim=True)
-                norm1_ = torch.linalg.vector_norm(qdiff1_, dim=1, keepdim=True)
-
                 var_ = torch.mean( (qdiff0_*qdiff1_).abs() )
                 numerator_ = (self.prd_width-2.0)*var_
-
-                n0 = torch.maximum(1.0 - numerator_/((norm0_**2)+1e-9), torch.tensor(0.0))
-                n1 = torch.maximum(1.0 - numerator_/((norm1_**2)+1e-9), torch.tensor(0.0))
-
-                q0_ = n0*qdiff0_ + mean_
-                q1_ = n1*qdiff1_ + mean_
-
-                self.log_dict({"JS_n0_n1":0.5*(n0.mean()+n1.mean()),"var":var_})
+                self.log_dict({"var":var_})
+                
+                q0_ = self.JamesStein(qdiff0_, mean_, numerator_)
+                q1_ = self.JamesStein(qdiff1_, mean_, numerator_)
 
             self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
 
@@ -196,9 +194,8 @@ class SimPLR(LightningModule):
         q = [q1_, q0_]
 
         if len(x) > 2 and not self.fwd_multi_crop: # MultiCrops
-            q_ = 0.5*(q0_+q1_)
             p.extend([self.forward_student(x_)[0] for x_ in x[2:]])
-            q.extend([q_ for _ in range(len(x)-2)])
+            q.extend([0.5*(q0_+q1_) for _ in range(len(x)-2)])
         
         return h0_, p, q
 
@@ -256,8 +253,6 @@ class SimPLR(LightningModule):
             batch_size=len(targets),
         )
 
-        # return loss + cls_loss 
-
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int
     ) -> Tensor:
@@ -273,19 +268,10 @@ class SimPLR(LightningModule):
                       batch_size=len(targets))
 
         z = self.projection_head( features )
-        p = self.student_head( z )
         q = self.teacher_head( z )
 
-        self.log_dict(            
-            {"h_quality":std_of_l2_normalized(features)},
-            batch_size=len(targets),
-            sync_dist=True)
         self.log_dict(
             {"butt_e_rank":effective_rank(z.to(torch.float32))[0]},
-            batch_size=len(targets),
-            sync_dist=True)
-        self.log_dict(
-            {"student_e_rank":effective_rank(p.to(torch.float32))[0]},
             batch_size=len(targets),
             sync_dist=True)
         self.log_dict(
