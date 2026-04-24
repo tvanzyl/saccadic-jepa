@@ -65,7 +65,9 @@ parser.add_argument("--prd-width", type=int, default=256)
 parser.add_argument("--prj-depth", type=int, default=2)
 parser.add_argument("--prj-width", type=int, default=2048)
 parser.add_argument("--no-buttress", action="store_true")
+parser.add_argument("--no-relu", action="store_true")
 parser.add_argument("--no-student-head", action="store_true")
+parser.add_argument("--fwd-multi-crop", action="store_true")
 parser.add_argument("--JS", action="store_true")
 parser.add_argument("--ema", action="store_true")
 parser.add_argument("--AdamW", action="store_true")
@@ -139,7 +141,9 @@ def main(
     prj_depth: int,
     prj_width: int,    
     no_buttress: bool,
+    no_relu: bool,
     no_student_head: bool,
+    fwd_multi_crop: bool,
     JS: bool, 
     ema: bool,     
     AdamW: bool,    
@@ -172,7 +176,9 @@ def main(
             prj_depth=prj_depth,
             prj_width=prj_width,            
             no_buttress=no_buttress,
+            no_relu=no_relu,
             no_student_head=no_student_head,
+            fwd_multi_crop=fwd_multi_crop,
             JS=JS, 
             ema=ema,             
             AdamW=AdamW,

@@ -40,7 +40,9 @@ class SimPLR(LightningModule):
                  prj_depth:int = 2,
                  prj_width:int = 2048,
                  no_buttress:bool=False,
+                 no_relu:bool=False,
                  no_student_head:bool=False,
+                 fwd_multi_crop:bool=False,
                  JS:bool=False, 
                  ema:bool=False,                  
                  AdamW:bool=False,
@@ -69,6 +71,7 @@ class SimPLR(LightningModule):
         self.ema = ema
         self.prd_width = prd_width        
         self.AdamW = AdamW
+        self.fwd_multi_crop = fwd_multi_crop
         
         self.backbone, self.emb_width = backbones(backbone)
 
@@ -110,16 +113,26 @@ class SimPLR(LightningModule):
             else:
                 raise NotImplementedError("Invalid Arguments, can't select prd width larger than prj width")
         if no_buttress: #Use Batchnorm non-affine for centering
-            self.teacher_head = nn.Sequential(nn.ReLU(), teacher_head)        
+            if no_relu:
+                self.teacher_head = nn.Sequential(teacher_head)
+            else:
+                self.teacher_head = nn.Sequential(nn.ReLU(), teacher_head)
+            
         else:
-            self.teacher_head = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False), nn.ReLU(), teacher_head)        
+            if no_relu:
+                self.teacher_head = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False), teacher_head)
+            else:
+                self.teacher_head = nn.Sequential(nn.BatchNorm1d(prj_width, affine=False), nn.ReLU(), teacher_head)
         deactivate_requires_grad(self.teacher_head)
 
         if no_student_head:
             student_head = nn.AdaptiveAvgPool1d(prd_width)
         else:
-            student_head = nn.Linear(prj_width, prd_width, False)
-        self.student_head = nn.Sequential(nn.ReLU(), student_head)
+            if no_relu:
+                student_head = nn.Linear(prj_width, prd_width, False)
+            else:
+                self.student_head = nn.Sequential(nn.ReLU(), student_head)
+        self.student_head = nn.Sequential( student_head)
         
         self.online_classifier = OnlineLinearClassifier(feature_dim=self.emb_width, num_classes=num_classes)
 
@@ -155,7 +168,16 @@ class SimPLR(LightningModule):
         q1_ = self.forward_teacher(x[1], z1_)
 
         if self.JS: # For James-Stein
-            mean_ = self.embedding[idx]
+            if self.fwd_multi_crop and len(x)>2:
+                with torch.no_grad():
+                    hfwds = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:]]
+                    zfwds = [self.projection_head( h_ ) for h_ in hfwds]
+                    qfwds = [self.teacher_head(z_) for z_ in zfwds]
+                    mean_ = torch.mean(torch.stack(qfwds, dim=0), dim=0)
+            elif self.fwd_multi_crop:
+                raise NotImplementedError("Invalid fwd multicrop no extra views")
+            else:
+                mean_ = self.embedding[idx]
 
             if self.trainer.current_epoch > 0: 
                 qdiff0_ = q0_ - mean_
@@ -181,7 +203,7 @@ class SimPLR(LightningModule):
         p = [p0_, p1_]
         q = [q1_, q0_]
 
-        if len(x) > 2: # MultiCrops
+        if len(x) > 2 and not self.fwd_multi_crop: # MultiCrops
             q_ = 0.5*(q0_+q1_)
             p.extend([self.forward_student(x_)[0] for x_ in x[2:]])
             q.extend([q_ for _ in range(len(x)-2)])
