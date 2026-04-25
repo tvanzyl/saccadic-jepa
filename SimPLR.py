@@ -54,8 +54,9 @@ class SimPLR(LightningModule):
                                   'random_head',
                                   'no_projection_head',
                                   'no_student_head',
+                                  'no_relu'
                                   'prd_width', 
-                                  "prj_depth", "prj_width",
+                                  'prj_depth', 'prj_width',
                                   'no_buttress',
                                   'fwd_multi_crop',
                                   'JS', 'ema',                                   
