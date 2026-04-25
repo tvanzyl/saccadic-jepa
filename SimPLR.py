@@ -57,6 +57,7 @@ class SimPLR(LightningModule):
                                   'prd_width', 
                                   "prj_depth", "prj_width",
                                   'no_buttress',
+                                  'fwd_multi_crop',
                                   'JS', 'ema',                                   
                                   'AdamW')
 
