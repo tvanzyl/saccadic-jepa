@@ -166,7 +166,7 @@ class SimPLR(LightningModule):
         q0_ = self.forward_teacher(x[0])
         q1_ = self.forward_teacher(x[1])
         q = []
-        
+
         if self.JS: # For James-Stein
             if len(x) > 2: 
                 if self.fwd_multi_crop: 
@@ -214,10 +214,9 @@ class SimPLR(LightningModule):
         # opt = self.optimizers()
         # opt.zero_grad()
 
-        if self.ema: #These lines give us EMA 
-            momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
-                                       0.996, 1)
-            update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
+        if self.ema: #These lines give us EMA
+            momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
+            update_momentum(self.backbone, self.teacher_backbone, m=momentum)
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
         
         q = self.forward_JS( x, idx )
@@ -245,7 +244,6 @@ class SimPLR(LightningModule):
             cls_log, 
             sync_dist=True, 
             batch_size=len(targets))
-
         # opt.step()
         # sch = self.lr_schedulers()
         # sch.step()
