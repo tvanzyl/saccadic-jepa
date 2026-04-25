@@ -141,12 +141,16 @@ class SimPLR(LightningModule):
         h = self.backbone( x ).flatten(start_dim=1)
         z = self.projection_head( h )
         p = self.student_head( z )
-        return p, h.detach(), z.detach()
+        return p, h.detach()
     
-    def forward_teacher(self, x: Tensor, z: Tensor) -> Tensor:
+    @torch.no_grad()
+    def forward_teacher(self, x: Tensor) -> Tensor:
         if self.ema:
             h = self.teacher_backbone( x ).flatten(start_dim=1)
-            z = self.teacher_projection_head( h ).detach()        
+            z = self.teacher_projection_head( h ).detach()    
+        else:    
+            h = self.backbone( x ).flatten(start_dim=1)
+            z = self.projection_head( h )
         q = self.teacher_head( z )
         return q
 
@@ -159,19 +163,17 @@ class SimPLR(LightningModule):
 
     def forward_JS(self, x: List[Tensor], idx: Tensor) -> Tuple[Tensor, List[Tensor], List[Tensor]]:
         # Two globals
-        p0_, h0_, z0_ = self.forward_student(x[0])
-        p1_, h1_, z1_ = self.forward_student(x[1])
-        
-        q0_ = self.forward_teacher(x[0], z0_)
-        q1_ = self.forward_teacher(x[1], z1_)
+        q0_ = self.forward_teacher(x[0])
+        q1_ = self.forward_teacher(x[1])
 
         if self.JS: # For James-Stein
-            if self.fwd_multi_crop and len(x)>2:
-                with torch.no_grad():
-                    hfwds = [self.backbone( x_ ).flatten(start_dim=1) for x_ in x[2:]]
-                    zfwds = [self.projection_head( h_ ) for h_ in hfwds]
-                    qfwds = [self.teacher_head(z_) for z_ in zfwds]
+            if len(x) > 2: 
+                if self.fwd_multi_crop: 
+                    qfwds = [self.forward_teacher(x_) for x_ in x[2:]]
                     mean_ = torch.mean(torch.stack(qfwds, dim=0), dim=0)
+                else: # MultiCrops
+                    # p.extend([self.forward_student(x_)[0] for x_ in x[2:]])
+                    q.extend([0.5*(q0_+q1_) for _ in range(len(x)-2)])                    
             elif self.fwd_multi_crop:
                 raise NotImplementedError("Invalid fwd multicrop no extra views")
             else:
@@ -190,14 +192,9 @@ class SimPLR(LightningModule):
 
             self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
 
-        p = [p0_, p1_]
-        q = [q1_, q0_]
-
-        if len(x) > 2 and not self.fwd_multi_crop: # MultiCrops
-            p.extend([self.forward_student(x_)[0] for x_ in x[2:]])
-            q.extend([0.5*(q0_+q1_) for _ in range(len(x)-2)])
+        q = [q1_, q0_]        
         
-        return h0_, p, q
+        return q
 
     def on_train_start(self):
         if self.JS:
@@ -222,36 +219,37 @@ class SimPLR(LightningModule):
             update_momentum(self.backbone, self.teacher_backbone, m=momentum)            
             update_momentum(self.projection_head, self.teacher_projection_head, m=momentum)
         
-        h0_, p, q = self.forward_JS( x, idx )
+        q = self.forward_JS( x, idx )
 
-        # Online classification.
-        cls_loss, cls_log = self.online_classifier.training_step(
-            (h0_, targets), batch_idx
-        )
-
-        self.manual_backward(cls_loss)
-
-        self.log_dict(
-            cls_log, 
-            sync_dist=True, 
-            batch_size=len(targets))
-
-        loss_sum = 0
-        for xi in range(len(q)):
-            loss = self.criterion( p[xi], q[xi] ) / len(q)            
+        loss_sum = 0        
+        for xi in range(len(q)):            
+            p_, h0_ = self.forward_student(x[xi])
+            loss = self.criterion( p_, q[xi] ) / len(q)
             self.manual_backward(loss)
             loss_sum += loss.detach()
-        
-        opt.step()
-        sch = self.lr_schedulers()
-        sch.step()
-        
+
         self.log_dict(
             {"train_loss": loss_sum},
             prog_bar=True,
             sync_dist=True,
             batch_size=len(targets),
         )
+
+        # Online classification.
+        cls_loss, cls_log = self.online_classifier.training_step(
+            (h0_, targets), batch_idx
+        )        
+        self.manual_backward(cls_loss)
+        self.log_dict(
+            cls_log, 
+            sync_dist=True, 
+            batch_size=len(targets))
+
+        opt.step()
+        sch = self.lr_schedulers()
+        sch.step()
+
+
 
     def validation_step(
         self, batch: Tuple[Tensor, Tensor, List[str]], batch_idx: int
