@@ -131,7 +131,7 @@ class SimPLR(LightningModule):
 
         self.criterion = NegativeCosineSimilarity()
 
-        # self.automatic_optimization = False
+        self.automatic_optimization = False
 
     def forward(self, x: Tensor) -> Tensor:
         if self.ema:
@@ -214,8 +214,8 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        # opt = self.optimizers()
-        # opt.zero_grad()
+        opt = self.optimizers()
+        opt.zero_grad()
 
         if self.ema: #These lines give us EMA
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 0.996, 1)
@@ -224,12 +224,13 @@ class SimPLR(LightningModule):
         
         q = self.forward_JS( x, idx )
 
-        loss_sum = 0           
+        loss_sum = 0   
+        # loss = 0        
         for xi in range(len(q)):            
             p_, h_ = self.forward_student(x[xi])
             if xi == 0: h0_ = h_            
             loss = self.criterion( p_, q[xi] ) / len(q)
-            # self.manual_backward(loss)
+            self.manual_backward(loss)
             loss_sum += loss.detach()
 
         self.log_dict(
@@ -243,15 +244,17 @@ class SimPLR(LightningModule):
         cls_loss, cls_log = self.online_classifier.training_step(
             (h0_, targets), batch_idx
         )        
-        # self.manual_backward(cls_loss)
+        self.manual_backward(cls_loss)
         self.log_dict(
             cls_log, 
             sync_dist=True, 
             batch_size=len(targets))
-        # opt.step()
-        # sch = self.lr_schedulers()
-        # sch.step()
-        return loss + cls_loss
+        
+        opt.step()        
+        sch = self.lr_schedulers()
+        sch.step()
+
+        # return loss + cls_loss
 
 
     def validation_step(
