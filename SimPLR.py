@@ -224,9 +224,10 @@ class SimPLR(LightningModule):
         
         q = self.forward_JS( x, idx )
 
-        loss_sum = 0        
+        loss_sum = 0           
         for xi in range(len(q)):            
-            p_, h0_ = self.forward_student(x[xi])
+            p_, h_ = self.forward_student(x[xi])
+            if xi == 0: h0_ = h_            
             loss = self.criterion( p_, q[xi] ) / len(q)
             # self.manual_backward(loss)
             loss_sum += loss.detach()
