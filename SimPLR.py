@@ -129,7 +129,7 @@ class SimPLR(LightningModule):
 
         self.criterion = NegativeCosineSimilarity()
 
-        self.automatic_optimization = False
+        # self.automatic_optimization = False
 
     def forward(self, x: Tensor) -> Tensor:
         if self.ema:
@@ -165,15 +165,16 @@ class SimPLR(LightningModule):
         # Two globals
         q0_ = self.forward_teacher(x[0])
         q1_ = self.forward_teacher(x[1])
-
+        q = []
+        
         if self.JS: # For James-Stein
             if len(x) > 2: 
                 if self.fwd_multi_crop: 
                     qfwds = [self.forward_teacher(x_) for x_ in x[2:]]
                     mean_ = torch.mean(torch.stack(qfwds, dim=0), dim=0)
-                else: # MultiCrops
-                    # p.extend([self.forward_student(x_)[0] for x_ in x[2:]])
-                    q.extend([0.5*(q0_+q1_) for _ in range(len(x)-2)])                    
+                else: # MultiCrops                                    
+                    q.extend([0.5*(q0_+q1_) for _ in range(len(x)-2)])
+                    mean_ = self.embedding[idx]
             elif self.fwd_multi_crop:
                 raise NotImplementedError("Invalid fwd multicrop no extra views")
             else:
@@ -191,9 +192,9 @@ class SimPLR(LightningModule):
                 q1_ = self.JamesStein(qdiff1_, mean_, numerator_)
 
             self.embedding[idx] = (0.5*(q0_+q1_)).to(torch.float32)
-
-        q = [q1_, q0_]        
         
+        q.insert(0, q0_)
+        q.insert(0, q1_)        
         return q
 
     def on_train_start(self):
@@ -210,8 +211,8 @@ class SimPLR(LightningModule):
     ) -> Tensor:
         x, targets, idx = batch
         
-        opt = self.optimizers()
-        opt.zero_grad()
+        # opt = self.optimizers()
+        # opt.zero_grad()
 
         if self.ema: #These lines give us EMA 
             momentum = cosine_schedule(self.global_step, self.trainer.estimated_stepping_batches, 
@@ -225,7 +226,7 @@ class SimPLR(LightningModule):
         for xi in range(len(q)):            
             p_, h0_ = self.forward_student(x[xi])
             loss = self.criterion( p_, q[xi] ) / len(q)
-            self.manual_backward(loss)
+            # self.manual_backward(loss)
             loss_sum += loss.detach()
 
         self.log_dict(
@@ -239,16 +240,16 @@ class SimPLR(LightningModule):
         cls_loss, cls_log = self.online_classifier.training_step(
             (h0_, targets), batch_idx
         )        
-        self.manual_backward(cls_loss)
+        # self.manual_backward(cls_loss)
         self.log_dict(
             cls_log, 
             sync_dist=True, 
             batch_size=len(targets))
 
-        opt.step()
-        sch = self.lr_schedulers()
-        sch.step()
-
+        # opt.step()
+        # sch = self.lr_schedulers()
+        # sch.step()
+        return loss + cls_loss
 
 
     def validation_step(
