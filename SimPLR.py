@@ -173,7 +173,8 @@ class SimPLR(LightningModule):
                     qfwds = [self.forward_teacher(x_) for x_ in x[2:]]
                     mean_ = torch.mean(torch.stack(qfwds, dim=0), dim=0)
                 else: # MultiCrops                                    
-                    q.extend([0.5*(q0_+q1_) for _ in range(len(x)-2)])
+                    q01_ = 0.5*(q0_+q1_)
+                    q.extend([q01_ for _ in range(len(x)-2)])
                     mean_ = self.embedding[idx]
             elif self.fwd_multi_crop:
                 raise NotImplementedError("Invalid fwd multicrop no extra views")
